@@ -1,6 +1,46 @@
 # CHANGELOG
 
 
+## v0.2.0 (2026-09-28)
+
+### Features
+
+- Extract structured job entities via Gemini for offer emails (P5)
+  ([#8](https://github.com/AristideWafo/my-gmail-assistant/pull/8),
+  [`1989710`](https://github.com/AristideWafo/my-gmail-assistant/commit/19897106d5bb7dcdc0ab922792fe8a2f5c61dd19))
+
+- GeminiClient.extract_job_entities: strict-JSON prompt for
+  poste/entreprise/stack/salaire/prochaine_etape, returns {} on parse failure or when Gemini isn't
+  configured - called from EmailWorkflow._llm_node only when triage.category == "offer" - no extra
+  Gemini call outside the already-escalated path, so no cost impact on non-offer emails - main.py
+  appends the extracted entities to the alert text sent to Telegram/Discord when present
+
+Co-authored-by: Claude Sonnet 5 <noreply@anthropic.com>
+
+- Route spam/newsletter to silent reject regardless of urgency (P3)
+  ([#7](https://github.com/AristideWafo/my-gmail-assistant/pull/7),
+  [`5c85edc`](https://github.com/AristideWafo/my-gmail-assistant/commit/5c85edc816ad4840dc3332156f581873bf6c1d61))
+
+* chore(release): 0.1.1 [skip ci]
+
+* feat: route spam/newsletter to silent reject regardless of urgency (P3)
+
+- DecisionEngineClient accepts spam/newsletter categories instead of collapsing everything outside
+  offer/general/urgent into "general" - the signal was being discarded even when JEV already returns
+  it - fallback heuristic detects newsletters via sender (no-reply/newsletter) or "unsubscribe" in
+  the body, reusing EmailMessage.sender_domain - workflow route "archive" renamed to "reject" to
+  match the funnel strategy's vocabulary (Branch A); spam/newsletter now route there regardless of
+  the urgency JEV reports, on top of the existing low-urgency+general case
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+---------
+
+Co-authored-by: semantic-release <semantic-release>
+
+Co-authored-by: Claude Sonnet 5 <noreply@anthropic.com>
+
+
 ## v0.1.1 (2026-09-28)
 
 ### Bug Fixes
