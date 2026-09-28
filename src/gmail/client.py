@@ -47,6 +47,14 @@ class GmailClient:
         )
         return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
+    @property
+    def is_configured(self) -> bool:
+        return self._service is not None
+
+    def check_connection(self) -> str:
+        profile = self._service.users().getProfile(userId=self._user_id).execute()
+        return f"authenticated as {profile['emailAddress']}"
+
     def fetch_unread(self, max_results: int = 10, max_retries: int = 5) -> list[EmailMessage]:
         if not self._service:
             return []

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
     discord_webhook_url: str = ""
 
+    startup_checks: str = "warn"
     poll_interval_seconds: int = 60
     sync_history: bool = False
     gmail_user_id: str = "me"

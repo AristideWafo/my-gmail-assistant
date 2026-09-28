@@ -41,6 +41,20 @@ class DecisionEngineClient:
     def enabled(self) -> bool:
         return bool(self.api_url and self.api_key)
 
+    def check_connection(self) -> str:
+        request = {
+            "model": JEV_MODEL,
+            "state": "ping",
+            "questions": {
+                "ping": {"type": "noul", "instructions": "Is this a test?", "criteria": {"true": "yes", "false": "no"}}
+            },
+        }
+        response = requests.post(
+            self.api_url, json=request, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=self.timeout
+        )
+        response.raise_for_status()
+        return "API key accepted"
+
     @staticmethod
     def _build_request(email: EmailMessage) -> dict:
         return {
