@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     gmail_refresh_token: str = ""
     gemini_api_key: str = ""
     gemini_model: str = "gemini-1.5-flash"
+    gemini_max_rpm: int = 12
+    user_display_name: str = ""
     jev_api_url: str = "https://api.typesafe.ai/v1/systemone"
     jev_api_key: str = ""
     telegram_bot_token: str = ""

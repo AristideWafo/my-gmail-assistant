@@ -3,10 +3,27 @@ from collections.abc import Callable
 
 import requests
 
+from src.formatting import strip_markdown, truncate
 from src.gmail.client import EmailMessage
 from src.triage.engine import TriageResult
 
 logger = logging.getLogger(__name__)
+
+TELEGRAM_MESSAGE_LIMIT = 4000
+
+
+def format_urgent_alert(email: EmailMessage, triage: TriageResult, summary: str = "") -> str:
+    lines = [
+        "🚨 Email urgent",
+        f"De : {email.sender}",
+        f"Objet : {email.subject}",
+        f"Catégorie : {triage.category} · confiance {triage.confidence:.0%}",
+    ]
+    text = "\n".join(lines)
+    body = strip_markdown(summary)
+    if body:
+        text = f"{text}\n\n{body}"
+    return truncate(text, TELEGRAM_MESSAGE_LIMIT)
 
 
 class AlertGateway:
@@ -34,10 +51,7 @@ class AlertGateway:
         return "webhook reachable"
 
     def send_urgent_alert(self, email: EmailMessage, triage: TriageResult, summary: str = "") -> None:
-        text = (
-            f"🚨 Urgent email detected\nFrom: {email.sender}\nSubject: {email.subject}"
-            f"\nCategory: {triage.category}\nConfidence: {triage.confidence:.2f}\n\n{summary}"
-        )
+        text = format_urgent_alert(email, triage, summary)
         self._safe_send("telegram", self._send_telegram, text)
         self._safe_send("discord", self._send_discord, text)
 

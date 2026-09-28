@@ -35,7 +35,12 @@ class ApplicationContext:
             unread_query=settings.fetch_query or build_unread_query(settings.fetch_max_age_days),
         )
         self.triage = DecisionEngineClient(settings.jev_api_url, settings.jev_api_key)
-        self.gemini = GeminiClient(settings.gemini_api_key, settings.gemini_model)
+        self.gemini = GeminiClient(
+            settings.gemini_api_key,
+            settings.gemini_model,
+            max_rpm=settings.gemini_max_rpm,
+            user_name=settings.user_display_name,
+        )
         self.alerts = AlertGateway(
             telegram_bot_token=settings.telegram_bot_token,
             telegram_chat_id=settings.telegram_chat_id,
