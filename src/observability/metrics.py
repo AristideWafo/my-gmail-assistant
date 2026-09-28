@@ -11,6 +11,7 @@ class Metrics:
     triage_latency = Histogram("triage_latency_seconds", "Latency of triage and routing execution")
     llm_tokens = Counter("llm_tokens_total", "Tokens consumed, as reported by the LLM API", ["kind", "token_type"])
     llm_cost_usd = Counter("llm_cost_usd_total", "Estimated USD cost of LLM calls", ["kind"])
+    alerts = Counter("alerts_total", "Alert delivery outcomes per channel", ["channel", "status"])
     llm_errors = Counter("llm_errors_total", "Failed or degraded LLM calls", ["reason"])
     jev_fallback = Counter(
         "jev_fallback_total",
@@ -45,3 +46,7 @@ class Metrics:
     @classmethod
     def mark_llm_error(cls, reason: str) -> None:
         cls.llm_errors.labels(reason=reason).inc()
+
+    @classmethod
+    def mark_alert(cls, channel: str, status: str) -> None:
+        cls.alerts.labels(channel=channel, status=status).inc()

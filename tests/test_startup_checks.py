@@ -9,6 +9,8 @@ from src.gmail.client import EmailMessage, GmailClient
 from src.health import StartupCheckError, StartupCheckMode, run_startup_checks
 from src.triage.engine import DecisionEngineClient
 
+VALID_DISCORD_URL = "https://discord.com/api/webhooks/123/abc-DEF_1"
+
 
 def http_error(status: int, url: str) -> requests.HTTPError:
     response = requests.Response()
@@ -102,7 +104,7 @@ class ClientProbeTests(unittest.TestCase):
         self.assertEqual(detail, "bot @mybot reachable")
 
     def test_discord_probe_reads_webhook_without_posting(self):
-        gateway = AlertGateway(discord_webhook_url="https://discord.example/hook")
+        gateway = AlertGateway(discord_webhook_url=VALID_DISCORD_URL)
 
         with patch("src.gateways.alerts.requests.get", return_value=MagicMock()) as get, patch(
             "src.gateways.alerts.requests.post"
@@ -182,7 +184,7 @@ class SendTelegramTextTests(unittest.TestCase):
         self.assertIn("telegram", logs.output[0])
 
     def test_urgent_alert_sends_discord_even_if_telegram_fails(self):
-        gateway = AlertGateway(telegram_bot_token="tok", telegram_chat_id="42", discord_webhook_url="https://d.example")
+        gateway = AlertGateway(telegram_bot_token="tok", telegram_chat_id="42", discord_webhook_url=VALID_DISCORD_URL)
         telegram_response = MagicMock()
         telegram_response.raise_for_status.side_effect = http_error(500, "https://api.telegram.org/bottok/sendMessage")
         discord_response = MagicMock()

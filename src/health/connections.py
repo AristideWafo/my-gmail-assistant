@@ -3,6 +3,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
+from src.errors import ConfigurationError
+
 logger = logging.getLogger(__name__)
 
 OK = "ok"
@@ -28,6 +30,8 @@ class ConnectionCheck:
 
 
 def _describe_failure(exc: Exception) -> str:
+    if isinstance(exc, ConfigurationError):
+        return str(exc)
     # Exception messages from HTTP clients embed the request URL, which carries bot tokens and webhook secrets.
     status = getattr(getattr(exc, "response", None), "status_code", None) or getattr(
         getattr(exc, "resp", None), "status", None
