@@ -1,7 +1,7 @@
 import time
 from dataclasses import dataclass
 from email.utils import parseaddr
-from typing import Any
+from typing import Any, ClassVar
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -19,7 +19,7 @@ class EmailMessage:
 
 
 class GmailClient:
-    SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+    SCOPES: ClassVar[list[str]] = ["https://www.googleapis.com/auth/gmail.modify"]
 
     def __init__(self, client_id: str, client_secret: str, refresh_token: str, user_id: str = "me") -> None:
         self._client_id = client_id

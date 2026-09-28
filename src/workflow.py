@@ -22,21 +22,21 @@ class EmailWorkflow:
 
     def _build_graph(self):
         workflow = StateGraph(TriageState)
-        workflow.add_node("triage", self._triage_node)
+        workflow.add_node("classify", self._triage_node)
         workflow.add_node("llm", self._llm_node)
-        workflow.add_node("end", self._end_node)
+        workflow.add_node("finish", self._end_node)
 
-        workflow.set_entry_point("triage")
+        workflow.set_entry_point("classify")
         workflow.add_conditional_edges(
-            "triage",
+            "classify",
             self._route_after_triage,
             {
                 "llm": "llm",
-                "end": "end",
+                "finish": "finish",
             },
         )
-        workflow.add_edge("llm", "end")
-        workflow.add_edge("end", END)
+        workflow.add_edge("llm", "finish")
+        workflow.add_edge("finish", END)
         return workflow.compile()
 
     def run(self, email: EmailMessage) -> dict[str, Any]:
@@ -57,8 +57,8 @@ class EmailWorkflow:
         triage = state["triage"]
         if triage.urgency == "high" or triage.confidence < 0.50:
             return "llm"
-        return "end"
+        return "finish"
 
     @staticmethod
-    def _end_node(_: TriageState) -> dict[str, Any]:
-        return {}
+    def _end_node(state: TriageState) -> dict[str, Any]:
+        return {"email": state["email"]}

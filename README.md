@@ -23,7 +23,14 @@ main.py
 - **Urgency alerts** to Telegram + Discord
 - **Observability** at `GET /metrics`
 
-## Local setup
+## Quick install
+
+```bash
+./install.sh          # local venv setup
+./install.sh --docker # build + start via docker compose
+```
+
+## Local setup (manual)
 
 1. Create a venv and install dependencies:
 
@@ -77,3 +84,14 @@ Useful endpoints:
 - Metrics: `http://localhost:8000/metrics`
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3000`
+
+## CI/CD
+
+- `.github/workflows/ci.yml`: lint (ruff) + tests (pytest) + Docker build sanity check on every PR and push to `prod`.
+- `.github/workflows/release.yml`: on push to `prod`, runs [python-semantic-release](https://python-semantic-release.readthedocs.io/) against [Conventional Commits](https://www.conventionalcommits.org/) to bump `pyproject.toml`, update `CHANGELOG.md`, tag (`vX.Y.Z`) and cut a GitHub Release; on a new release it builds and pushes the Docker image to `ghcr.io/<repo>:<version>` and `:latest`.
+
+Commit convention (drives the version bump):
+
+- `fix: ...` → patch
+- `feat: ...` → minor
+- `feat!: ...` / `BREAKING CHANGE:` footer → major
