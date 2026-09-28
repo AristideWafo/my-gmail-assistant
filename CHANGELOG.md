@@ -1,6 +1,21 @@
 # CHANGELOG
 
 
+## v0.2.1 (2026-09-28)
+
+### Bug Fixes
+
+- Remove escaped quotes that broke the lowercase GHCR image tag
+  ([#11](https://github.com/AristideWafo/my-gmail-assistant/pull/11),
+  [`37558ac`](https://github.com/AristideWafo/my-gmail-assistant/commit/37558ac42791e70ca16a09f29cb8ad5b5a22a40c))
+
+The `\"$REPOSITORY\"` escapes ended up literally in the tag
+  (ghcr.io/"aristidewafo/my-gmail-assistant":0.2.0), causing buildx to fail with "invalid reference
+  format".
+
+Co-authored-by: Claude Sonnet 5 <noreply@anthropic.com>
+
+
 ## v0.2.0 (2026-09-28)
 
 ### Features
