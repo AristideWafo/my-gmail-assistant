@@ -21,7 +21,7 @@ class WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.workflow = EmailWorkflow(DecisionEngineClient(api_url=""), FakeGemini())
 
-    def test_non_urgent_general_routes_to_reject(self):
+    def test_low_urgency_personnel_routes_to_label_not_reject(self):
         email = EmailMessage(
             id="1",
             thread_id="t1",
@@ -32,9 +32,38 @@ class WorkflowTests(unittest.TestCase):
         )
         result = self.workflow.run(email)
         self.assertEqual(result["triage"].urgency, "low")
-        self.assertEqual(result["route"], "reject")
+        self.assertEqual(result["triage"].category, "personnel")
+        self.assertEqual(result["route"], "label")
         self.assertNotIn("summary", result)
         self.assertNotIn("draft", result)
+
+    def test_low_urgency_notification_systeme_routes_to_reject(self):
+        workflow = EmailWorkflow(DecisionEngineClient(api_url="https://jev.example/triage", api_key="k"), FakeGemini())
+        email = EmailMessage(
+            id="6",
+            thread_id="t6",
+            sender="noreply@service.example",
+            subject="Your receipt",
+            snippet="Payment confirmed",
+            body="",
+        )
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "answers": {
+                        "urgency": {"choice": "low", "confidence": 0.9},
+                        "category": {"choice": "notification_systeme", "confidence": 0.9},
+                    }
+                }
+
+        with patch("src.triage.engine.requests.post", return_value=FakeResponse()):
+            result = workflow.run(email)
+
+        self.assertEqual(result["route"], "reject")
 
     def test_newsletter_sender_routes_to_reject_regardless_of_urgency(self):
         email = EmailMessage(
@@ -99,14 +128,14 @@ class WorkflowTests(unittest.TestCase):
                 return {
                     "answers": {
                         "urgency": {"choice": "high", "confidence": 0.9},
-                        "category": {"choice": "offer", "confidence": 0.9},
+                        "category": {"choice": "offre_emploi", "confidence": 0.9},
                     }
                 }
 
         with patch("src.triage.engine.requests.post", return_value=FakeResponse()):
             result = workflow.run(email)
 
-        self.assertEqual(result["triage"].category, "offer")
+        self.assertEqual(result["triage"].category, "offre_emploi")
         self.assertEqual(result["route"], "llm")
         self.assertEqual(result["entities"], {"poste": "DevOps", "entreprise": "Acme"})
 

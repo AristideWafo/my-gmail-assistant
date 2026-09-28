@@ -27,6 +27,7 @@ class DecisionEngineFallbackTests(unittest.TestCase):
             result = client.classify(self.email)
 
         self.assertEqual(result.urgency, "high")
+        self.assertEqual(result.category, "personnel")
         self.assertEqual(Metrics.jev_fallback._value.get(), before + 1)
 
     def test_fallback_detects_newsletter_by_sender(self):
@@ -64,10 +65,10 @@ class DecisionEngineFallbackTests(unittest.TestCase):
     def test_classify_maps_jev_answers_and_takes_min_confidence(self):
         client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="k")
 
-        with patch("src.triage.engine.requests.post", return_value=self._jev_response("medium", "offer")):
+        with patch("src.triage.engine.requests.post", return_value=self._jev_response("medium", "offre_emploi")):
             result = client.classify(self.email)
 
-        self.assertEqual((result.urgency, result.category, result.confidence), ("medium", "offer", 0.8))
+        self.assertEqual((result.urgency, result.category, result.confidence), ("medium", "offre_emploi", 0.8))
 
     def test_classify_accepts_spam_category(self):
         client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="k")
@@ -76,6 +77,17 @@ class DecisionEngineFallbackTests(unittest.TestCase):
             result = client.classify(self.email)
 
         self.assertEqual(result.category, "spam")
+
+    def test_classify_accepts_notification_systeme_and_mise_en_relation(self):
+        client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="k")
+
+        with patch("src.triage.engine.requests.post", return_value=self._jev_response("low", "notification_systeme")):
+            result = client.classify(self.email)
+        self.assertEqual(result.category, "notification_systeme")
+
+        with patch("src.triage.engine.requests.post", return_value=self._jev_response("medium", "mise_en_relation")):
+            result = client.classify(self.email)
+        self.assertEqual(result.category, "mise_en_relation")
 
     def test_classify_sends_bearer_key_and_typed_questions(self):
         client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="secret")
@@ -88,6 +100,10 @@ class DecisionEngineFallbackTests(unittest.TestCase):
         self.assertEqual(kwargs["json"]["model"], "jev-latest")
         self.assertEqual(kwargs["json"]["state"]["subject"], self.email.subject)
         self.assertEqual(set(kwargs["json"]["questions"]), {"urgency", "category"})
+        self.assertEqual(
+            set(kwargs["json"]["questions"]["category"]["criteria"]),
+            {"offre_emploi", "mise_en_relation", "newsletter", "notification_systeme", "personnel", "spam"},
+        )
 
     def test_classify_skips_api_without_key(self):
         client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="")
