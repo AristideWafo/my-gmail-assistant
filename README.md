@@ -107,7 +107,7 @@ Useful endpoints:
 - Assistant health: `http://localhost:8000/healthz`
 - Metrics: `http://localhost:8000/metrics`
 - Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000`
+- Grafana: `http://localhost:3000` — pre-provisioned with the Prometheus datasource and a "Gmail Assistant" dashboard (processed emails, triage latency, JEV fallback rate, LLM tokens and cost). Login `admin` / `GRAFANA_ADMIN_PASSWORD` (defaults to `admin` if unset — set it in `.env`).
 
 ## CI/CD
 

@@ -68,10 +68,6 @@ class ApplicationContext:
             self.alerts.send_urgent_alert(email, triage, summary)
 
         Metrics.mark_processed(triage.urgency, triage.category)
-        with suppress(Exception):
-            Metrics.mark_tokens("summary", len(result.get("summary", "").split()))
-            Metrics.mark_tokens("draft", len(result.get("draft", "").split()))
-
         Metrics.triage_latency.observe(perf_counter() - started)
         logger.info(
             "Processed email %s with urgency=%s category=%s confidence=%.2f",

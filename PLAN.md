@@ -33,8 +33,8 @@ Ce document suit l'architecture cible (voir `README.md` pour l'usage) et l'état
 
 - ✅ Prometheus + Grafana conteneurisés, volumes persistants
 - ✅ Compteurs Prometheus (`processed_emails_total`, `triage_latency_seconds`, `llm_tokens_total`)
-- ⬜ Dashboards Grafana provisionnés (JSON dashboards, datasource auto-config)
-- ⬜ Tracing coût réel LLM (OpenLLMetry / LangSmith) — `mark_tokens` compte des mots, pas des tokens/coût réels
+- ✅ Dashboards Grafana provisionnés (`grafana/provisioning/`, datasource Prometheus + dashboard "Gmail Assistant" auto-chargés)
+- ✅ Tracing coût réel LLM — `GeminiClient` lit `response.usage_metadata` (tokens réels prompt/completion par appel) et calcule le coût USD via une table de prix vérifiée (`PRICING_PER_MILLION_TOKENS`, source ai.google.dev) ; modèle non tarifé → tokens comptés, coût omis + warning loggé une fois. Pas d'OpenLLMetry/LangSmith (pas nécessaire : les deux SDK ne trackent qu'un provider et le compte déjà via `usage_metadata`)
 - ⬜ Webhooks entrants Discord/Telegram pour interaction temps réel
 
 ## Risques ouverts (indépendants des phases)
