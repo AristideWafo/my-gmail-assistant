@@ -57,7 +57,7 @@ class EmailWorkflow:
         summary = self.gemini.summarize(email)
         draft = self.gemini.draft_reply(email)
         result: dict[str, Any] = {"summary": summary, "draft": draft, "route": "llm"}
-        if triage.category == "offer":
+        if triage.category == "offre_emploi":
             result["entities"] = self.gemini.extract_job_entities(email)
         return result
 
@@ -76,6 +76,6 @@ class EmailWorkflow:
             return "llm"
         if triage.category in {"spam", "newsletter"}:
             return "reject"
-        if triage.urgency == "low" and triage.category == "general":
+        if triage.urgency == "low" and triage.category == "notification_systeme":
             return "reject"
         return "label"

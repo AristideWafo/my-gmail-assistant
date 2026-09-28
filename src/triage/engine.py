@@ -22,11 +22,12 @@ URGENCIES = {
     "high": "Needs attention today or has an imminent deadline",
 }
 CATEGORIES = {
-    "offer": "Job offer, recruiter outreach or business opportunity",
-    "urgent": "Time-critical matter requiring a prompt personal response",
+    "offre_emploi": "Job offer or recruiter outreach for a specific role",
+    "mise_en_relation": "Networking intro or business opportunity that isn't a direct job offer",
+    "newsletter": "Subscribed newsletter or digest",
+    "notification_systeme": "Automated system notification: confirmation, receipt, alert",
+    "personnel": "Genuine personal correspondence from a person",
     "spam": "Unsolicited or irrelevant bulk or scam email",
-    "newsletter": "Subscribed newsletter, digest or automated notification",
-    "general": "Any other email",
 }
 JEV_MODEL = "jev-latest"
 
@@ -114,12 +115,12 @@ class DecisionEngineClient:
             return TriageResult(urgency="low", category="newsletter", confidence=0.70)
 
         if any(term in text for term in ["urgent", "asap", "immediately", "deadline"]):
-            return TriageResult(urgency="high", category="urgent", confidence=0.76)
+            return TriageResult(urgency="high", category="personnel", confidence=0.76)
 
         if any(term in text for term in ["offer", "interview", "recruiter", "position"]):
-            return TriageResult(urgency="medium", category="offer", confidence=0.68)
+            return TriageResult(urgency="medium", category="offre_emploi", confidence=0.68)
 
-        return TriageResult(urgency="low", category="general", confidence=0.60)
+        return TriageResult(urgency="low", category="personnel", confidence=0.60)
 
     @staticmethod
     def _normalize_urgency(value: str) -> str:
@@ -129,4 +130,4 @@ class DecisionEngineClient:
     @staticmethod
     def _normalize_category(value: str) -> str:
         value = (value or "").lower()
-        return value if value in {"offer", "general", "urgent", "spam", "newsletter"} else "general"
+        return value if value in CATEGORIES else "personnel"
