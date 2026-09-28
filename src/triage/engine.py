@@ -16,30 +16,77 @@ class TriageResult:
     confidence: float
 
 
+URGENCIES = {
+    "low": "Can wait; no action or reply is expected soon",
+    "medium": "Needs attention within a few days",
+    "high": "Needs attention today or has an imminent deadline",
+}
+CATEGORIES = {
+    "offer": "Job offer, recruiter outreach or business opportunity",
+    "urgent": "Time-critical matter requiring a prompt personal response",
+    "spam": "Unsolicited or irrelevant bulk or scam email",
+    "newsletter": "Subscribed newsletter, digest or automated notification",
+    "general": "Any other email",
+}
+JEV_MODEL = "jev-latest"
+
+
 class DecisionEngineClient:
-    def __init__(self, api_url: str, timeout: int = 10) -> None:
+    def __init__(self, api_url: str, api_key: str = "", timeout: int = 10) -> None:
         self.api_url = api_url
+        self.api_key = api_key
         self.timeout = timeout
 
-    def classify(self, email: EmailMessage) -> TriageResult:
-        payload = {
-            "subject": email.subject,
-            "body": email.body or email.snippet,
-            "sender": email.sender,
+    @property
+    def enabled(self) -> bool:
+        return bool(self.api_url and self.api_key)
+
+    @staticmethod
+    def _build_request(email: EmailMessage) -> dict:
+        return {
+            "model": JEV_MODEL,
+            "state": {
+                "subject": email.subject,
+                "body": email.body or email.snippet,
+                "sender": email.sender,
+            },
+            "questions": {
+                "urgency": {
+                    "type": "choice",
+                    "instructions": "How urgent is this email for its recipient?",
+                    "criteria": URGENCIES,
+                },
+                "category": {
+                    "type": "choice",
+                    "instructions": "Which category best describes this email?",
+                    "criteria": CATEGORIES,
+                },
+            },
         }
 
-        if self.api_url:
+    @classmethod
+    def _parse_answers(cls, data: dict) -> TriageResult:
+        answers = data["answers"]
+        urgency, category = answers["urgency"], answers["category"]
+        return TriageResult(
+            urgency=cls._normalize_urgency(urgency.get("choice")),
+            category=cls._normalize_category(category.get("choice")),
+            confidence=min(float(urgency.get("confidence", 0.0)), float(category.get("confidence", 0.0))),
+        )
+
+    def classify(self, email: EmailMessage) -> TriageResult:
+        if self.enabled:
             try:
-                response = requests.post(self.api_url, json=payload, timeout=self.timeout)
-                response.raise_for_status()
-                data = response.json()
-                return TriageResult(
-                    urgency=self._normalize_urgency(data.get("urgency", "low")),
-                    category=self._normalize_category(data.get("category", "general")),
-                    confidence=float(data.get("confidence", 0.0)),
+                response = requests.post(
+                    self.api_url,
+                    json=self._build_request(email),
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    timeout=self.timeout,
                 )
-            except requests.RequestException as exc:
-                logger.warning("JEV API unreachable at %s (%s), falling back to heuristic", self.api_url, exc)
+                response.raise_for_status()
+                return self._parse_answers(response.json())
+            except (requests.RequestException, KeyError, ValueError, TypeError) as exc:
+                logger.warning("JEV API failed at %s (%s), falling back to heuristic", self.api_url, exc)
                 Metrics.mark_jev_fallback()
 
         return self._fallback_classification(email)

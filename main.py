@@ -28,7 +28,7 @@ class ApplicationContext:
             refresh_token=settings.gmail_refresh_token,
             user_id=settings.gmail_user_id,
         )
-        self.triage = DecisionEngineClient(settings.jev_api_url)
+        self.triage = DecisionEngineClient(settings.jev_api_url, settings.jev_api_key)
         self.gemini = GeminiClient(settings.gemini_api_key, settings.gemini_model)
         self.alerts = AlertGateway(
             telegram_bot_token=settings.telegram_bot_token,

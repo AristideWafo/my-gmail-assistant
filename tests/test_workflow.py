@@ -81,7 +81,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("entities", result)
 
     def test_urgent_offer_extracts_entities(self):
-        workflow = EmailWorkflow(DecisionEngineClient(api_url="https://jev.example/triage"), FakeGemini())
+        workflow = EmailWorkflow(DecisionEngineClient(api_url="https://jev.example/triage", api_key="k"), FakeGemini())
         email = EmailMessage(
             id="5",
             thread_id="t5",
@@ -96,7 +96,12 @@ class WorkflowTests(unittest.TestCase):
                 return None
 
             def json(self):
-                return {"urgency": "high", "category": "offer", "confidence": 0.9}
+                return {
+                    "answers": {
+                        "urgency": {"choice": "high", "confidence": 0.9},
+                        "category": {"choice": "offer", "confidence": 0.9},
+                    }
+                }
 
         with patch("src.triage.engine.requests.post", return_value=FakeResponse()):
             result = workflow.run(email)
