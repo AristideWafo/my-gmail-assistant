@@ -1,4 +1,5 @@
 import unittest
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import requests
@@ -102,8 +103,39 @@ class DecisionEngineFallbackTests(unittest.TestCase):
         self.assertEqual(set(kwargs["json"]["questions"]), {"urgency", "category"})
         self.assertEqual(
             set(kwargs["json"]["questions"]["category"]["criteria"]),
-            {"offre_emploi", "mise_en_relation", "newsletter", "notification_systeme", "personnel", "spam"},
+            {
+                "offre_emploi",
+                "alerte_emploi",
+                "mise_en_relation",
+                "newsletter",
+                "promotion",
+                "alerte_technique",
+                "notification_systeme",
+                "personnel",
+                "spam",
+            },
         )
+
+    def test_classify_sends_dates_and_a_strict_urgency_definition(self):
+        client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="secret")
+        self.email.received_at = "2026-09-25"
+
+        with patch("src.triage.engine.requests.post", return_value=self._jev_response("low", "personnel")) as post:
+            client.classify(self.email)
+
+        payload = post.call_args.kwargs["json"]
+        self.assertEqual(payload["state"]["received_at"], "2026-09-25")
+        self.assertEqual(payload["state"]["today"], datetime.now(UTC).date().isoformat())
+        self.assertIn("never high", payload["questions"]["urgency"]["instructions"])
+
+    def test_classify_accepts_new_categories(self):
+        client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="k")
+        for category in ("alerte_emploi", "promotion", "alerte_technique"):
+            with (
+                self.subTest(category=category),
+                patch("src.triage.engine.requests.post", return_value=self._jev_response("low", category)),
+            ):
+                self.assertEqual(client.classify(self.email).category, category)
 
     def test_classify_skips_api_without_key(self):
         client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="")

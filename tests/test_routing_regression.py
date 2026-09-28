@@ -16,6 +16,13 @@ OBSERVED_CASES = [
     ("low", "offre_emploi", 0.37, "label"),
     ("low", "newsletter", 0.30, "label"),
     ("low", "newsletter", 0.99, "reject"),
+    ("low", "promotion", 0.90, "reject"),
+    ("low", "promotion", 0.30, "label"),
+    ("high", "promotion", 0.90, "label"),
+    ("low", "alerte_emploi", 1.0, "label"),
+    ("high", "alerte_emploi", 0.80, "label"),
+    ("high", "alerte_technique", 0.60, "llm"),
+    ("low", "alerte_technique", 0.90, "label"),
 ]
 
 
@@ -33,7 +40,7 @@ class RoutingRegressionTests(unittest.TestCase):
 
     def test_only_high_urgency_outside_non_alertable_categories_reaches_llm(self):
         llm_cases = {(u, c) for u, c, conf, route in OBSERVED_CASES if route == "llm"}
-        self.assertEqual(llm_cases, {("high", "notification_systeme"), ("high", "personnel")})
+        self.assertEqual(llm_cases, {("high", "notification_systeme"), ("high", "personnel"), ("high", "alerte_technique")})
 
     def test_uncertain_mail_is_never_archived(self):
         for category in ("notification_systeme", "newsletter", "spam"):

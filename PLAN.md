@@ -18,6 +18,7 @@ Ce document suit l'architecture cible (voir `README.md` pour l'usage) et l'état
 - 🟡 JEV appelé en HTTP externe, pas hébergé localement comme prévu au plan initial (accepté tel quel, hors scope actuel)
 - ✅ Échec JEV loggé (`logger.warning`) et compté (`jev_fallback_total`)
 - ✅ **[Priorité 3]** Route renommée `archive` → `reject` ; catégories `spam`/`newsletter` désormais acceptées (`_normalize_category`) et routées vers `reject` peu importe l'urgence ; fallback heuristique détecte les newsletters via sender (`no-reply`/`newsletter`/`unsubscribe`)
+- ✅ Règles déterministes par expéditeur (`src/triage/rules.py`) avant JEV ; catégories `alerte_emploi` (label, jamais archivé), `promotion` (reject) et `alerte_technique` ; définition stricte de l'urgence et dates (`received_at`, `today`) envoyées à JEV
 - ✅ **[Priorité 4]** Taxonomie JEV enrichie (`offre_emploi / mise_en_relation / newsletter / notification_systeme / personnel / spam`) — préalable levé, testé en direct contre l'API JEV. `urgent` disparaît (doublonnait l'axe `urgency`), `general` devient `personnel`. Règle d'archivage silencieux (`reject`) à basse urgence recentrée sur `notification_systeme` uniquement : `personnel` à basse urgence est désormais toujours `label`/`llm`, jamais archivé sans intervention. Le fallback heuristique reste limité à `newsletter`/`offre_emploi`/`personnel` (ne produit jamais `mise_en_relation`/`notification_systeme`, pas détectables fiablement par mots-clés)
 
 ## Phase 3 — LLM et boucle d'action

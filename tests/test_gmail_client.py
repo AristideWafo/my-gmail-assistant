@@ -99,6 +99,19 @@ def _b64(text: str) -> str:
     return base64.urlsafe_b64encode(text.encode("utf-8")).decode("utf-8").rstrip("=")
 
 
+class ReceivedAtTests(unittest.TestCase):
+    def test_parse_message_exposes_the_received_date_from_internal_date(self):
+        message = {"id": "1", "threadId": "t", "internalDate": "1758833580000", "payload": {"headers": []}}
+
+        self.assertEqual(GmailClient._parse_message(message).received_at, "2025-09-25")
+
+    def test_missing_or_invalid_internal_date_gives_empty_received_at(self):
+        for internal_date in ({}, {"internalDate": "abc"}):
+            with self.subTest(internal_date=internal_date):
+                message = {"id": "1", "threadId": "t", "payload": {"headers": []}, **internal_date}
+                self.assertEqual(GmailClient._parse_message(message).received_at, "")
+
+
 class GmailClientParsingTests(unittest.TestCase):
     def test_parse_message_decodes_and_cleans_plain_body(self):
         message = {
