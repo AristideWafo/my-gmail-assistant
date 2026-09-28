@@ -1,6 +1,22 @@
 # CHANGELOG
 
 
+## v0.4.0 (2026-09-28)
+
+### Features
+
+- Verify and log all service connections at startup
+  ([#14](https://github.com/AristideWafo/my-gmail-assistant/pull/14),
+  [`f2696b0`](https://github.com/AristideWafo/my-gmail-assistant/commit/f2696b05414d62858f2dd1f5ea4fc4e84d3989f9))
+
+Probe Gmail, Gemini, JEV, Telegram and Discord with read-only calls when the app starts and log one
+  line per service. STARTUP_CHECKS=warn (default) logs and continues, strict refuses to start if a
+  configured connection fails, off disables. Failure details omit exception messages because they
+  embed URLs carrying bot tokens and webhook secrets.
+
+Co-authored-by: Claude Sonnet 5 <noreply@anthropic.com>
+
+
 ## v0.3.0 (2026-09-28)
 
 ### Features
