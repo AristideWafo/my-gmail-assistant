@@ -1,6 +1,66 @@
 # CHANGELOG
 
 
+## v0.5.0 (2026-09-28)
+
+### Features
+
+- Enriched JEV category taxonomy (P4)
+  ([#17](https://github.com/AristideWafo/my-gmail-assistant/pull/17),
+  [`c0aa582`](https://github.com/AristideWafo/my-gmail-assistant/commit/c0aa582abfa021acf65dd9b39d8ab2e7fad6f87e))
+
+* feat: provision Grafana dashboards and track real LLM token cost
+
+- GeminiClient now records real prompt/completion token counts from response.usage_metadata for
+  every call (summary/draft/entities, was only word-counted for summary+draft before) and computes
+  USD cost from a verified per-model price table; unpriced models still count tokens but skip cost
+  and log a one-time warning instead of guessing. - Grafana auto-provisions a Prometheus datasource
+  and a "Gmail Assistant" dashboard (processed emails, triage latency p95, JEV fallback rate, LLM
+  tokens, LLM cost/hour) on startup, no manual setup. - Grafana admin password now comes from
+  GRAFANA_ADMIN_PASSWORD; added memory/cpu limits to prometheus and grafana (previously unbounded).
+  - PLAN.md Phase 4 items marked done.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+* feat: enriched JEV category taxonomy (P4)
+
+Replace offer/general/urgent/spam/newsletter with offre_emploi/
+  mise_en_relation/newsletter/notification_systeme/personnel/spam. "urgent" is dropped (duplicated
+  the urgency axis); "general" becomes "personnel". Silent-archive routing on low urgency is now
+  scoped to notification_systeme only — personnel mail is never auto-archived, always label/llm.
+  Heuristic fallback still limited to newsletter/ offre_emploi/personnel;
+  mise_en_relation/notification_systeme need JEV.
+
+---------
+
+Co-authored-by: Claude Sonnet 5 <noreply@anthropic.com>
+
+- Provision Grafana dashboards and track real LLM token cost
+  ([#16](https://github.com/AristideWafo/my-gmail-assistant/pull/16),
+  [`53fc758`](https://github.com/AristideWafo/my-gmail-assistant/commit/53fc758ea12eb905271f9dcc648b4e266b671cc1))
+
+- GeminiClient now records real prompt/completion token counts from response.usage_metadata for
+  every call (summary/draft/entities, was only word-counted for summary+draft before) and computes
+  USD cost from a verified per-model price table; unpriced models still count tokens but skip cost
+  and log a one-time warning instead of guessing. - Grafana auto-provisions a Prometheus datasource
+  and a "Gmail Assistant" dashboard (processed emails, triage latency p95, JEV fallback rate, LLM
+  tokens, LLM cost/hour) on startup, no manual setup. - Grafana admin password now comes from
+  GRAFANA_ADMIN_PASSWORD; added memory/cpu limits to prometheus and grafana (previously unbounded).
+  - PLAN.md Phase 4 items marked done.
+
+Co-authored-by: Claude Sonnet 5 <noreply@anthropic.com>
+
+- Send a Telegram status report at startup
+  ([#15](https://github.com/AristideWafo/my-gmail-assistant/pull/15),
+  [`acc1a3a`](https://github.com/AristideWafo/my-gmail-assistant/commit/acc1a3af469f5fff905cbbdecd514519a1f4d633))
+
+After the connection checks run, post a one-line-per-service report to Telegram (bonjour + per-check
+  emoji status) reusing the same results already logged. Sending is best-effort and never blocks
+  startup.
+
+Co-authored-by: Claude Sonnet 5 <noreply@anthropic.com>
+
+
 ## v0.4.0 (2026-09-28)
 
 ### Features
