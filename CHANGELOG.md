@@ -1,6 +1,22 @@
 # CHANGELOG
 
 
+## v0.2.2 (2026-09-28)
+
+### Bug Fixes
+
+- Call TypeSafe JEV API with auth and real system-one contract
+  ([#12](https://github.com/AristideWafo/my-gmail-assistant/pull/12),
+  [`f317867`](https://github.com/AristideWafo/my-gmail-assistant/commit/f3178676e431cf92d5eae49b927abda5e607309f))
+
+Previous client posted a custom payload with no API key and expected a made-up response shape, so
+  failures silently hit the heuristic fallback. Now sends Bearer JEV_API_KEY to /v1/systemone with
+  urgency/category choice questions, skips the API when no key is set, and falls back on malformed
+  responses.
+
+Co-authored-by: Claude Sonnet 5 <noreply@anthropic.com>
+
+
 ## v0.2.1 (2026-09-28)
 
 ### Bug Fixes
