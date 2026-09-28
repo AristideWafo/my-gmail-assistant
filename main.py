@@ -8,8 +8,10 @@ import uvicorn
 from fastapi import FastAPI
 
 from src.config import Settings
+from src.expiring_set import ExpiringSet
 from src.gateways import AlertGateway
 from src.gmail import GmailClient
+from src.gmail.client import build_unread_query
 from src.health import StartupCheckMode, format_status_report, run_startup_checks
 from src.llm import GeminiClient
 from src.observability import Metrics
@@ -18,6 +20,8 @@ from src.workflow import EmailWorkflow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("gmail-assistant")
+
+ALERTED_TTL_SECONDS = 24 * 3600
 
 
 class ApplicationContext:
@@ -28,6 +32,7 @@ class ApplicationContext:
             client_secret=settings.google_client_secret,
             refresh_token=settings.gmail_refresh_token,
             user_id=settings.gmail_user_id,
+            unread_query=settings.fetch_query or build_unread_query(settings.fetch_max_age_days),
         )
         self.triage = DecisionEngineClient(settings.jev_api_url, settings.jev_api_key)
         self.gemini = GeminiClient(settings.gemini_api_key, settings.gemini_model)
@@ -37,6 +42,7 @@ class ApplicationContext:
             discord_webhook_url=settings.discord_webhook_url,
         )
         self.workflow = EmailWorkflow(self.triage, self.gemini, settings.low_confidence_threshold)
+        self.alerted = ExpiringSet(ALERTED_TTL_SECONDS)
 
     def connection_probes(self):
         return {
@@ -49,6 +55,11 @@ class ApplicationContext:
 
     def process_email(self, email):
         started = perf_counter()
+        if email.id in self.alerted:
+            # The alert already went out but the commit (label removing UNREAD) failed last cycle.
+            self.gmail.label_message(email.id, "urgent")
+            return
+
         result = self.workflow.run(email)
         triage = result["triage"]
         route = result["route"]
@@ -58,14 +69,7 @@ class ApplicationContext:
         elif route == "label":
             self.gmail.label_message(email.id, triage.category)
         elif route == "llm":
-            self.gmail.create_draft(email.thread_id, email.sender, email.subject, result.get("draft", ""))
-            self.gmail.label_message(email.id, "urgent")
-            summary = result.get("summary", "")
-            entities = result.get("entities")
-            if entities:
-                entity_lines = "\n".join(f"{key}: {value}" for key, value in entities.items() if value)
-                summary = f"{summary}\n\n{entity_lines}" if entity_lines else summary
-            self.alerts.send_urgent_alert(email, triage, summary)
+            self._handle_urgent(email, triage, result)
 
         Metrics.mark_processed(triage.urgency, triage.category)
         Metrics.triage_latency.observe(perf_counter() - started)
@@ -76,6 +80,27 @@ class ApplicationContext:
             triage.category,
             triage.confidence,
         )
+
+    def _handle_urgent(self, email, triage, result) -> None:
+        # Order matters: alert first (never lose it), draft is best-effort, and the label
+        # that removes UNREAD is the commit point so a failure anywhere earlier retries the mail.
+        self.alerts.send_urgent_alert(email, triage, self._alert_summary(result))
+        self.alerted.add(email.id)
+        if result.get("draft"):
+            try:
+                self.gmail.create_draft(email.thread_id, email.sender, email.subject, result["draft"])
+            except Exception:
+                logger.exception("Failed to create draft for email %s; continuing", email.id)
+        self.gmail.label_message(email.id, "urgent")
+
+    @staticmethod
+    def _alert_summary(result) -> str:
+        summary = result.get("summary", "")
+        entities = result.get("entities")
+        if entities:
+            entity_lines = "\n".join(f"{key}: {value}" for key, value in entities.items() if value)
+            summary = f"{summary}\n\n{entity_lines}" if entity_lines else summary
+        return summary
 
 
 def poll_once(ctx: ApplicationContext) -> None:
