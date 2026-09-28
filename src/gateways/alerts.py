@@ -9,6 +9,17 @@ from src.triage.engine import TriageResult
 logger = logging.getLogger(__name__)
 
 
+def _describe_send_error(exc: requests.RequestException) -> str:
+    # str(exc) embeds the request URL, which carries the Telegram bot token - never log it.
+    # The response body (e.g. Telegram's {"description": "..."}) has no secret in it and is
+    # exactly what's needed to diagnose a 400, so keep that, truncated defensively.
+    response = getattr(exc, "response", None)
+    if response is None:
+        return type(exc).__name__
+    detail = (response.text or "").strip()[:300]
+    return f"HTTP {response.status_code}: {detail}" if detail else f"HTTP {response.status_code}"
+
+
 class AlertGateway:
     def __init__(self, telegram_bot_token: str = "", telegram_chat_id: str = "", discord_webhook_url: str = "") -> None:
         self.telegram_bot_token = telegram_bot_token
@@ -51,7 +62,7 @@ class AlertGateway:
         try:
             send(message)
         except requests.RequestException as exc:
-            logger.warning("Failed to send %s notification: %s", channel, exc)
+            logger.warning("Failed to send %s notification: %s", channel, _describe_send_error(exc))
 
     def _send_telegram(self, message: str) -> None:
         if not (self.telegram_bot_token and self.telegram_chat_id):

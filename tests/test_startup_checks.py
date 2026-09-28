@@ -10,9 +10,10 @@ from src.health import StartupCheckError, StartupCheckMode, run_startup_checks
 from src.triage.engine import DecisionEngineClient
 
 
-def http_error(status: int, url: str) -> requests.HTTPError:
+def http_error(status: int, url: str, body: bytes = b"") -> requests.HTTPError:
     response = requests.Response()
     response.status_code = status
+    response._content = body
     return requests.HTTPError(f"{status} for url: {url}", response=response)
 
 
@@ -170,9 +171,13 @@ class SendTelegramTextTests(unittest.TestCase):
         post.assert_not_called()
 
     def test_telegram_api_error_status_is_caught_and_logged_not_raised(self):
-        gateway = AlertGateway(telegram_bot_token="tok", telegram_chat_id="42")
+        gateway = AlertGateway(telegram_bot_token="secret-tok", telegram_chat_id="42")
         response = MagicMock()
-        response.raise_for_status.side_effect = http_error(403, "https://api.telegram.org/bottok/sendMessage")
+        response.raise_for_status.side_effect = http_error(
+            400,
+            "https://api.telegram.org/botsecret-tok/sendMessage",
+            body=b'{"ok":false,"error_code":400,"description":"Bad Request: chat not found"}',
+        )
 
         with patch("src.gateways.alerts.requests.post", return_value=response), self.assertLogs(
             "src.gateways.alerts", level=logging.WARNING
@@ -180,6 +185,8 @@ class SendTelegramTextTests(unittest.TestCase):
             gateway.send_telegram_text("hello")  # must not raise
 
         self.assertIn("telegram", logs.output[0])
+        self.assertIn("chat not found", logs.output[0])
+        self.assertNotIn("secret-tok", logs.output[0])
 
     def test_urgent_alert_sends_discord_even_if_telegram_fails(self):
         gateway = AlertGateway(telegram_bot_token="tok", telegram_chat_id="42", discord_webhook_url="https://d.example")
