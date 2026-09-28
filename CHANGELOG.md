@@ -1,6 +1,24 @@
 # CHANGELOG
 
 
+## v0.5.1 (2026-09-28)
+
+### Bug Fixes
+
+- Log Telegram/Discord notification failures instead of dropping them silently
+  ([#18](https://github.com/AristideWafo/my-gmail-assistant/pull/18),
+  [`84093e3`](https://github.com/AristideWafo/my-gmail-assistant/commit/84093e344dab7f4679255f6ade985c866b6c4141))
+
+_send_telegram/_send_discord never checked the HTTP response, so a rejected Telegram/Discord call
+  (wrong chat id, bot blocked, bad webhook...) returned as if it had succeeded, and main.py
+  additionally wrapped the startup report send in a bare suppress(Exception) with no logging. Both
+  now raise_for_status() and are caught per-channel in AlertGateway._safe_send, which logs a warning
+  and never propagates - this fixes the report going missing with zero trace, without risking a
+  crash of process_email/polling_loop on a delivery failure.
+
+Co-authored-by: Claude Sonnet 5 <noreply@anthropic.com>
+
+
 ## v0.5.0 (2026-09-28)
 
 ### Features
