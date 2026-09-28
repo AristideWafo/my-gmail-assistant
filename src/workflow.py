@@ -25,7 +25,7 @@ class EmailWorkflow:
         workflow = StateGraph(TriageState)
         workflow.add_node("classify", self._triage_node)
         workflow.add_node("llm", self._llm_node)
-        workflow.add_node("archive", self._archive_node)
+        workflow.add_node("reject", self._reject_node)
         workflow.add_node("label", self._label_node)
 
         workflow.set_entry_point("classify")
@@ -34,12 +34,12 @@ class EmailWorkflow:
             self._route_after_triage,
             {
                 "llm": "llm",
-                "archive": "archive",
+                "reject": "reject",
                 "label": "label",
             },
         )
         workflow.add_edge("llm", END)
-        workflow.add_edge("archive", END)
+        workflow.add_edge("reject", END)
         workflow.add_edge("label", END)
         return workflow.compile()
 
@@ -57,8 +57,8 @@ class EmailWorkflow:
         return {"summary": summary, "draft": draft, "route": "llm"}
 
     @staticmethod
-    def _archive_node(_: TriageState) -> dict[str, Any]:
-        return {"route": "archive"}
+    def _reject_node(_: TriageState) -> dict[str, Any]:
+        return {"route": "reject"}
 
     @staticmethod
     def _label_node(_: TriageState) -> dict[str, Any]:
@@ -69,6 +69,8 @@ class EmailWorkflow:
         triage = state["triage"]
         if triage.urgency == "high" or triage.confidence < 0.50:
             return "llm"
+        if triage.category in {"spam", "newsletter"}:
+            return "reject"
         if triage.urgency == "low" and triage.category == "general":
-            return "archive"
+            return "reject"
         return "label"

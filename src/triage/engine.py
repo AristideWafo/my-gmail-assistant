@@ -47,6 +47,10 @@ class DecisionEngineClient:
     @staticmethod
     def _fallback_classification(email: EmailMessage) -> TriageResult:
         text = f"{email.subject} {email.snippet}".lower()
+        sender = f"{email.sender} {email.sender_domain}".lower()
+
+        if any(term in sender for term in ["no-reply", "noreply", "newsletter"]) or "unsubscribe" in text:
+            return TriageResult(urgency="low", category="newsletter", confidence=0.70)
 
         if any(term in text for term in ["urgent", "asap", "immediately", "deadline"]):
             return TriageResult(urgency="high", category="urgent", confidence=0.76)
@@ -64,4 +68,4 @@ class DecisionEngineClient:
     @staticmethod
     def _normalize_category(value: str) -> str:
         value = (value or "").lower()
-        return value if value in {"offer", "general", "urgent"} else "general"
+        return value if value in {"offer", "general", "urgent", "spam", "newsletter"} else "general"

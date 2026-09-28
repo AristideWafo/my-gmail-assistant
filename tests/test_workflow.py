@@ -17,7 +17,7 @@ class WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.workflow = EmailWorkflow(DecisionEngineClient(api_url=""), FakeGemini())
 
-    def test_non_urgent_general_routes_to_archive(self):
+    def test_non_urgent_general_routes_to_reject(self):
         email = EmailMessage(
             id="1",
             thread_id="t1",
@@ -28,9 +28,22 @@ class WorkflowTests(unittest.TestCase):
         )
         result = self.workflow.run(email)
         self.assertEqual(result["triage"].urgency, "low")
-        self.assertEqual(result["route"], "archive")
+        self.assertEqual(result["route"], "reject")
         self.assertNotIn("summary", result)
         self.assertNotIn("draft", result)
+
+    def test_newsletter_sender_routes_to_reject_regardless_of_urgency(self):
+        email = EmailMessage(
+            id="4",
+            thread_id="t4",
+            sender="newsletter@brand.com",
+            subject="This week's digest",
+            snippet="Check out our latest deals, click here to unsubscribe",
+            body="",
+        )
+        result = self.workflow.run(email)
+        self.assertEqual(result["triage"].category, "newsletter")
+        self.assertEqual(result["route"], "reject")
 
     def test_offer_routes_to_label(self):
         email = EmailMessage(
