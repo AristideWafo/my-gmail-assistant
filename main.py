@@ -50,7 +50,12 @@ class ApplicationContext:
         elif route == "llm":
             self.gmail.create_draft(email.thread_id, email.sender, email.subject, result.get("draft", ""))
             self.gmail.label_message(email.id, "urgent")
-            self.alerts.send_urgent_alert(email, triage, result.get("summary", ""))
+            summary = result.get("summary", "")
+            entities = result.get("entities")
+            if entities:
+                entity_lines = "\n".join(f"{key}: {value}" for key, value in entities.items() if value)
+                summary = f"{summary}\n\n{entity_lines}" if entity_lines else summary
+            self.alerts.send_urgent_alert(email, triage, summary)
 
         Metrics.mark_processed(triage.urgency, triage.category)
         with suppress(Exception):
