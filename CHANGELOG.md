@@ -1,6 +1,26 @@
 # CHANGELOG
 
 
+## v0.5.2 (2026-09-28)
+
+### Bug Fixes
+
+- Make the polling loop resilient and visible instead of silently dying
+  ([#20](https://github.com/AristideWafo/my-gmail-assistant/pull/20),
+  [`d3f75fe`](https://github.com/AristideWafo/my-gmail-assistant/commit/d3f75fecf15ab87962f660ebfd409d06bb879d67))
+
+asyncio.create_task(polling_loop(...))'s result is never awaited or retrieved, so any exception
+  raised while fetching or processing an email killed the background task forever with zero log
+  output - the app kept answering /healthz and /metrics as if nothing was wrong while never
+  processing another email again, until a manual restart.
+
+Extracted poll_once(ctx): fetch failures and per-email processing failures are now caught and logged
+  individually (one bad email no longer stops the others or the loop), and every cycle logs how many
+  unread emails it found - so "it's silent" now means "zero unread", never "it's dead".
+
+Co-authored-by: Claude Sonnet 5 <noreply@anthropic.com>
+
+
 ## v0.5.1 (2026-09-28)
 
 ### Bug Fixes
