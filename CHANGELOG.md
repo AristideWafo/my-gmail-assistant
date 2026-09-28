@@ -1,6 +1,21 @@
 # CHANGELOG
 
 
+## v0.3.0 (2026-09-28)
+
+### Features
+
+- Add script to generate the Gmail refresh token
+  ([#13](https://github.com/AristideWafo/my-gmail-assistant/pull/13),
+  [`ed7dcea`](https://github.com/AristideWafo/my-gmail-assistant/commit/ed7dcea64059f40caa1ba1459faeed64fdcfa319))
+
+The app only reads GMAIL_REFRESH_TOKEN and nothing produced it, so a headless server could not be
+  set up. python -m src.gmail.token_setup runs the OAuth flow on a workstation with a browser and
+  prints the .env lines. Also ignore client_secret*.json in git and docker contexts.
+
+Co-authored-by: Claude Sonnet 5 <noreply@anthropic.com>
+
+
 ## v0.2.2 (2026-09-28)
 
 ### Bug Fixes
