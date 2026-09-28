@@ -39,6 +39,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # Queued runs must start from the branch tip, not the event SHA: an earlier run has usually
+          # pushed a release commit since, and semantic-release's push would be rejected as non-fast-forward.
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
