@@ -65,7 +65,8 @@ python main.py --sync-history
 Also configure:
 
 - `GEMINI_API_KEY`
-- `JEV_API_URL`
+- `JEV_API_URL` (default `https://api.typesafe.ai/v1/systemone`)
+- `JEV_API_KEY` (TypeSafe key from https://console.typesafe.ai/; without it the heuristic fallback is used)
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 - `DISCORD_WEBHOOK_URL`
