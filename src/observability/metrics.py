@@ -11,6 +11,7 @@ class Metrics:
     triage_latency = Histogram("triage_latency_seconds", "Latency of triage and routing execution")
     llm_tokens = Counter("llm_tokens_total", "Tokens consumed, as reported by the LLM API", ["kind", "token_type"])
     llm_cost_usd = Counter("llm_cost_usd_total", "Estimated USD cost of LLM calls", ["kind"])
+    llm_errors = Counter("llm_errors_total", "Failed or degraded LLM calls", ["reason"])
     jev_fallback = Counter(
         "jev_fallback_total",
         "Times the JEV API was unreachable and the heuristic fallback was used",
@@ -40,3 +41,7 @@ class Metrics:
     @classmethod
     def mark_jev_fallback(cls) -> None:
         cls.jev_fallback.inc()
+
+    @classmethod
+    def mark_llm_error(cls, reason: str) -> None:
+        cls.llm_errors.labels(reason=reason).inc()

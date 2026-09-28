@@ -1,10 +1,16 @@
+import logging
 from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
+from src.formatting import truncate
 from src.gmail.client import EmailMessage
-from src.llm.gemini import GeminiClient
+from src.llm.gemini import GeminiClient, LLMAnalysis
+from src.observability.metrics import Metrics
 from src.triage.engine import DecisionEngineClient, TriageResult
+from src.triage.rules import is_automated_sender
+
+logger = logging.getLogger(__name__)
 
 
 class TriageState(TypedDict, total=False):
@@ -17,6 +23,9 @@ class TriageState(TypedDict, total=False):
 
 
 NON_ALERTABLE_CATEGORIES = {"spam", "newsletter"}
+DRAFTABLE_CATEGORIES = {"personnel", "mise_en_relation", "offre_emploi"}
+SUMMARY_UNAVAILABLE = "(résumé indisponible)"
+FALLBACK_SNIPPET_LIMIT = 300
 
 
 class EmailWorkflow:
@@ -60,11 +69,22 @@ class EmailWorkflow:
     def _llm_node(self, state: TriageState) -> dict[str, Any]:
         email = state["email"]
         triage = state["triage"]
-        summary = self.gemini.summarize(email)
-        draft = self.gemini.draft_reply(email)
-        result: dict[str, Any] = {"summary": summary, "draft": draft, "route": "llm"}
-        if triage.category == "offre_emploi":
-            result["entities"] = self.gemini.extract_job_entities(email)
+        want_draft = triage.category in DRAFTABLE_CATEGORIES and not is_automated_sender(email.sender)
+        want_entities = triage.category == "offre_emploi"
+        try:
+            analysis = self.gemini.analyze(email, want_draft, want_entities)
+        except Exception:
+            # An urgent alert must still go out when the LLM is down or over quota.
+            logger.exception("Gemini analysis failed for email %s; alerting without summary", email.id)
+            Metrics.mark_llm_error("unavailable")
+            analysis = LLMAnalysis()
+
+        summary = analysis.summary or f"{truncate(email.snippet, FALLBACK_SNIPPET_LIMIT)}\n{SUMMARY_UNAVAILABLE}"
+        result: dict[str, Any] = {"summary": summary, "route": "llm"}
+        if analysis.draft:
+            result["draft"] = analysis.draft
+        if analysis.entities:
+            result["entities"] = analysis.entities
         return result
 
     @staticmethod

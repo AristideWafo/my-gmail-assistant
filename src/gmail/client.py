@@ -2,6 +2,7 @@ import base64
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from email.mime.text import MIMEText
 from email.utils import parseaddr
 from typing import Any, ClassVar
 
@@ -168,8 +169,10 @@ class GmailClient:
         if not self._service:
             return None
 
-        mime_message = f"To: {to}\r\nSubject: Re: {subject}\r\n\r\n{body}"
-        raw = base64.urlsafe_b64encode(mime_message.encode("utf-8")).decode("utf-8")
+        mime_message = MIMEText(body, "plain", "utf-8")
+        mime_message["To"] = to
+        mime_message["Subject"] = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+        raw = base64.urlsafe_b64encode(mime_message.as_bytes()).decode("utf-8")
         payload = {"message": {"raw": raw, "threadId": thread_id}}
         return self._service.users().drafts().create(userId=self._user_id, body=payload).execute()
 

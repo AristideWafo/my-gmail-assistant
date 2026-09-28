@@ -1,5 +1,6 @@
 import base64
 import unittest
+from email import message_from_bytes
 from unittest.mock import MagicMock, patch
 
 from googleapiclient.errors import HttpError
@@ -66,17 +67,32 @@ class GmailClientActionsTests(unittest.TestCase):
             body={"addLabelIds": ["label-existing"], "removeLabelIds": ["UNREAD"]},
         )
 
-    def test_create_draft_encodes_raw_message_as_base64url(self):
+    def create_and_parse_draft(self, subject="Subject", body="Body text"):
         client, service = make_client_with_service()
         service.users().drafts().create().execute.return_value = {"id": "draft-1"}
 
-        client.create_draft("thread-1", "to@example.com", "Subject", "Body text")
+        client.create_draft("thread-1", "to@example.com", subject, body)
 
         _, kwargs = service.users().drafts().create.call_args
-        raw = kwargs["body"]["message"]["raw"]
-        decoded = base64.urlsafe_b64decode(raw.encode("utf-8")).decode("utf-8")
-        self.assertIn("To: to@example.com", decoded)
-        self.assertIn("Body text", decoded)
+        self.assertEqual(kwargs["body"]["message"]["threadId"], "thread-1")
+        return message_from_bytes(base64.urlsafe_b64decode(kwargs["body"]["message"]["raw"].encode("utf-8")))
+
+    def test_create_draft_encodes_raw_message_as_base64url(self):
+        message = self.create_and_parse_draft()
+
+        self.assertEqual(message["To"], "to@example.com")
+        self.assertEqual(message.get_payload(decode=True).decode("utf-8"), "Body text")
+
+    def test_create_draft_keeps_accents_and_puts_the_subject_only_in_the_header(self):
+        message = self.create_and_parse_draft(subject="Rencontre demain", body="Bonjour Céline,\n\nÀ demain")
+
+        self.assertEqual(message["Subject"], "Re: Rencontre demain")
+        body = message.get_payload(decode=True).decode("utf-8")
+        self.assertEqual(body, "Bonjour Céline,\n\nÀ demain")
+        self.assertNotIn("Rencontre demain", body)
+
+    def test_create_draft_does_not_stack_re_prefixes(self):
+        self.assertEqual(self.create_and_parse_draft(subject="RE: Hello")["Subject"], "RE: Hello")
 
 
 def _b64(text: str) -> str:
