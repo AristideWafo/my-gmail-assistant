@@ -133,3 +133,38 @@ class ConnectionProbesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FormatStatusReportTests(unittest.TestCase):
+    def test_formats_greeting_and_one_line_per_check(self):
+        from src.health import ConnectionCheck, format_status_report
+
+        checks = [
+            ConnectionCheck("gmail", "ok", "authenticated as me@example.com"),
+            ConnectionCheck("discord", "failed", "HTTPError (HTTP 401)"),
+            ConnectionCheck("jev", "skipped", "not configured"),
+        ]
+
+        report = format_status_report(checks)
+
+        self.assertTrue(report.startswith("👋 Bonjour, je suis ton assistant Gmail. Je viens de démarrer."))
+        self.assertIn("✅ gmail: authenticated as me@example.com", report)
+        self.assertIn("❌ discord: HTTPError (HTTP 401)", report)
+        self.assertIn("⏭️ jev: not configured", report)
+
+
+class SendTelegramTextTests(unittest.TestCase):
+    def test_sends_to_configured_chat(self):
+        gateway = AlertGateway(telegram_bot_token="tok", telegram_chat_id="42")
+
+        with patch("src.gateways.alerts.requests.post") as post:
+            gateway.send_telegram_text("hello")
+
+        self.assertEqual(post.call_args.args[0], "https://api.telegram.org/bottok/sendMessage")
+        self.assertEqual(post.call_args.kwargs["json"], {"chat_id": "42", "text": "hello"})
+
+    def test_noop_when_not_configured(self):
+        with patch("src.gateways.alerts.requests.post") as post:
+            AlertGateway().send_telegram_text("hello")
+
+        post.assert_not_called()
