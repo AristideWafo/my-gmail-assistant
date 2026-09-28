@@ -41,8 +41,15 @@ class ApplicationContext:
         started = perf_counter()
         result = self.workflow.run(email)
         triage = result["triage"]
+        route = result["route"]
 
-        if triage.urgency == "high":
+        if route == "archive":
+            self.gmail.archive_message(email.id)
+        elif route == "label":
+            self.gmail.label_message(email.id, triage.category)
+        elif route == "llm":
+            self.gmail.create_draft(email.thread_id, email.sender, email.subject, result.get("draft", ""))
+            self.gmail.label_message(email.id, "urgent")
             self.alerts.send_urgent_alert(email, triage, result.get("summary", ""))
 
         Metrics.mark_processed(triage.urgency, triage.category)

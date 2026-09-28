@@ -1,4 +1,6 @@
+import base64
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from email.utils import parseaddr
 from typing import Any, ClassVar
@@ -27,6 +29,7 @@ class GmailClient:
         self._refresh_token = refresh_token
         self._user_id = user_id
         self._service = self._build_service()
+        self._label_cache: dict[str, str] = {}
 
     def _build_service(self):
         if not (self._client_id and self._client_secret and self._refresh_token):
@@ -41,53 +44,37 @@ class GmailClient:
         )
         return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
-    def fetch_unread(self, max_results: int = 10) -> list[EmailMessage]:
+    def fetch_unread(self, max_results: int = 10, max_retries: int = 5) -> list[EmailMessage]:
         if not self._service:
             return []
-
-        result = (
-            self._service.users()
-            .messages()
-            .list(userId=self._user_id, q="is:unread", maxResults=max_results)
-            .execute()
-        )
-        messages = result.get("messages", [])
-
-        parsed: list[EmailMessage] = []
-        for message in messages:
-            payload = (
-                self._service.users()
-                .messages()
-                .get(userId=self._user_id, id=message["id"], format="full")
-                .execute()
-            )
-            parsed.append(self._parse_message(payload))
-
-        return parsed
+        return self._list_and_parse(query="is:unread", max_results=max_results, max_retries=max_retries)
 
     def fetch_history(self, max_results: int = 100, max_retries: int = 5) -> list[EmailMessage]:
         if not self._service:
             return []
+        return self._list_and_parse(query=None, max_results=max_results, max_retries=max_retries)
 
+    def _list_and_parse(self, query: str | None, max_results: int, max_retries: int) -> list[EmailMessage]:
+        def list_messages():
+            list_kwargs: dict[str, Any] = {"userId": self._user_id, "maxResults": max_results}
+            if query:
+                list_kwargs["q"] = query
+            result = self._service.users().messages().list(**list_kwargs).execute()
+            return [
+                self._parse_message(
+                    self._service.users().messages().get(userId=self._user_id, id=m["id"], format="full").execute()
+                )
+                for m in result.get("messages", [])
+            ]
+
+        return self._execute_with_backoff(list_messages, max_retries=max_retries) or []
+
+    @staticmethod
+    def _execute_with_backoff(request_factory: Callable[[], Any], max_retries: int = 5):
         delay = 1.0
         for _ in range(max_retries):
             try:
-                result = (
-                    self._service.users()
-                    .messages()
-                    .list(userId=self._user_id, maxResults=max_results)
-                    .execute()
-                )
-                messages = result.get("messages", [])
-                return [
-                    self._parse_message(
-                        self._service.users()
-                        .messages()
-                        .get(userId=self._user_id, id=m["id"], format="full")
-                        .execute()
-                    )
-                    for m in messages
-                ]
+                return request_factory()
             except HttpError as exc:
                 status = getattr(getattr(exc, "resp", None), "status", None)
                 if status == 429:
@@ -95,7 +82,50 @@ class GmailClient:
                     delay = min(delay * 2, 30)
                     continue
                 raise
-        return []
+        return None
+
+    def archive_message(self, message_id: str) -> None:
+        if not self._service:
+            return
+        (
+            self._service.users()
+            .messages()
+            .modify(
+                userId=self._user_id,
+                id=message_id,
+                body={"removeLabelIds": ["INBOX", "UNREAD"]},
+            )
+            .execute()
+        )
+
+    def ensure_label(self, name: str) -> str | None:
+        if not self._service:
+            return None
+        if name in self._label_cache:
+            return self._label_cache[name]
+
+        existing = self._service.users().labels().list(userId=self._user_id).execute()
+        for label in existing.get("labels", []):
+            if label.get("name") == name:
+                self._label_cache[name] = label["id"]
+                return label["id"]
+
+        created = (
+            self._service.users()
+            .labels()
+            .create(userId=self._user_id, body={"name": name, "labelListVisibility": "labelShow"})
+            .execute()
+        )
+        self._label_cache[name] = created["id"]
+        return created["id"]
+
+    def label_message(self, message_id: str, label_name: str) -> None:
+        if not self._service:
+            return
+        label_id = self.ensure_label(f"Assistant/{label_name.capitalize()}")
+        if not label_id:
+            return
+        self.add_label(message_id, label_id)
 
     def add_label(self, message_id: str, label_id: str) -> None:
         if not self._service:
@@ -116,7 +146,8 @@ class GmailClient:
             return None
 
         mime_message = f"To: {to}\r\nSubject: Re: {subject}\r\n\r\n{body}"
-        payload = {"message": {"raw": mime_message.encode("utf-8").hex(), "threadId": thread_id}}
+        raw = base64.urlsafe_b64encode(mime_message.encode("utf-8")).decode("utf-8")
+        payload = {"message": {"raw": raw, "threadId": thread_id}}
         return self._service.users().drafts().create(userId=self._user_id, body=payload).execute()
 
     @staticmethod

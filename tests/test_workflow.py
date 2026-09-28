@@ -17,7 +17,7 @@ class WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.workflow = EmailWorkflow(DecisionEngineClient(api_url=""), FakeGemini())
 
-    def test_non_urgent_does_not_call_llm(self):
+    def test_non_urgent_general_routes_to_archive(self):
         email = EmailMessage(
             id="1",
             thread_id="t1",
@@ -28,13 +28,29 @@ class WorkflowTests(unittest.TestCase):
         )
         result = self.workflow.run(email)
         self.assertEqual(result["triage"].urgency, "low")
+        self.assertEqual(result["route"], "archive")
+        self.assertNotIn("summary", result)
+        self.assertNotIn("draft", result)
+
+    def test_offer_routes_to_label(self):
+        email = EmailMessage(
+            id="2",
+            thread_id="t2",
+            sender="recruiter@example.com",
+            subject="Job offer",
+            snippet="We'd like to interview you for the position",
+            body="",
+        )
+        result = self.workflow.run(email)
+        self.assertEqual(result["triage"].urgency, "medium")
+        self.assertEqual(result["route"], "label")
         self.assertNotIn("summary", result)
         self.assertNotIn("draft", result)
 
     def test_urgent_calls_llm(self):
         email = EmailMessage(
-            id="2",
-            thread_id="t2",
+            id="3",
+            thread_id="t3",
             sender="person@example.com",
             subject="Urgent: please respond",
             snippet="Need this immediately",
@@ -42,6 +58,7 @@ class WorkflowTests(unittest.TestCase):
         )
         result = self.workflow.run(email)
         self.assertEqual(result["triage"].urgency, "high")
+        self.assertEqual(result["route"], "llm")
         self.assertIn("summary", result)
         self.assertIn("draft", result)
 
