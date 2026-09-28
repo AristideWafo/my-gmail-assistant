@@ -49,6 +49,14 @@ def _log(check: ConnectionCheck) -> None:
     logger.log(level, "Connection check [%s] %s: %s", check.name, check.status.upper(), check.detail)
 
 
+_STATUS_EMOJI = {OK: "✅", FAILED: "❌", SKIPPED: "⏭️"}
+
+
+def format_status_report(checks: list[ConnectionCheck]) -> str:
+    lines = [f"{_STATUS_EMOJI[check.status]} {check.name}: {check.detail}" for check in checks]
+    return "\n".join(["👋 Bonjour, je suis ton assistant Gmail. Je viens de démarrer.", "", *lines])
+
+
 def run_startup_checks(
     probes: Mapping[str, Callable[[], str] | None], mode: StartupCheckMode
 ) -> list[ConnectionCheck]:

@@ -36,6 +36,9 @@ class AlertGateway:
         self._send_telegram(text)
         self._send_discord(text)
 
+    def send_telegram_text(self, text: str) -> None:
+        self._send_telegram(text)
+
     def _send_telegram(self, message: str) -> None:
         if not (self.telegram_bot_token and self.telegram_chat_id):
             return

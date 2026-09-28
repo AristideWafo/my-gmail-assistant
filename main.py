@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from src.config import Settings
 from src.gateways import AlertGateway
 from src.gmail import GmailClient
-from src.health import StartupCheckMode, run_startup_checks
+from src.health import StartupCheckMode, format_status_report, run_startup_checks
 from src.llm import GeminiClient
 from src.observability import Metrics
 from src.triage import DecisionEngineClient
@@ -107,6 +107,12 @@ def create_app(sync_history: bool | None = None) -> FastAPI:
         app.state.connection_checks = await asyncio.to_thread(
             run_startup_checks, ctx.connection_probes(), StartupCheckMode(settings.startup_checks)
         )
+        if ctx.alerts.telegram_configured:
+            with suppress(Exception):
+                await asyncio.to_thread(
+                    ctx.alerts.send_telegram_text, format_status_report(app.state.connection_checks)
+                )
+
         if settings.sync_history:
             logger.info("Syncing Gmail history...")
             for email in ctx.gmail.fetch_history():
