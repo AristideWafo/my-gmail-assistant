@@ -10,6 +10,10 @@ class Metrics:
     )
     triage_latency = Histogram("triage_latency_seconds", "Latency of triage and routing execution")
     llm_tokens = Counter("llm_tokens_total", "Estimated tokens consumed", ["kind"])
+    jev_fallback = Counter(
+        "jev_fallback_total",
+        "Times the JEV API was unreachable and the heuristic fallback was used",
+    )
 
     @staticmethod
     def router() -> APIRouter:
@@ -28,3 +32,7 @@ class Metrics:
     @classmethod
     def mark_tokens(cls, kind: str, amount: int) -> None:
         cls.llm_tokens.labels(kind=kind).inc(max(amount, 0))
+
+    @classmethod
+    def mark_jev_fallback(cls) -> None:
+        cls.jev_fallback.inc()

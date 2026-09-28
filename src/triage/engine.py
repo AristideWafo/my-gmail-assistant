@@ -1,8 +1,12 @@
+import logging
 from dataclasses import dataclass
 
 import requests
 
 from src.gmail.client import EmailMessage
+from src.observability.metrics import Metrics
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,8 +38,9 @@ class DecisionEngineClient:
                     category=self._normalize_category(data.get("category", "general")),
                     confidence=float(data.get("confidence", 0.0)),
                 )
-            except requests.RequestException:
-                pass
+            except requests.RequestException as exc:
+                logger.warning("JEV API unreachable at %s (%s), falling back to heuristic", self.api_url, exc)
+                Metrics.mark_jev_fallback()
 
         return self._fallback_classification(email)
 
