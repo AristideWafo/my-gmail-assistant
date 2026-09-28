@@ -104,10 +104,14 @@ def create_app(sync_history: bool | None = None) -> FastAPI:
             run_startup_checks, ctx.connection_probes(), StartupCheckMode(settings.startup_checks)
         )
         if ctx.alerts.telegram_configured:
-            with suppress(Exception):
+            # send_telegram_text already logs and swallows delivery failures (AlertGateway._safe_send);
+            # this only guards against an unexpected error in report formatting itself.
+            try:
                 await asyncio.to_thread(
                     ctx.alerts.send_telegram_text, format_status_report(app.state.connection_checks)
                 )
+            except Exception:
+                logger.exception("Failed to send startup status report to Telegram")
 
         if settings.sync_history:
             logger.info("Syncing Gmail history...")
