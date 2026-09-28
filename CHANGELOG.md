@@ -1,6 +1,104 @@
 # CHANGELOG
 
 
+## v0.6.0 (2026-09-28)
+
+### Bug Fixes
+
+- Never lose an urgent alert and avoid watchdog restart loops (review findings)
+  ([#28](https://github.com/AristideWafo/my-gmail-assistant/pull/28),
+  [`293c2df`](https://github.com/AristideWafo/my-gmail-assistant/commit/293c2df26eba685907b9303a9c1e805ddcf8b1ff))
+
+send_urgent_alert now raises when no configured channel delivered, so the mail stays UNREAD and is
+  retried; the dedup window is only recorded on success. Discord content is truncated to its
+  2000-character limit. The heartbeat also fires on failed Gmail fetches and during history sync
+  (now off the event loop), poll_once/history stop between emails on shutdown. The default Gmail
+  query no longer excludes Promotions/Social, unparseable model output no longer leaks into alerts,
+  drafts with [placeholders] are dropped, and "#123" is kept.
+
+Co-authored-by: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+- Only high urgency triggers alerts; uncertain mails are labeled, never archived
+  ([#21](https://github.com/AristideWafo/my-gmail-assistant/pull/21),
+  [`d6bfd04`](https://github.com/AristideWafo/my-gmail-assistant/commit/d6bfd0463d9ae2f2c97460e323c97f3299caa815))
+
+Low confidence used to route to the LLM path, which always sends an "Urgent" alert. Newsletters and
+  spam never alert, even at high urgency. Threshold is configurable via LOW_CONFIDENCE_THRESHOLD.
+
+Co-authored-by: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+- Scope the unread fetch and make urgent handling idempotent
+  ([#22](https://github.com/AristideWafo/my-gmail-assistant/pull/22),
+  [`67303dc`](https://github.com/AristideWafo/my-gmail-assistant/commit/67303dc0a93b6906e882c4bfff237cbca809c7d7))
+
+Only recent inbox mail is fetched (no promotions/social, max age configurable), so the old backlog
+  is no longer processed as new. Urgent flow is alert -> best-effort draft -> label (commit point),
+  with a 24h in-memory guard so a failed commit never re-alerts.
+
+Co-authored-by: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+- **ci**: Start the release job from the branch tip to avoid non-fast-forward pushes
+  ([#27](https://github.com/AristideWafo/my-gmail-assistant/pull/27),
+  [`b84dbf5`](https://github.com/AristideWafo/my-gmail-assistant/commit/b84dbf5d278b3ec452230b61877be41210781754))
+
+* fix(ci): start the release job from the branch tip to avoid non-fast-forward pushes
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+* docs: update open risks in PLAN.md after idempotence work
+
+---------
+
+Co-authored-by: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+### Features
+
+- Deterministic sender rules and a richer category taxonomy
+  ([#24](https://github.com/AristideWafo/my-gmail-assistant/pull/24),
+  [`d9aa606`](https://github.com/AristideWafo/my-gmail-assistant/commit/d9aa606378d852c67079fbf3229977abcfce15aa))
+
+Known bulk senders (LinkedIn job alerts, Substack, Leboncoin marketing) are classified without
+  calling JEV or Gemini. New categories alerte_emploi (kept visible), promotion and
+  alerte_technique; the urgency definition is strict and JEV now receives the received and current
+  dates so stale mail is not judged urgent.
+
+Co-authored-by: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+- Expose routing/alert/LLM metrics and make health reflect real polling activity
+  ([#26](https://github.com/AristideWafo/my-gmail-assistant/pull/26),
+  [`7bf27f5`](https://github.com/AristideWafo/my-gmail-assistant/commit/7bf27f524cc6618bf389d9904a631a5d62c09ac4))
+
+/healthz now returns 503 if the polling task died or stalled, and an in-process watchdog exits so
+  the restart policy recovers it (a Docker healthcheck alone does not restart). Polling runs off the
+  event loop so /healthz stays responsive during LLM rate limiting. New metrics and Grafana panels:
+  routes, alert delivery, LLM errors, confidence, poll age.
+
+Co-authored-by: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+- Harden alert delivery with webhook validation, circuit breakers and dedup
+  ([#25](https://github.com/AristideWafo/my-gmail-assistant/pull/25),
+  [`4bb1f73`](https://github.com/AristideWafo/my-gmail-assistant/commit/4bb1f73ff986650d3929cf00ffb0eba5eb901c0e))
+
+A Discord webhook URL without its token is now reported at startup with an explicit, secret-free
+  message and disabled (one error instead of one warning per mail). Each channel pauses after 5
+  consecutive failures, and repeated alerts from the same automated sender and subject (e.g. CI
+  failures across commits) are sent once per 30 minutes.
+
+Co-authored-by: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+- Single rate-limited Gemini call, clean drafts and readable alert messages
+  ([#23](https://github.com/AristideWafo/my-gmail-assistant/pull/23),
+  [`a13a7cf`](https://github.com/AristideWafo/my-gmail-assistant/commit/a13a7cff1c2d03036cc9f77bfb0cefd66bd9caa5))
+
+One JSON call per urgent mail (summary, optional draft, optional job entities) behind a
+  sliding-window rate limiter that retries on quota errors using the API's retry delay. The alert
+  still goes out with the mail snippet when Gemini fails. Drafts are only generated for human
+  senders, are stripped of chat preambles/subject/markdown/placeholders, and are encoded as proper
+  UTF-8 MIME. Telegram/Discord alerts use a labeled plain-text layout.
+
+Co-authored-by: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+
 ## v0.5.2 (2026-09-28)
 
 ### Bug Fixes
