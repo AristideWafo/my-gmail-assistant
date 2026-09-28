@@ -9,6 +9,8 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from src.gmail.text_cleaning import clean_body, decode_body, extract_domain
+
 
 @dataclass
 class EmailMessage:
@@ -18,6 +20,7 @@ class EmailMessage:
     subject: str
     snippet: str
     body: str
+    sender_domain: str = ""
 
 
 class GmailClient:
@@ -151,21 +154,33 @@ class GmailClient:
         return self._service.users().drafts().create(userId=self._user_id, body=payload).execute()
 
     @staticmethod
-    def _parse_message(message: dict[str, Any]) -> EmailMessage:
+    def _extract_body(payload: dict[str, Any]) -> tuple[str, bool]:
+        top_mime = payload.get("mimeType", "")
+        if payload.get("body", {}).get("data"):
+            return payload["body"]["data"], top_mime == "text/html"
+
+        html_data = ""
+        for part in payload.get("parts", []):
+            mime_type = part.get("mimeType")
+            data = part.get("body", {}).get("data")
+            if not data:
+                continue
+            if mime_type == "text/plain":
+                return data, False
+            if mime_type == "text/html" and not html_data:
+                html_data = data
+
+        return html_data, True
+
+    @classmethod
+    def _parse_message(cls, message: dict[str, Any]) -> EmailMessage:
         headers = {h.get("name", ""): h.get("value", "") for h in message.get("payload", {}).get("headers", [])}
         sender = parseaddr(headers.get("From", ""))[1] or headers.get("From", "")
         subject = headers.get("Subject", "(No subject)")
         snippet = message.get("snippet", "")
 
-        body_data = ""
-        payload = message.get("payload", {})
-        if payload.get("body", {}).get("data"):
-            body_data = payload["body"]["data"]
-        elif payload.get("parts"):
-            for part in payload["parts"]:
-                if part.get("mimeType") == "text/plain" and part.get("body", {}).get("data"):
-                    body_data = part["body"]["data"]
-                    break
+        body_data, is_html = cls._extract_body(message.get("payload", {}))
+        body = clean_body(decode_body(body_data), is_html)
 
         return EmailMessage(
             id=message.get("id", ""),
@@ -173,5 +188,6 @@ class GmailClient:
             sender=sender,
             subject=subject,
             snippet=snippet,
-            body=body_data,
+            body=body,
+            sender_domain=extract_domain(sender),
         )

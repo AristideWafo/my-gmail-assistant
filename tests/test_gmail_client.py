@@ -79,6 +79,50 @@ class GmailClientActionsTests(unittest.TestCase):
         self.assertIn("Body text", decoded)
 
 
+def _b64(text: str) -> str:
+    return base64.urlsafe_b64encode(text.encode("utf-8")).decode("utf-8").rstrip("=")
+
+
+class GmailClientParsingTests(unittest.TestCase):
+    def test_parse_message_decodes_and_cleans_plain_body(self):
+        message = {
+            "id": "1",
+            "threadId": "t1",
+            "snippet": "hi",
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "Jane Doe <jane@example.com>"},
+                    {"name": "Subject", "value": "Hello"},
+                ],
+                "mimeType": "text/plain",
+                "body": {"data": _b64("Hi there\n-- \nJane Doe, CEO")},
+            },
+        }
+
+        email = GmailClient._parse_message(message)
+
+        self.assertEqual(email.body, "Hi there")
+        self.assertEqual(email.sender_domain, "example.com")
+
+    def test_parse_message_falls_back_to_html_part_and_strips_tags(self):
+        message = {
+            "id": "2",
+            "threadId": "t2",
+            "snippet": "hi",
+            "payload": {
+                "headers": [{"name": "From", "value": "jane@example.com"}],
+                "mimeType": "multipart/alternative",
+                "parts": [
+                    {"mimeType": "text/html", "body": {"data": _b64("<p>Hi &amp; welcome</p>")}},
+                ],
+            },
+        }
+
+        email = GmailClient._parse_message(message)
+
+        self.assertEqual(email.body, "Hi & welcome")
+
+
 class GmailClientBackoffTests(unittest.TestCase):
     def test_fetch_unread_retries_on_429_then_succeeds(self):
         client, service = make_client_with_service()
