@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from src.config import Settings
 from src.gateways import AlertGateway
 from src.gmail import GmailClient
+from src.health import StartupCheckMode, run_startup_checks
 from src.llm import GeminiClient
 from src.observability import Metrics
 from src.triage import DecisionEngineClient
@@ -36,6 +37,15 @@ class ApplicationContext:
             discord_webhook_url=settings.discord_webhook_url,
         )
         self.workflow = EmailWorkflow(self.triage, self.gemini)
+
+    def connection_probes(self):
+        return {
+            "gmail": self.gmail.check_connection if self.gmail.is_configured else None,
+            "gemini": self.gemini.check_connection if self.gemini.is_configured else None,
+            "jev": self.triage.check_connection if self.triage.enabled else None,
+            "telegram": self.alerts.check_telegram if self.alerts.telegram_configured else None,
+            "discord": self.alerts.check_discord if self.alerts.discord_configured else None,
+        }
 
     def process_email(self, email):
         started = perf_counter()
@@ -94,6 +104,9 @@ def create_app(sync_history: bool | None = None) -> FastAPI:
 
     @app.on_event("startup")
     async def startup_event():
+        app.state.connection_checks = await asyncio.to_thread(
+            run_startup_checks, ctx.connection_probes(), StartupCheckMode(settings.startup_checks)
+        )
         if settings.sync_history:
             logger.info("Syncing Gmail history...")
             for email in ctx.gmail.fetch_history():

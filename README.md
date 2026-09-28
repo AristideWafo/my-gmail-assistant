@@ -86,6 +86,14 @@ Also configure:
 - `TELEGRAM_CHAT_ID`
 - `DISCORD_WEBHOOK_URL`
 
+## Startup connection checks
+
+At startup the app probes every configured connection (Gmail, Gemini, JEV, Telegram, Discord) with read-only calls and logs one line per service (`OK`, `FAILED` or `SKIPPED` when not configured). No message is sent; secrets never appear in the logs. `STARTUP_CHECKS` controls the behavior:
+
+- `warn` (default): log results and start anyway.
+- `strict`: refuse to start if any configured connection fails.
+- `off`: skip the checks.
+
 ## Docker deployment
 
 Build and run the assistant, Prometheus, and Grafana:

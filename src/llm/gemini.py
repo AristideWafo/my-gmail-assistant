@@ -18,6 +18,14 @@ class GeminiClient:
             genai.configure(api_key=api_key)
             self._model = genai.GenerativeModel(model_name)
 
+    @property
+    def is_configured(self) -> bool:
+        return self._enabled
+
+    def check_connection(self) -> str:
+        genai.get_model(f"models/{self.model_name}")
+        return f"model {self.model_name} available"
+
     def summarize(self, email: EmailMessage) -> str:
         if not self._enabled:
             return "Gemini not configured."
