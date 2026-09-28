@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import os
+import threading
 from contextlib import suppress
 from time import perf_counter
 
@@ -57,6 +58,7 @@ class ApplicationContext:
         self.workflow = EmailWorkflow(self.triage, self.gemini, settings.low_confidence_threshold)
         self.alerted = ExpiringSet(ALERTED_TTL_SECONDS)
         self.health = PollHealth(settings.poll_stale_after_seconds)
+        self.stopping = threading.Event()
 
     def connection_probes(self):
         return {
@@ -127,17 +129,29 @@ def poll_once(ctx: ApplicationContext) -> None:
         emails = ctx.gmail.fetch_unread()
     except Exception:
         logger.exception("Failed to fetch unread emails; will retry next cycle")
+        # The loop is alive; a Gmail outage must not make the watchdog restart-loop the container.
+        ctx.health.beat()
         return
 
     logger.info("Polled Gmail: %d unread email(s)", len(emails))
     Metrics.mark_poll_success()
     ctx.health.beat()
     for email in emails:
+        if ctx.stopping.is_set():
+            return
         try:
             ctx.process_email(email)
         except Exception:
             Metrics.mark_email_skipped()
             logger.exception("Failed to process email %s; skipping", email.id)
+        ctx.health.beat()
+
+
+def sync_history_once(ctx: ApplicationContext) -> None:
+    for email in ctx.gmail.fetch_history():
+        if ctx.stopping.is_set():
+            return
+        ctx.process_email(email)
         ctx.health.beat()
 
 
@@ -188,9 +202,9 @@ def create_app(sync_history: bool | None = None) -> FastAPI:
 
         if settings.sync_history:
             logger.info("Syncing Gmail history...")
-            for email in ctx.gmail.fetch_history():
-                ctx.process_email(email)
+            await asyncio.to_thread(sync_history_once, ctx)
 
+        ctx.health.beat()
         app.state.polling_task = asyncio.create_task(polling_loop(ctx))
         if settings.watchdog_enabled:
             app.state.watchdog_task = asyncio.create_task(
@@ -199,6 +213,7 @@ def create_app(sync_history: bool | None = None) -> FastAPI:
 
     @app.on_event("shutdown")
     async def shutdown_event():
+        ctx.stopping.set()
         for task in (app.state.polling_task, getattr(app.state, "watchdog_task", None)):
             if task:
                 task.cancel()

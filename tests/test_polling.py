@@ -5,9 +5,15 @@ from unittest.mock import MagicMock
 from main import poll_once
 
 
+def make_ctx():
+    ctx = MagicMock()
+    ctx.stopping.is_set.return_value = False
+    return ctx
+
+
 class PollOnceTests(unittest.TestCase):
     def test_processes_every_fetched_email(self):
-        ctx = MagicMock()
+        ctx = make_ctx()
         emails = [MagicMock(id="1"), MagicMock(id="2")]
         ctx.gmail.fetch_unread.return_value = emails
 
@@ -18,7 +24,7 @@ class PollOnceTests(unittest.TestCase):
         self.assertEqual(ctx.process_email.call_count, 2)
 
     def test_one_failing_email_does_not_stop_the_others_or_raise(self):
-        ctx = MagicMock()
+        ctx = make_ctx()
         good, bad = MagicMock(id="good"), MagicMock(id="bad")
         ctx.gmail.fetch_unread.return_value = [bad, good]
         ctx.process_email.side_effect = [RuntimeError("boom"), None]
@@ -30,7 +36,7 @@ class PollOnceTests(unittest.TestCase):
         self.assertIn("bad", logs.output[0])
 
     def test_fetch_failure_is_logged_and_does_not_raise_or_call_process(self):
-        ctx = MagicMock()
+        ctx = make_ctx()
         ctx.gmail.fetch_unread.side_effect = RuntimeError("gmail is down")
 
         with self.assertLogs("gmail-assistant", level=logging.ERROR) as logs:
@@ -40,7 +46,7 @@ class PollOnceTests(unittest.TestCase):
         self.assertIn("Failed to fetch unread emails", logs.output[0])
 
     def test_logs_the_poll_result_even_with_zero_emails(self):
-        ctx = MagicMock()
+        ctx = make_ctx()
         ctx.gmail.fetch_unread.return_value = []
 
         with self.assertLogs("gmail-assistant", level=logging.INFO) as logs:

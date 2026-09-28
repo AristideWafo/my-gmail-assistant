@@ -16,6 +16,7 @@ from src.triage.rules import is_automated_sender
 logger = logging.getLogger(__name__)
 
 TELEGRAM_MESSAGE_LIMIT = 4000
+DISCORD_MESSAGE_LIMIT = 2000
 DISCORD_URL_HINT = "Expected https://discord.com/api/webhooks/<id>/<token>; recreate the webhook if the token is lost."
 DEDUP_WINDOW_SECONDS = 30 * 60
 DISCORD_WEBHOOK_RE = re.compile(r"^https://(?:\w+\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+/?$")
@@ -40,6 +41,10 @@ def format_urgent_alert(email: EmailMessage, triage: TriageResult, summary: str 
     if body:
         text = f"{text}\n\n{body}"
     return truncate(text, TELEGRAM_MESSAGE_LIMIT)
+
+
+class AlertDeliveryError(RuntimeError):
+    pass
 
 
 class AlertGateway:
@@ -74,34 +79,40 @@ class AlertGateway:
         return "webhook reachable"
 
     def send_urgent_alert(self, email: EmailMessage, triage: TriageResult, summary: str = "") -> None:
+        """Raises AlertDeliveryError when every configured channel failed, so the mail is retried."""
         if self._is_duplicate_automated_alert(email):
             logger.info("Skipping duplicate alert for %s: %s", email.sender, email.subject)
             Metrics.mark_alert("all", "deduplicated")
             return
         text = format_urgent_alert(email, triage, summary)
-        self._safe_send("telegram", self._send_telegram, text)
-        self._safe_send("discord", self._send_discord, text)
+        outcomes = []
+        if self.telegram_configured:
+            outcomes.append(self._safe_send("telegram", self._send_telegram, text))
+        if self._discord_url_valid:
+            outcomes.append(self._safe_send("discord", self._send_discord, text))
+        if outcomes and not any(outcomes):
+            raise AlertDeliveryError(f"No channel delivered the alert for {email.subject!r}")
+        if outcomes:
+            self._record_automated_alert(email)
 
     def send_telegram_text(self, text: str) -> None:
         self._safe_send("telegram", self._send_telegram, text)
 
     def _is_duplicate_automated_alert(self, email: EmailMessage) -> bool:
         # Repeated CI failures share sender and subject; human mail is never deduplicated.
-        if not is_automated_sender(email.sender):
-            return False
-        key = dedup_key(email)
-        if key in self._recent_automated_alerts:
-            return True
-        self._recent_automated_alerts.add(key)
-        return False
+        return is_automated_sender(email.sender) and dedup_key(email) in self._recent_automated_alerts
 
-    def _safe_send(self, channel: str, send: Callable[[str], None], message: str) -> None:
+    def _record_automated_alert(self, email: EmailMessage) -> None:
+        if is_automated_sender(email.sender):
+            self._recent_automated_alerts.add(dedup_key(email))
+
+    def _safe_send(self, channel: str, send: Callable[[str], None], message: str) -> bool:
         # A failed notification must never crash email processing or startup; it must also
         # never disappear silently, or a dead integration goes unnoticed indefinitely.
         breaker = self._breakers[channel]
         if not breaker.allow():
             Metrics.mark_alert(channel, "skipped")
-            return
+            return False
         try:
             send(message)
         except requests.RequestException as exc:
@@ -109,9 +120,10 @@ class AlertGateway:
             logger.warning("Failed to send %s notification: %s", channel, exc)
             if breaker.record_failure():
                 logger.error("%s notifications failing repeatedly; pausing them for a while", channel)
-        else:
-            breaker.record_success()
-            Metrics.mark_alert(channel, "sent")
+            return False
+        breaker.record_success()
+        Metrics.mark_alert(channel, "sent")
+        return True
 
     def _send_telegram(self, message: str) -> None:
         if not (self.telegram_bot_token and self.telegram_chat_id):
@@ -126,5 +138,5 @@ class AlertGateway:
     def _send_discord(self, message: str) -> None:
         if not self._discord_url_valid:
             return
-        response = requests.post(self.discord_webhook_url, json={"content": message}, timeout=10)
+        response = requests.post(self.discord_webhook_url, json={"content": truncate(message, DISCORD_MESSAGE_LIMIT)}, timeout=10)
         response.raise_for_status()

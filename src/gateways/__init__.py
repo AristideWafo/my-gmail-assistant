@@ -1,3 +1,3 @@
-from .alerts import AlertGateway
+from .alerts import AlertDeliveryError, AlertGateway
 
-__all__ = ["AlertGateway"]
+__all__ = ["AlertDeliveryError", "AlertGateway"]
