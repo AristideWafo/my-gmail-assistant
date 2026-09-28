@@ -1,7 +1,12 @@
+import logging
+from collections.abc import Callable
+
 import requests
 
 from src.gmail.client import EmailMessage
 from src.triage.engine import TriageResult
+
+logger = logging.getLogger(__name__)
 
 
 class AlertGateway:
@@ -33,22 +38,33 @@ class AlertGateway:
             f"🚨 Urgent email detected\nFrom: {email.sender}\nSubject: {email.subject}"
             f"\nCategory: {triage.category}\nConfidence: {triage.confidence:.2f}\n\n{summary}"
         )
-        self._send_telegram(text)
-        self._send_discord(text)
+        self._safe_send("telegram", self._send_telegram, text)
+        self._safe_send("discord", self._send_discord, text)
 
     def send_telegram_text(self, text: str) -> None:
-        self._send_telegram(text)
+        self._safe_send("telegram", self._send_telegram, text)
+
+    @staticmethod
+    def _safe_send(channel: str, send: Callable[[str], None], message: str) -> None:
+        # A failed notification must never crash email processing or startup; it must also
+        # never disappear silently, or a dead integration goes unnoticed indefinitely.
+        try:
+            send(message)
+        except requests.RequestException as exc:
+            logger.warning("Failed to send %s notification: %s", channel, exc)
 
     def _send_telegram(self, message: str) -> None:
         if not (self.telegram_bot_token and self.telegram_chat_id):
             return
-        requests.post(
+        response = requests.post(
             f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage",
             json={"chat_id": self.telegram_chat_id, "text": message},
             timeout=10,
         )
+        response.raise_for_status()
 
     def _send_discord(self, message: str) -> None:
         if not self.discord_webhook_url:
             return
-        requests.post(self.discord_webhook_url, json={"content": message}, timeout=10)
+        response = requests.post(self.discord_webhook_url, json={"content": message}, timeout=10)
+        response.raise_for_status()

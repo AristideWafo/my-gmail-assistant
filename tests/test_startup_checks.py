@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from src.gateways import AlertGateway
-from src.gmail.client import GmailClient
+from src.gmail.client import EmailMessage, GmailClient
 from src.health import StartupCheckError, StartupCheckMode, run_startup_checks
 from src.triage.engine import DecisionEngineClient
 
@@ -168,3 +168,30 @@ class SendTelegramTextTests(unittest.TestCase):
             AlertGateway().send_telegram_text("hello")
 
         post.assert_not_called()
+
+    def test_telegram_api_error_status_is_caught_and_logged_not_raised(self):
+        gateway = AlertGateway(telegram_bot_token="tok", telegram_chat_id="42")
+        response = MagicMock()
+        response.raise_for_status.side_effect = http_error(403, "https://api.telegram.org/bottok/sendMessage")
+
+        with patch("src.gateways.alerts.requests.post", return_value=response), self.assertLogs(
+            "src.gateways.alerts", level=logging.WARNING
+        ) as logs:
+            gateway.send_telegram_text("hello")  # must not raise
+
+        self.assertIn("telegram", logs.output[0])
+
+    def test_urgent_alert_sends_discord_even_if_telegram_fails(self):
+        gateway = AlertGateway(telegram_bot_token="tok", telegram_chat_id="42", discord_webhook_url="https://d.example")
+        telegram_response = MagicMock()
+        telegram_response.raise_for_status.side_effect = http_error(500, "https://api.telegram.org/bottok/sendMessage")
+        discord_response = MagicMock()
+        email = EmailMessage(id="1", thread_id="t1", sender="a@b.com", subject="s", snippet="s", body="")
+        triage = DecisionEngineClient(api_url="")._fallback_classification(email)
+
+        with patch(
+            "src.gateways.alerts.requests.post", side_effect=[telegram_response, discord_response]
+        ) as post:
+            gateway.send_urgent_alert(email, triage)  # must not raise
+
+        self.assertEqual(post.call_count, 2)
