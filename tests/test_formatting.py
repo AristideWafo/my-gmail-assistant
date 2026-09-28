@@ -1,6 +1,6 @@
 import unittest
 
-from src.formatting import clean_draft, strip_markdown, truncate
+from src.formatting import clean_draft, has_placeholder, strip_markdown, truncate
 from src.triage.rules import is_automated_sender
 
 
@@ -18,6 +18,9 @@ class StripMarkdownTests(unittest.TestCase):
 
     def test_does_not_mistake_bold_start_for_a_bullet(self):
         self.assertEqual(strip_markdown("**Bold** text"), "Bold text")
+
+    def test_keeps_issue_references_that_look_like_headings(self):
+        self.assertEqual(strip_markdown("Issue #232 assigned\n#42 fixed"), "Issue #232 assigned\n#42 fixed")
 
     def test_collapses_blank_runs(self):
         self.assertEqual(strip_markdown("a\n\n\n\nb"), "a\n\nb")
@@ -40,6 +43,16 @@ class CleanDraftTests(unittest.TestCase):
 
     def test_empty_input(self):
         self.assertEqual(clean_draft(""), "")
+
+
+class HasPlaceholderTests(unittest.TestCase):
+    def test_detects_bracketed_placeholders(self):
+        for text in ("[Your Name]", "Best,\n[Nom]", "Dear [Recruiter],"):
+            with self.subTest(text=text):
+                self.assertTrue(has_placeholder(text))
+
+    def test_plain_text_and_urls_are_fine(self):
+        self.assertFalse(has_placeholder("Bonjour,\nRendez-vous à 14h.\nAristide"))
 
 
 class TruncateTests(unittest.TestCase):

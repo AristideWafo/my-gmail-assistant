@@ -75,15 +75,27 @@ class GeminiAnalyzeTests(unittest.TestCase):
 
         self.assertEqual((result.draft, result.entities), ("", {}))
 
-    def test_analyze_falls_back_to_raw_text_summary_on_invalid_json(self):
+    def test_analyze_returns_empty_analysis_on_invalid_json(self):
         client = make_client()
         client._model.generate_content.return_value = fake_response("not json at all")
         before = Metrics.llm_errors.labels(reason="parse")._value.get()
 
         result = client.analyze(make_email(), want_draft=True, want_entities=True)
 
-        self.assertEqual((result.summary, result.draft, result.entities), ("not json at all", "", {}))
+        self.assertEqual((result.summary, result.draft, result.entities), ("", "", {}))
         self.assertEqual(Metrics.llm_errors.labels(reason="parse")._value.get(), before + 1)
+
+    def test_draft_with_bracket_placeholder_is_dropped(self):
+        client = make_client()
+        client._model.generate_content.return_value = fake_response(
+            json.dumps({"summary": "s", "draft": "Bonjour,\n\nCordialement,\n[Your Name]"})
+        )
+        before = Metrics.llm_errors.labels(reason="placeholder")._value.get()
+
+        result = client.analyze(make_email(), want_draft=True, want_entities=False)
+
+        self.assertEqual((result.summary, result.draft), ("s", ""))
+        self.assertEqual(Metrics.llm_errors.labels(reason="placeholder")._value.get(), before + 1)
 
     def test_analyze_disabled_without_api_key(self):
         result = GeminiClient(api_key="").analyze(make_email(), want_draft=True, want_entities=True)

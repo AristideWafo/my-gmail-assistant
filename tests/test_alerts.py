@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from src.gateways.alerts import AlertGateway, dedup_key, format_urgent_alert
+from src.gateways.alerts import AlertDeliveryError, AlertGateway, dedup_key, format_urgent_alert
 from src.gmail.client import EmailMessage
 from src.health import StartupCheckMode, run_startup_checks
 from src.triage.engine import TriageResult
@@ -49,13 +49,60 @@ class FormatUrgentAlertTests(unittest.TestCase):
 
 
 class SafeSendTests(unittest.TestCase):
-    def test_delivery_failure_is_logged_and_swallowed(self):
+    def test_delivery_failure_is_logged_and_reported_to_the_caller_for_retry(self):
         gateway = AlertGateway(discord_webhook_url="https://discord.com/api/webhooks/1/abc")
         with (
             patch("src.gateways.alerts.requests.post", side_effect=requests.ConnectionError("down")),
             self.assertLogs("src.gateways.alerts", level="WARNING"),
+            self.assertRaises(AlertDeliveryError),
         ):
             gateway.send_urgent_alert(make_email(), TriageResult("high", "personnel", 0.9), "s")
+
+    def test_one_delivering_channel_is_enough(self):
+        gateway = AlertGateway(telegram_bot_token="t", telegram_chat_id="1", discord_webhook_url=VALID_DISCORD_URL)
+
+        def post(url, **kwargs):
+            if "telegram" in url:
+                raise requests.ConnectionError("down")
+            return MagicMock()
+
+        with patch("src.gateways.alerts.requests.post", side_effect=post), self.assertLogs("src.gateways.alerts"):
+            gateway.send_urgent_alert(make_email(), HIGH, "s")
+
+    def test_no_configured_channel_is_not_a_failure(self):
+        AlertGateway().send_urgent_alert(make_email(), HIGH, "s")
+
+    def test_alert_skipped_by_open_breakers_is_reported_as_undelivered(self):
+        gateway = AlertGateway(telegram_bot_token="t", telegram_chat_id="1")
+        with patch("src.gateways.alerts.requests.post", side_effect=requests.ConnectionError("down")), self.assertLogs(
+            "src.gateways.alerts"
+        ):
+            for i in range(5):
+                with self.assertRaises(AlertDeliveryError):
+                    gateway.send_urgent_alert(make_email(sender=f"p{i}@x.io"), HIGH, "s")
+        with patch("src.gateways.alerts.requests.post") as post, self.assertRaises(AlertDeliveryError):
+            gateway.send_urgent_alert(make_email(sender="p9@x.io"), HIGH, "s")
+        post.assert_not_called()
+
+    def test_failed_alert_does_not_poison_the_dedup_window(self):
+        gateway = AlertGateway(telegram_bot_token="t", telegram_chat_id="1")
+        email = make_email()
+        with patch("src.gateways.alerts.requests.post", side_effect=requests.ConnectionError("down")), self.assertLogs(
+            "src.gateways.alerts"
+        ), self.assertRaises(AlertDeliveryError):
+            gateway.send_urgent_alert(email, HIGH, "s")
+
+        with patch("src.gateways.alerts.requests.post") as post:
+            gateway.send_urgent_alert(email, HIGH, "s")
+
+        self.assertEqual(post.call_count, 1)
+
+    def test_discord_content_is_truncated_to_its_2000_character_limit(self):
+        gateway = AlertGateway(discord_webhook_url=VALID_DISCORD_URL)
+        with patch("src.gateways.alerts.requests.post") as post:
+            gateway.send_urgent_alert(make_email(), HIGH, "x" * 3500)
+
+        self.assertLessEqual(len(post.call_args.kwargs["json"]["content"]), 2000)
 
 
 VALID_DISCORD_URL = "https://discord.com/api/webhooks/123/abc-DEF_1"

@@ -187,11 +187,8 @@ if __name__ == "__main__":
 
 
 class UnreadQueryTests(unittest.TestCase):
-    def test_default_query_limits_age_and_excludes_promotions_and_social(self):
-        self.assertEqual(
-            build_unread_query(3),
-            "is:unread in:inbox newer_than:3d -category:promotions -category:social",
-        )
+    def test_default_query_limits_age_but_never_drops_a_category(self):
+        self.assertEqual(build_unread_query(3), "is:unread in:inbox newer_than:3d")
 
     def test_fetch_unread_uses_configured_query(self):
         client = GmailClient(client_id="", client_secret="", refresh_token="", unread_query="is:unread from:me")

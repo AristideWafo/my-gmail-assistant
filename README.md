@@ -87,7 +87,7 @@ Also configure:
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 - `DISCORD_WEBHOOK_URL` (must be `https://discord.com/api/webhooks/<id>/<token>`)
-- `FETCH_MAX_AGE_DAYS` (default `3`; only unread inbox mails newer than this, excluding promotions/social, are processed) and `FETCH_QUERY` (full Gmail query override)
+- `FETCH_MAX_AGE_DAYS` (default `3`; only unread inbox mails newer than this are processed; promotions are filtered by the classifier, never dropped by the query) and `FETCH_QUERY` (full Gmail query override)
 - `LOW_CONFIDENCE_THRESHOLD` (default `0.50`; below it a mail is labeled and never archived, and only `high` urgency triggers an alert)
 
 ## Health and watchdog

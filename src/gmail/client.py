@@ -15,7 +15,7 @@ from src.gmail.text_cleaning import clean_body, decode_body, extract_domain
 
 
 def build_unread_query(max_age_days: int) -> str:
-    return f"is:unread in:inbox newer_than:{max_age_days}d -category:promotions -category:social"
+    return f"is:unread in:inbox newer_than:{max_age_days}d"
 
 
 @dataclass

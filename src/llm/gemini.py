@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted
 
-from src.formatting import clean_draft, strip_markdown
+from src.formatting import clean_draft, has_placeholder, strip_markdown
 from src.gmail.client import EmailMessage
 from src.llm.rate_limit import RateLimiter
 from src.observability.metrics import Metrics
@@ -139,11 +139,16 @@ class GeminiClient:
         except (json.JSONDecodeError, TypeError) as exc:
             logger.warning("Failed to parse Gemini analysis as JSON: %s", exc)
             Metrics.mark_llm_error("parse")
-            return LLMAnalysis(summary=strip_markdown(raw or ""))
+            return LLMAnalysis()
 
+        draft = clean_draft(str(data.get("draft") or "")) if want_draft else ""
+        if has_placeholder(draft):
+            # A draft with "[Your Name]" left in is worse than none: it could be sent as is.
+            Metrics.mark_llm_error("placeholder")
+            draft = ""
         entities = data.get("entities")
         return LLMAnalysis(
             summary=strip_markdown(str(data.get("summary") or "")),
-            draft=clean_draft(str(data.get("draft") or "")) if want_draft else "",
+            draft=draft,
             entities=entities if want_entities and isinstance(entities, dict) else {},
         )
