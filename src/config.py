@@ -18,5 +18,7 @@ class Settings(BaseSettings):
     startup_checks: str = "warn"
     poll_interval_seconds: int = 60
     low_confidence_threshold: float = 0.50
+    fetch_max_age_days: int = 3
+    fetch_query: str = ""
     sync_history: bool = False
     gmail_user_id: str = "me"

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from googleapiclient.errors import HttpError
 
-from src.gmail.client import GmailClient
+from src.gmail.client import GmailClient, build_unread_query
 
 
 class FakeResponse:
@@ -155,3 +155,21 @@ class GmailClientBackoffTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnreadQueryTests(unittest.TestCase):
+    def test_default_query_limits_age_and_excludes_promotions_and_social(self):
+        self.assertEqual(
+            build_unread_query(3),
+            "is:unread in:inbox newer_than:3d -category:promotions -category:social",
+        )
+
+    def test_fetch_unread_uses_configured_query(self):
+        client = GmailClient(client_id="", client_secret="", refresh_token="", unread_query="is:unread from:me")
+        service = MagicMock()
+        client._service = service
+        service.users().messages().list().execute.return_value = {"messages": []}
+
+        client.fetch_unread()
+
+        self.assertEqual(service.users().messages().list.call_args.kwargs["q"], "is:unread from:me")

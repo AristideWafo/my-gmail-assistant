@@ -12,6 +12,10 @@ from googleapiclient.errors import HttpError
 from src.gmail.text_cleaning import clean_body, decode_body, extract_domain
 
 
+def build_unread_query(max_age_days: int) -> str:
+    return f"is:unread in:inbox newer_than:{max_age_days}d -category:promotions -category:social"
+
+
 @dataclass
 class EmailMessage:
     id: str
@@ -26,7 +30,15 @@ class EmailMessage:
 class GmailClient:
     SCOPES: ClassVar[list[str]] = ["https://www.googleapis.com/auth/gmail.modify"]
 
-    def __init__(self, client_id: str, client_secret: str, refresh_token: str, user_id: str = "me") -> None:
+    def __init__(
+        self,
+        client_id: str,
+        client_secret: str,
+        refresh_token: str,
+        user_id: str = "me",
+        unread_query: str | None = None,
+    ) -> None:
+        self._unread_query = unread_query or build_unread_query(3)
         self._client_id = client_id
         self._client_secret = client_secret
         self._refresh_token = refresh_token
@@ -58,7 +70,7 @@ class GmailClient:
     def fetch_unread(self, max_results: int = 10, max_retries: int = 5) -> list[EmailMessage]:
         if not self._service:
             return []
-        return self._list_and_parse(query="is:unread", max_results=max_results, max_retries=max_retries)
+        return self._list_and_parse(query=self._unread_query, max_results=max_results, max_retries=max_retries)
 
     def fetch_history(self, max_results: int = 100, max_retries: int = 5) -> list[EmailMessage]:
         if not self._service:
