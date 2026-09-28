@@ -8,8 +8,8 @@ Ce document suit l'architecture cible (voir `README.md` pour l'usage) et l'état
 - ✅ `fetch_history` avec pagination + backoff exponentiel sur 429
 - ✅ Dockerisation, `docker-compose.yml`, `install.sh`
 - ✅ `fetch_unread` partage désormais le même backoff exponentiel (`_execute_with_backoff`)
-- ⬜ **[Priorité 1 · coût trivial]** Corriger `EmailMessage.body` : jamais décodé du base64 Gmail (`GmailClient._parse_message`) — JEV et Gemini reçoivent actuellement du base64 brut au lieu du texte. Bug de correction pure, aucune dépendance, à faire avant tout le reste
-- ⬜ **[Priorité 2 · coût faible]** Pré-traitement du contenu avant triage : strip HTML/signatures/disclaimers, troncature à 500-1000 mots, extraction du domaine expéditeur (`@linkedin.com`, etc.) — réduit le bruit envoyé à JEV et les tokens envoyés à Gemini
+- ✅ **[Priorité 1]** `EmailMessage.body` décodé du base64 Gmail (`src/gmail/text_cleaning.decode_body`), plus fallback sur la part `text/html` si aucune part `text/plain` n'existe
+- ✅ **[Priorité 2]** Pré-traitement du contenu avant triage (`src/gmail/text_cleaning.py`) : strip HTML/entités, coupe au séparateur de signature RFC 3676, troncature à 1000 mots, extraction du domaine expéditeur (`EmailMessage.sender_domain`)
 
 ## Phase 2 — Intégration JEV et triage logique
 
