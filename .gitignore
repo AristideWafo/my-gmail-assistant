@@ -149,6 +149,7 @@ activemq-data/
 
 # Environments
 .env
+client_secret*.json
 .envrc
 .venv
 env/

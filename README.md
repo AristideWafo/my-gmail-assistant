@@ -62,6 +62,21 @@ python main.py --sync-history
    - `GOOGLE_CLIENT_SECRET`
    - `GMAIL_REFRESH_TOKEN`
 
+### Getting the refresh token (server without a browser)
+
+The server only needs the three values in `.env`; it refreshes access tokens on its own. Generate them once on a machine that has a browser:
+
+1. In Google Cloud, create an OAuth client of type **Desktop app** and download its JSON (keep it out of git).
+2. On the OAuth consent screen, publish the app (**In production**); in *Testing* mode the refresh token expires after 7 days.
+3. On your workstation:
+
+   ```bash
+   pip install google-auth-oauthlib
+   python -m src.gmail.token_setup client_secret.json
+   ```
+
+4. Log in in the browser, then paste the three printed lines into the server's `.env`.
+
 Also configure:
 
 - `GEMINI_API_KEY`
