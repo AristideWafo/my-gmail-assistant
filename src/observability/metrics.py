@@ -9,7 +9,8 @@ class Metrics:
         ["urgency", "category"],
     )
     triage_latency = Histogram("triage_latency_seconds", "Latency of triage and routing execution")
-    llm_tokens = Counter("llm_tokens_total", "Estimated tokens consumed", ["kind"])
+    llm_tokens = Counter("llm_tokens_total", "Tokens consumed, as reported by the LLM API", ["kind", "token_type"])
+    llm_cost_usd = Counter("llm_cost_usd_total", "Estimated USD cost of LLM calls", ["kind"])
     jev_fallback = Counter(
         "jev_fallback_total",
         "Times the JEV API was unreachable and the heuristic fallback was used",
@@ -30,8 +31,11 @@ class Metrics:
         cls.processed_emails.labels(urgency=urgency, category=category).inc()
 
     @classmethod
-    def mark_tokens(cls, kind: str, amount: int) -> None:
-        cls.llm_tokens.labels(kind=kind).inc(max(amount, 0))
+    def mark_llm_usage(cls, kind: str, prompt_tokens: int, completion_tokens: int, cost_usd: float | None) -> None:
+        cls.llm_tokens.labels(kind=kind, token_type="prompt").inc(max(prompt_tokens, 0))
+        cls.llm_tokens.labels(kind=kind, token_type="completion").inc(max(completion_tokens, 0))
+        if cost_usd is not None:
+            cls.llm_cost_usd.labels(kind=kind).inc(max(cost_usd, 0))
 
     @classmethod
     def mark_jev_fallback(cls) -> None:

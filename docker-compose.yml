@@ -31,17 +31,31 @@ services:
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
 
   grafana:
     image: grafana/grafana:latest
     container_name: gmail-assistant-grafana
     restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     ports:
       - "3000:3000"
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
     depends_on:
       - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
 
 volumes:
   prometheus-data:
