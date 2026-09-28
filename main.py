@@ -43,7 +43,7 @@ class ApplicationContext:
         triage = result["triage"]
         route = result["route"]
 
-        if route == "archive":
+        if route == "reject":
             self.gmail.archive_message(email.id)
         elif route == "label":
             self.gmail.label_message(email.id, triage.category)

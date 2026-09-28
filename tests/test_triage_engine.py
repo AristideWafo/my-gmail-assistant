@@ -29,6 +29,37 @@ class DecisionEngineFallbackTests(unittest.TestCase):
         self.assertEqual(result.urgency, "high")
         self.assertEqual(Metrics.jev_fallback._value.get(), before + 1)
 
+    def test_fallback_detects_newsletter_by_sender(self):
+        client = DecisionEngineClient(api_url="")
+        email = EmailMessage(
+            id="2",
+            thread_id="t2",
+            sender="newsletter@brand.com",
+            subject="This week's digest",
+            snippet="Great deals inside, click to unsubscribe",
+            body="",
+        )
+
+        result = client.classify(email)
+
+        self.assertEqual(result.category, "newsletter")
+        self.assertEqual(result.urgency, "low")
+
+    def test_normalize_category_accepts_spam_and_newsletter(self):
+        client = DecisionEngineClient(api_url="https://jev.example/triage")
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"urgency": "low", "category": "spam", "confidence": 0.4}
+
+        with patch("src.triage.engine.requests.post", return_value=FakeResponse()):
+            result = client.classify(self.email)
+
+        self.assertEqual(result.category, "spam")
+
     def test_classify_uses_jev_response_when_available(self):
         client = DecisionEngineClient(api_url="https://jev.example/triage")
 

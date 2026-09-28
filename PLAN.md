@@ -17,7 +17,7 @@ Ce document suit l'architecture cible (voir `README.md` pour l'usage) et l'état
 - ✅ `EmailWorkflow` (LangGraph) : graphe `classify → (llm | archive | label)`
 - 🟡 JEV appelé en HTTP externe, pas hébergé localement comme prévu au plan initial (accepté tel quel, hors scope actuel)
 - ✅ Échec JEV loggé (`logger.warning`) et compté (`jev_fallback_total`)
-- ⬜ **[Priorité 3 · coût trivial]** Scinder la route `archive` en 2 : rejet silencieux (spam/newsletter, zéro notification) vs standard en attente (label + pas de notification) — extension directe de la table de routage existante, aucune nouvelle dépendance
+- ✅ **[Priorité 3]** Route renommée `archive` → `reject` ; catégories `spam`/`newsletter` désormais acceptées (`_normalize_category`) et routées vers `reject` peu importe l'urgence ; fallback heuristique détecte les newsletters via sender (`no-reply`/`newsletter`/`unsubscribe`)
 - ⬜ **[Priorité 4 · coût moyen-élevé, conditionnel]** Taxonomie JEV enrichie (`offre_emploi / mise_en_relation / newsletter / notification_systeme / personnel / spam` au lieu de `offer/general/urgent`) — **préalable obligatoire : vérifier que l'API JEV externe accepte ce schéma avant de coder quoi que ce soit** ; le fallback heuristique par mots-clés restera peu fiable sur spam/newsletter (mieux détectés via header `List-Unsubscribe` que via le texte)
 
 ## Phase 3 — LLM et boucle d'action
