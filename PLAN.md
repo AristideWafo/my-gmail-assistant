@@ -41,7 +41,7 @@ Ce document suit l'architecture cible (voir `README.md` pour l'usage) et l'état
 ## Risques ouverts (indépendants des phases)
 
 - Pas de limite mémoire Docker sur `prometheus`/`grafana`, seul `assistant` est borné — risque swap/crash sur VPS 4 Go
-- Pas de déduplication par `message.id` — un crash entre triage et action peut retraiter un e-mail en double
+- Déduplication par `message.id` en mémoire seulement (24 h, `ExpiringSet`) : un redémarrage entre l'alerte et le label peut ré-alerter un mail (point de commit = label qui retire UNREAD)
 - Pas de persistance (DB/state store) pour le feedback ou l'historique de décisions
 
 ---
