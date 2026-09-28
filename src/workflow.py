@@ -13,6 +13,7 @@ class TriageState(TypedDict, total=False):
     summary: str
     draft: str
     route: str
+    entities: dict[str, Any]
 
 
 class EmailWorkflow:
@@ -52,9 +53,13 @@ class EmailWorkflow:
 
     def _llm_node(self, state: TriageState) -> dict[str, Any]:
         email = state["email"]
+        triage = state["triage"]
         summary = self.gemini.summarize(email)
         draft = self.gemini.draft_reply(email)
-        return {"summary": summary, "draft": draft, "route": "llm"}
+        result: dict[str, Any] = {"summary": summary, "draft": draft, "route": "llm"}
+        if triage.category == "offer":
+            result["entities"] = self.gemini.extract_job_entities(email)
+        return result
 
     @staticmethod
     def _reject_node(_: TriageState) -> dict[str, Any]:

@@ -25,7 +25,7 @@ Ce document suit l'architecture cible (voir `README.md` pour l'usage) et l'état
 - ✅ `GeminiClient` : summary + draft reply
 - ✅ Routage 3 voies : `archive` (low+general), `label` (medium/offer), `llm` (high/low confidence)
 - ✅ `archive_message`, `label_message`/`ensure_label`, `create_draft` (bug d'encodage hex→base64url corrigé) appelés depuis `main.py::process_email`
-- ⬜ **[Priorité 5 · coût moyen]** Extraction d'entités structurées par Gemini pour les offres d'emploi (poste, stack, salaire, entreprise, prochaine étape) — isolé à la branche déjà escaladée (`llm`), surcoût Gemini marginal car limité aux mails à haute valeur
+- ✅ **[Priorité 5]** `GeminiClient.extract_job_entities` (poste/entreprise/stack/salaire/prochaine_etape en JSON strict, fallback `{}` sur parsing invalide) appelé depuis `_llm_node` uniquement quand `category == "offer"` ; entités ajoutées au texte d'alerte dans `main.py`
 - ⬜ **[Priorité 6 · coût élevé, à différer]** Boucle d'auto-apprentissage (boutons `[Valider]/[Faux-Urgent]/[Faux-Spam]` sur Telegram/Discord, stockage des corrections, few-shot injecté dans le prompt JEV) — nécessite : (a) un store persistant inexistant aujourd'hui (SQLite/JSON), (b) un récepteur de callbacks entrants (bot Telegram polling/webhook, endpoint Discord Interactions) — actuellement `AlertGateway` n'envoie qu'en sortant. **Préalable obligatoire : confirmer que JEV accepte l'injection de contexte few-shot** (si API à schéma fixe, cette brique entière est à revoir) — ne pas démarrer avant d'avoir mesuré la précision du routage actuel en usage réel
 - ⬜ Interaction retour utilisateur (répondre depuis Telegram/Discord → envoi mail) — dépend de la même brique callback entrant que la boucle d'apprentissage ci-dessus, à traiter ensemble
 
@@ -47,13 +47,9 @@ Ce document suit l'architecture cible (voir `README.md` pour l'usage) et l'état
 
 ## Prochaine étape
 
-Backlog priorisé pour minimiser le coût de production futur (du moins cher/plus sûr au plus cher/plus risqué) :
+Priorités 1, 2, 3, 5 traitées (stack de 3 PR : #6 base64+pré-traitement, #7 routage reject, #8 extraction entités offres). Restent :
 
-1. Fix décodage base64 du corps (Phase 1) — bug, gratuit
-2. Pré-traitement du contenu (Phase 1) — faible coût, gain direct sur tokens/bruit
-3. Split route archive rejet/standard (Phase 2) — trivial, extension du code existant
 4. Taxonomie JEV enrichie (Phase 2) — **sous réserve** que JEV supporte le schéma étendu
-5. Extraction d'entités Gemini pour offres (Phase 3) — coût maîtrisé, isolé à la branche à haute valeur
 6. Boucle d'auto-apprentissage + interaction chat→email (Phase 3) — reporté, coût d'infra le plus élevé (bot + stockage + endpoint public), à ne démarrer qu'après mesure de la précision réelle et confirmation du support few-shot par JEV
 
 Phase 4 (dashboards Grafana provisionnés, tracing coût LLM réel) reste en parallèle, indépendante de ce backlog.

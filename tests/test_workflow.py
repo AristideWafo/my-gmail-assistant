@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from src.gmail.client import EmailMessage
 from src.triage.engine import DecisionEngineClient
@@ -11,6 +12,9 @@ class FakeGemini:
 
     def draft_reply(self, email):
         return f"draft for {email.subject}"
+
+    def extract_job_entities(self, email):
+        return {"poste": "DevOps", "entreprise": "Acme"}
 
 
 class WorkflowTests(unittest.TestCase):
@@ -74,6 +78,32 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result["route"], "llm")
         self.assertIn("summary", result)
         self.assertIn("draft", result)
+        self.assertNotIn("entities", result)
+
+    def test_urgent_offer_extracts_entities(self):
+        workflow = EmailWorkflow(DecisionEngineClient(api_url="https://jev.example/triage"), FakeGemini())
+        email = EmailMessage(
+            id="5",
+            thread_id="t5",
+            sender="recruiter@example.com",
+            subject="Job offer",
+            snippet="We'd like to interview you",
+            body="",
+        )
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"urgency": "high", "category": "offer", "confidence": 0.9}
+
+        with patch("src.triage.engine.requests.post", return_value=FakeResponse()):
+            result = workflow.run(email)
+
+        self.assertEqual(result["triage"].category, "offer")
+        self.assertEqual(result["route"], "llm")
+        self.assertEqual(result["entities"], {"poste": "DevOps", "entreprise": "Acme"})
 
 
 if __name__ == "__main__":
