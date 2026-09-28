@@ -36,7 +36,7 @@ class ApplicationContext:
             telegram_chat_id=settings.telegram_chat_id,
             discord_webhook_url=settings.discord_webhook_url,
         )
-        self.workflow = EmailWorkflow(self.triage, self.gemini)
+        self.workflow = EmailWorkflow(self.triage, self.gemini, settings.low_confidence_threshold)
 
     def connection_probes(self):
         return {
