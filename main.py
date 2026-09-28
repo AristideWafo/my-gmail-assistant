@@ -1,18 +1,26 @@
 import argparse
 import asyncio
 import logging
+import os
 from contextlib import suppress
 from time import perf_counter
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from src.config import Settings
 from src.expiring_set import ExpiringSet
 from src.gateways import AlertGateway
 from src.gmail import GmailClient
 from src.gmail.client import build_unread_query
-from src.health import StartupCheckMode, format_status_report, run_startup_checks
+from src.health import (
+    PollHealth,
+    StartupCheckMode,
+    format_status_report,
+    run_startup_checks,
+    run_watchdog,
+)
 from src.llm import GeminiClient
 from src.observability import Metrics
 from src.triage import DecisionEngineClient
@@ -48,6 +56,7 @@ class ApplicationContext:
         )
         self.workflow = EmailWorkflow(self.triage, self.gemini, settings.low_confidence_threshold)
         self.alerted = ExpiringSet(ALERTED_TTL_SECONDS)
+        self.health = PollHealth(settings.poll_stale_after_seconds)
 
     def connection_probes(self):
         return {
@@ -77,6 +86,7 @@ class ApplicationContext:
             self._handle_urgent(email, triage, result)
 
         Metrics.mark_processed(triage.urgency, triage.category)
+        Metrics.mark_route(route, triage.urgency, triage.confidence)
         Metrics.triage_latency.observe(perf_counter() - started)
         logger.info(
             "Processed email %s with urgency=%s category=%s confidence=%.2f",
@@ -120,17 +130,27 @@ def poll_once(ctx: ApplicationContext) -> None:
         return
 
     logger.info("Polled Gmail: %d unread email(s)", len(emails))
+    Metrics.mark_poll_success()
+    ctx.health.beat()
     for email in emails:
         try:
             ctx.process_email(email)
         except Exception:
+            Metrics.mark_email_skipped()
             logger.exception("Failed to process email %s; skipping", email.id)
+        ctx.health.beat()
 
 
 async def polling_loop(ctx: ApplicationContext):
     while True:
-        poll_once(ctx)
+        # poll_once blocks on network and LLM rate limiting; keep it off the event loop so /healthz stays responsive.
+        await asyncio.to_thread(poll_once, ctx)
         await asyncio.sleep(ctx.settings.poll_interval_seconds)
+
+
+def terminate_process(reason: str) -> None:
+    logger.critical("Polling is unhealthy (%s); exiting so the container restarts", reason)
+    os._exit(1)
 
 
 def create_app(sync_history: bool | None = None) -> FastAPI:
@@ -140,10 +160,15 @@ def create_app(sync_history: bool | None = None) -> FastAPI:
 
     ctx = ApplicationContext(settings)
     app = FastAPI(title="my-gmail-assistant", version="0.1.0")
+    app.state.ctx = ctx
     app.include_router(Metrics.router())
 
     @app.get("/healthz")
     async def healthz():
+        task = getattr(app.state, "polling_task", None)
+        problem = ctx.health.problem(task_done=task is not None and task.done())
+        if problem:
+            return JSONResponse({"status": "unhealthy", "reason": problem}, status_code=503)
         return {"status": "ok"}
 
     @app.on_event("startup")
@@ -167,12 +192,18 @@ def create_app(sync_history: bool | None = None) -> FastAPI:
                 ctx.process_email(email)
 
         app.state.polling_task = asyncio.create_task(polling_loop(ctx))
+        if settings.watchdog_enabled:
+            app.state.watchdog_task = asyncio.create_task(
+                run_watchdog(ctx.health, app.state.polling_task.done, terminate_process)
+            )
 
     @app.on_event("shutdown")
     async def shutdown_event():
-        app.state.polling_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await app.state.polling_task
+        for task in (app.state.polling_task, getattr(app.state, "watchdog_task", None)):
+            if task:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
 
     return app
 

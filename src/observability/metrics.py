@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Response
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
 
 class Metrics:
@@ -11,6 +11,15 @@ class Metrics:
     triage_latency = Histogram("triage_latency_seconds", "Latency of triage and routing execution")
     llm_tokens = Counter("llm_tokens_total", "Tokens consumed, as reported by the LLM API", ["kind", "token_type"])
     llm_cost_usd = Counter("llm_cost_usd_total", "Estimated USD cost of LLM calls", ["kind"])
+    routes = Counter("triage_route_total", "Emails per routing decision", ["route"])
+    triage_confidence = Histogram(
+        "triage_confidence",
+        "Combined JEV confidence, to calibrate the low-confidence threshold",
+        ["urgency"],
+        buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+    )
+    emails_skipped = Counter("emails_skipped_total", "Emails whose processing failed and was retried next cycle")
+    last_poll_timestamp = Gauge("last_successful_poll_timestamp_seconds", "Unix time of the last successful Gmail fetch")
     alerts = Counter("alerts_total", "Alert delivery outcomes per channel", ["channel", "status"])
     llm_errors = Counter("llm_errors_total", "Failed or degraded LLM calls", ["reason"])
     jev_fallback = Counter(
@@ -50,3 +59,16 @@ class Metrics:
     @classmethod
     def mark_alert(cls, channel: str, status: str) -> None:
         cls.alerts.labels(channel=channel, status=status).inc()
+
+    @classmethod
+    def mark_route(cls, route: str, urgency: str, confidence: float) -> None:
+        cls.routes.labels(route=route).inc()
+        cls.triage_confidence.labels(urgency=urgency).observe(confidence)
+
+    @classmethod
+    def mark_email_skipped(cls) -> None:
+        cls.emails_skipped.inc()
+
+    @classmethod
+    def mark_poll_success(cls) -> None:
+        cls.last_poll_timestamp.set_to_current_time()
