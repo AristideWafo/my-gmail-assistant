@@ -1,6 +1,25 @@
 # CHANGELOG
 
 
+## v0.1.1 (2026-09-28)
+
+### Bug Fixes
+
+- Decode Gmail body from base64 and pre-clean content (P1+P2)
+  ([#6](https://github.com/AristideWafo/my-gmail-assistant/pull/6),
+  [`41b9bb2`](https://github.com/AristideWafo/my-gmail-assistant/commit/41b9bb25cafb5a76899ee2c57ada8adf2c26a1e9))
+
+- new src/gmail/text_cleaning.py: pure stdlib helpers (decode_body, strip_html, strip_signature,
+  truncate_words, extract_domain, clean_body) - GmailClient._parse_message now decodes the base64
+  body Gmail returns instead of storing it raw (JEV/Gemini were receiving unusable base64) - falls
+  back to the text/html part when no text/plain part exists, so HTML-only emails no longer lose
+  their body entirely - body is stripped of HTML tags/signatures and truncated to 1000 words before
+  it ever reaches JEV/Gemini, cutting noise and token usage - EmailMessage gains sender_domain,
+  extracted once at parse time for reuse by future routing heuristics
+
+Co-authored-by: Claude Sonnet 5 <noreply@anthropic.com>
+
+
 ## v0.1.0 (2026-09-28)
 
 ### Features
