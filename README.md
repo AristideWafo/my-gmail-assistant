@@ -90,6 +90,10 @@ Also configure:
 - `FETCH_MAX_AGE_DAYS` (default `3`; only unread inbox mails newer than this, excluding promotions/social, are processed) and `FETCH_QUERY` (full Gmail query override)
 - `LOW_CONFIDENCE_THRESHOLD` (default `0.50`; below it a mail is labeled and never archived, and only `high` urgency triggers an alert)
 
+## Health and watchdog
+
+`/healthz` returns 503 when the polling task has stopped or shows no activity for `max(5 x POLL_INTERVAL_SECONDS, 600)` seconds. With `WATCHDOG_ENABLED=true` (default) an in-process watchdog then exits the process so Docker's `restart: unless-stopped` brings it back; a Docker healthcheck alone only marks the container unhealthy.
+
 ## Startup connection checks
 
 At startup the app probes every configured connection (Gmail, Gemini, JEV, Telegram, Discord) with read-only calls and logs one line per service (`OK`, `FAILED` or `SKIPPED` when not configured). No message is sent; secrets never appear in the logs. `STARTUP_CHECKS` controls the behavior:

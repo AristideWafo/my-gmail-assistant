@@ -20,7 +20,13 @@ class Settings(BaseSettings):
     startup_checks: str = "warn"
     poll_interval_seconds: int = 60
     low_confidence_threshold: float = 0.50
+    watchdog_enabled: bool = True
     fetch_max_age_days: int = 3
     fetch_query: str = ""
     sync_history: bool = False
     gmail_user_id: str = "me"
+
+    @property
+    def poll_stale_after_seconds(self) -> int:
+        # Generous: a single mail can wait on LLM rate limiting and retries for a few minutes.
+        return max(5 * self.poll_interval_seconds, 600)
