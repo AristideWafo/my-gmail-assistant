@@ -16,10 +16,16 @@ class TriageState(TypedDict, total=False):
     entities: dict[str, Any]
 
 
+NON_ALERTABLE_CATEGORIES = {"spam", "newsletter"}
+
+
 class EmailWorkflow:
-    def __init__(self, decision_engine: DecisionEngineClient, gemini: GeminiClient):
+    def __init__(
+        self, decision_engine: DecisionEngineClient, gemini: GeminiClient, low_confidence_threshold: float = 0.50
+    ):
         self.decision_engine = decision_engine
         self.gemini = gemini
+        self.low_confidence_threshold = low_confidence_threshold
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -69,13 +75,14 @@ class EmailWorkflow:
     def _label_node(_: TriageState) -> dict[str, Any]:
         return {"route": "label"}
 
-    @staticmethod
-    def _route_after_triage(state: TriageState) -> str:
+    def _route_after_triage(self, state: TriageState) -> str:
         triage = state["triage"]
-        if triage.urgency == "high" or triage.confidence < 0.50:
+        confident = triage.confidence >= self.low_confidence_threshold
+        # Low confidence must never trigger an alert or an archive: an uncertain mail stays visible, labeled.
+        if triage.category in NON_ALERTABLE_CATEGORIES:
+            return "reject" if triage.urgency != "high" and confident else "label"
+        if triage.urgency == "high":
             return "llm"
-        if triage.category in {"spam", "newsletter"}:
-            return "reject"
-        if triage.urgency == "low" and triage.category == "notification_systeme":
+        if triage.urgency == "low" and triage.category == "notification_systeme" and confident:
             return "reject"
         return "label"
