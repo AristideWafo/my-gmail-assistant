@@ -8,11 +8,11 @@ requires-python = ">=3.11"
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
 branch = "prod"
-build_command = false
+build_command = ""
 commit_message = "chore(release): {version} [skip ci]"
 tag_format = "v{version}"
 
-[tool.semantic_release.changelog]
+[tool.semantic_release.changelog.default_templates]
 changelog_file = "CHANGELOG.md"
 
 [tool.semantic_release.branches.main]
