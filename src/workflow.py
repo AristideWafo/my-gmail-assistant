@@ -8,7 +8,7 @@ from src.gmail.client import EmailMessage
 from src.llm.gemini import GeminiClient, LLMAnalysis
 from src.observability.metrics import Metrics
 from src.triage.engine import DecisionEngineClient, TriageResult
-from src.triage.rules import is_automated_sender
+from src.triage.rules import apply_rules, is_automated_sender
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,8 @@ class TriageState(TypedDict, total=False):
     entities: dict[str, Any]
 
 
-NON_ALERTABLE_CATEGORIES = {"spam", "newsletter"}
+NON_ALERTABLE_CATEGORIES = {"spam", "newsletter", "promotion", "alerte_emploi"}
+KEEP_VISIBLE_CATEGORIES = {"alerte_emploi"}
 DRAFTABLE_CATEGORIES = {"personnel", "mise_en_relation", "offre_emploi"}
 SUMMARY_UNAVAILABLE = "(résumé indisponible)"
 FALLBACK_SNIPPET_LIMIT = 300
@@ -63,8 +64,8 @@ class EmailWorkflow:
         return self.graph.invoke({"email": email})
 
     def _triage_node(self, state: TriageState) -> dict[str, Any]:
-        triage = self.decision_engine.classify(state["email"])
-        return {"triage": triage}
+        email = state["email"]
+        return {"triage": apply_rules(email.sender) or self.decision_engine.classify(email)}
 
     def _llm_node(self, state: TriageState) -> dict[str, Any]:
         email = state["email"]
@@ -100,7 +101,8 @@ class EmailWorkflow:
         confident = triage.confidence >= self.low_confidence_threshold
         # Low confidence must never trigger an alert or an archive: an uncertain mail stays visible, labeled.
         if triage.category in NON_ALERTABLE_CATEGORIES:
-            return "reject" if triage.urgency != "high" and confident else "label"
+            archivable = triage.urgency != "high" and confident and triage.category not in KEEP_VISIBLE_CATEGORIES
+            return "reject" if archivable else "label"
         if triage.urgency == "high":
             return "llm"
         if triage.urgency == "low" and triage.category == "notification_systeme" and confident:

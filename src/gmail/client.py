@@ -2,6 +2,7 @@ import base64
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from email.mime.text import MIMEText
 from email.utils import parseaddr
 from typing import Any, ClassVar
@@ -26,6 +27,7 @@ class EmailMessage:
     snippet: str
     body: str
     sender_domain: str = ""
+    received_at: str = ""
 
 
 class GmailClient:
@@ -213,4 +215,12 @@ class GmailClient:
             snippet=snippet,
             body=body,
             sender_domain=extract_domain(sender),
+            received_at=cls._received_at(message),
         )
+
+    @staticmethod
+    def _received_at(message: dict[str, Any]) -> str:
+        try:
+            return datetime.fromtimestamp(int(message["internalDate"]) / 1000, tz=UTC).date().isoformat()
+        except (KeyError, ValueError, TypeError):
+            return ""
