@@ -78,10 +78,28 @@ class ApplicationContext:
         )
 
 
+def poll_once(ctx: ApplicationContext) -> None:
+    # asyncio.create_task's result is never awaited or retrieved (see startup_event), so an
+    # exception raised out of here would kill polling forever with zero log line - the task just
+    # dies silently and nothing is ever processed again until the container restarts. Every
+    # failure must therefore be caught and logged right here, never allowed to propagate.
+    try:
+        emails = ctx.gmail.fetch_unread()
+    except Exception:
+        logger.exception("Failed to fetch unread emails; will retry next cycle")
+        return
+
+    logger.info("Polled Gmail: %d unread email(s)", len(emails))
+    for email in emails:
+        try:
+            ctx.process_email(email)
+        except Exception:
+            logger.exception("Failed to process email %s; skipping", email.id)
+
+
 async def polling_loop(ctx: ApplicationContext):
     while True:
-        for email in ctx.gmail.fetch_unread():
-            ctx.process_email(email)
+        poll_once(ctx)
         await asyncio.sleep(ctx.settings.poll_interval_seconds)
 
 
