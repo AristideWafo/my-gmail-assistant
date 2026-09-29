@@ -10,7 +10,9 @@ main.py
     ├── gmail/          # OAuth2 Gmail client + unread/history ingestion + labels/drafts
     ├── triage/         # Fast triage decision engine (JEV API + fallback heuristics)
     ├── llm/            # Gemini summary + draft generation
-    ├── gateways/       # Telegram/Discord webhook notifications
+    ├── gateways/       # Telegram bot (alerts + inbound polling), Discord webhook
+    ├── interactions/   # Telegram buttons and replies -> feedback, Gmail drafts
+    ├── storage/        # SQLite decisions, feedback, alert dedup, bot state
     └── observability/  # /metrics endpoint (Prometheus counters + latency + token usage)
 ```
 
@@ -21,6 +23,7 @@ main.py
   2. only `urgency=high` (or low confidence) paths invoke `src/llm` Gemini generation
 - **Retroactive ingestion** with `--sync-history` startup flag and Gmail 429 exponential backoff
 - **Urgency alerts** to Telegram + Discord
+- **Feedback and replies from Telegram** (see below)
 - **Observability** at `GET /metrics`
 
 ## Quick install
@@ -102,6 +105,22 @@ At startup the app probes every configured connection (Gmail, Gemini, JEV, Teleg
 - `strict`: refuse to start if any configured connection fails.
 - `off`: skip the checks.
 
+## Feedback and replies from Telegram
+
+With `TELEGRAM_INBOUND_ENABLED=true` (and `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` set) the assistant long-polls the bot in a background thread:
+
+- Each urgent alert carries **[Valider] / [Faux-Urgent] / [Faux-Spam]**. Verdicts are stored in SQLite and counted in `feedback_total{verdict}` to measure routing precision.
+- **Replying** to an alert in Telegram creates a Gmail reply draft in the original thread and shows a preview with **[Envoyer] / [Annuler]**. Nothing is sent until you press [Envoyer] on that preview (buttons forged for another draft or pressed elsewhere are refused); each draft is sent at most once. If the send call fails its outcome is uncertain: check Gmail's Sent folder before sending the draft by hand. Outcomes are counted in `chat_replies_total{status}`.
+- `JEV_FEW_SHOT_ENABLED=true` additionally sends your latest Faux-Urgent/Faux-Spam corrections to JEV as examples. Only the sender's domain and the subject (truncated to 100 characters) are sent, never the body, but a subject is still attacker-chosen text replayed into every later classification. Off by default until verified against the live API.
+
+Only one process may poll a given bot token: Telegram returns 409 to a second poller, so enable the flag on a single instance.
+
+**Who may act.** Updates are accepted only from `TELEGRAM_CHAT_ID` *and* from an allowed user. In a private chat the chat id is your user id, so nothing else is needed. For a group or channel chat set `TELEGRAM_ALLOWED_USER_IDS` (comma-separated numeric user ids); without it the listener refuses to start, logs an error and alerts are sent without buttons. Posts made anonymously as the group or a channel are always refused. Rejected updates are only logged at DEBUG and counted in `telegram_inbound_rejected_total{reason}` (`foreign_chat`, `unauthorized_user`, `malformed`). Listener health: `telegram_poll_errors_total` and `telegram_last_poll_timestamp_seconds`. Discord stays outbound-only (buttons there need a public HTTPS Interactions endpoint).
+
+State lives in the SQLite file at `DB_PATH` (default `data/assistant.db`; `/data/assistant.db` in the image, on the `assistant-data` named volume). It holds subjects, senders and body excerpts, so when the app creates the file it is `0600` (and its directory `0700` if the app creates it). Prefer the named volume: with a bind mount the host directory must be writable by the container's `app` user, and its ownership and mode are yours to manage. Back it up with `sqlite3 assistant.db ".backup backup.db"`, or stop the container and copy `assistant.db` together with its `-wal` and `-shm` files.
+
+The store also persists alert dedup across restarts: an alerted mail is not alerted again for 24 hours, so a mail you mark unread again after that is processed anew. Retention is 90 days, pruned at startup and then daily: decisions without a verdict, alert markers and reply/send dedup state are deleted; verdicts and the Telegram offset are kept.
+
 ## Docker deployment
 
 Build and run the assistant, Prometheus, and Grafana:
@@ -115,7 +134,7 @@ Useful endpoints:
 - Assistant health: `http://localhost:8000/healthz`
 - Metrics: `http://localhost:8000/metrics`
 - Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000` — pre-provisioned with the Prometheus datasource and a "Gmail Assistant" dashboard (processed emails, triage latency, JEV fallback rate, LLM tokens and cost). Login `admin` / `GRAFANA_ADMIN_PASSWORD` (defaults to `admin` if unset — set it in `.env`).
+- Grafana: `http://localhost:3000` — pre-provisioned with the Prometheus datasource and a "Gmail Assistant" dashboard (processed emails, triage latency, JEV fallback rate, LLM tokens and cost, alert feedback, Telegram replies and Telegram listener health). Login `admin` / `GRAFANA_ADMIN_PASSWORD` (defaults to `admin` if unset — set it in `.env`).
 
 ## CI/CD
 
