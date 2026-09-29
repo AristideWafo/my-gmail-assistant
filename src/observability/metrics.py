@@ -20,6 +20,13 @@ class Metrics:
     )
     emails_skipped = Counter("emails_skipped_total", "Emails whose processing failed and was retried next cycle")
     last_poll_timestamp = Gauge("last_successful_poll_timestamp_seconds", "Unix time of the last successful Gmail fetch")
+    telegram_rejected = Counter(
+        "telegram_inbound_rejected_total", "Inbound Telegram updates dropped", ["reason"]
+    )
+    telegram_poll_errors = Counter("telegram_poll_errors_total", "Failed Telegram getUpdates calls")
+    telegram_last_poll = Gauge(
+        "telegram_last_poll_timestamp_seconds", "Unix time of the last successful Telegram poll"
+    )
     alerts = Counter("alerts_total", "Alert delivery outcomes per channel", ["channel", "status"])
     llm_errors = Counter("llm_errors_total", "Failed or degraded LLM calls", ["reason"])
     jev_fallback = Counter(
@@ -59,6 +66,18 @@ class Metrics:
     @classmethod
     def mark_alert(cls, channel: str, status: str) -> None:
         cls.alerts.labels(channel=channel, status=status).inc()
+
+    @classmethod
+    def mark_telegram_rejected(cls, reason: str) -> None:
+        cls.telegram_rejected.labels(reason=reason).inc()
+
+    @classmethod
+    def mark_telegram_poll_success(cls) -> None:
+        cls.telegram_last_poll.set_to_current_time()
+
+    @classmethod
+    def mark_telegram_poll_error(cls) -> None:
+        cls.telegram_poll_errors.inc()
 
     @classmethod
     def mark_route(cls, route: str, urgency: str, confidence: float) -> None:
