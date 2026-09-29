@@ -195,14 +195,14 @@ class DecisionPersistenceTests(unittest.TestCase):
 
 class FewShotWiringTests(unittest.TestCase):
     def test_disabled_by_default(self):
-        self.assertIsNone(ApplicationContext(make_settings()).triage.examples_provider)
+        self.assertIsNone(ApplicationContext(make_settings()).triage.primary.examples_provider)
 
     def test_enabled_provider_reads_corrections_from_the_store(self):
         ctx = ApplicationContext(make_settings(jev_few_shot_enabled=True))
         ctx.store.record_decision(make_email(), TriageResult("high", "personnel", 0.9), "llm")
         ctx.store.record_feedback("m1", "false_urgent")
 
-        examples = ctx.triage.examples_provider()
+        examples = ctx.triage.primary.examples_provider()
 
         self.assertEqual(len(examples), 1)
         self.assertEqual(examples[0]["sender_domain"], "b.com")

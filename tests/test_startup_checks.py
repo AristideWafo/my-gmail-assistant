@@ -9,7 +9,7 @@ from src.gateways import AlertGateway
 from src.gateways.telegram_bot import TelegramBot
 from src.gmail.client import GmailClient
 from src.health import StartupCheckError, StartupCheckMode, run_startup_checks
-from src.triage.engine import DecisionEngineClient
+from src.triage import HeuristicClassifier, JevClassifier
 
 VALID_DISCORD_URL = "https://discord.com/api/webhooks/123/abc-DEF_1"
 
@@ -94,7 +94,7 @@ class ClientProbeTests(unittest.TestCase):
         self.assertEqual(client.check_connection(), "authenticated as me@example.com")
 
     def test_jev_probe_sends_bearer_key_and_raises_on_rejection(self):
-        client = DecisionEngineClient(api_url="https://jev.example", api_key="k")
+        client = JevClassifier(api_url="https://jev.example", api_key="k")
         response = MagicMock()
         response.raise_for_status.side_effect = http_error(401, "https://jev.example")
 
@@ -211,7 +211,7 @@ class SendTelegramTextTests(unittest.TestCase):
         gateway, http = telegram_gateway(telegram_response, discord_webhook_url=VALID_DISCORD_URL)
         discord_response = MagicMock()
         email = EmailMessage(id="1", thread_id="t1", sender="a@b.com", subject="s", snippet="s", body="")
-        triage = DecisionEngineClient(api_url="")._fallback_classification(email)
+        triage = HeuristicClassifier().classify(email)
 
         with patch("src.gateways.alerts.requests.post", return_value=discord_response) as post:
             gateway.send_urgent_alert(email, triage)  # must not raise

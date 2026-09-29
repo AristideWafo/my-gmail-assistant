@@ -1,14 +1,38 @@
 import unittest
-from unittest.mock import patch
 
 from src.domain import EmailMessage, LLMAnalysis, TriageResult
-from src.triage.engine import DecisionEngineClient
+from src.ports import EmailAnalyzer, EmailClassifier
+from src.triage import HeuristicClassifier
 from src.workflow import EmailWorkflow
 
 
-class FakeGemini:
+class FixedClassifier:
+    def __init__(self, result: TriageResult):
+        self.result = result
+        self.calls = []
+
+    @property
+    def is_configured(self) -> bool:
+        return True
+
+    def check_connection(self) -> str:
+        return "fixed"
+
+    def classify(self, email: EmailMessage) -> TriageResult:
+        self.calls.append(email)
+        return self.result
+
+
+class FakeAnalyzer:
     def __init__(self):
         self.calls = []
+
+    @property
+    def is_configured(self) -> bool:
+        return True
+
+    def check_connection(self) -> str:
+        return "fake"
 
     def analyze(self, email, want_draft, want_entities):
         self.calls.append((want_draft, want_entities))
@@ -19,14 +43,14 @@ class FakeGemini:
         )
 
 
-class FailingGemini:
+class FailingAnalyzer(FakeAnalyzer):
     def analyze(self, email, want_draft, want_entities):
         raise RuntimeError("quota exhausted")
 
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
-        self.workflow = EmailWorkflow(DecisionEngineClient(api_url=""), FakeGemini())
+        self.workflow = EmailWorkflow(HeuristicClassifier(), FakeAnalyzer())
 
     def test_low_urgency_personnel_routes_to_label_not_reject(self):
         email = EmailMessage(
@@ -44,8 +68,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("summary", result)
         self.assertNotIn("draft", result)
 
+    def test_fakes_implement_the_ports(self):
+        self.assertIsInstance(FixedClassifier(TriageResult("low", "personnel", 0.9)), EmailClassifier)
+        self.assertIsInstance(FakeAnalyzer(), EmailAnalyzer)
+
     def test_low_urgency_notification_systeme_routes_to_reject(self):
-        workflow = EmailWorkflow(DecisionEngineClient(api_url="https://jev.example/triage", api_key="k"), FakeGemini())
+        classifier = FixedClassifier(TriageResult("low", "notification_systeme", 0.9))
+        workflow = EmailWorkflow(classifier, FakeAnalyzer())
         email = EmailMessage(
             id="6",
             thread_id="t6",
@@ -55,21 +84,9 @@ class WorkflowTests(unittest.TestCase):
             body="",
         )
 
-        class FakeResponse:
-            def raise_for_status(self):
-                return None
+        result = workflow.run(email)
 
-            def json(self):
-                return {
-                    "answers": {
-                        "urgency": {"choice": "low", "confidence": 0.9},
-                        "category": {"choice": "notification_systeme", "confidence": 0.9},
-                    }
-                }
-
-        with patch("src.triage.engine.requests.post", return_value=FakeResponse()):
-            result = workflow.run(email)
-
+        self.assertEqual(classifier.calls, [email])
         self.assertEqual(result["route"], "reject")
 
     def test_newsletter_sender_routes_to_reject_regardless_of_urgency(self):
@@ -117,7 +134,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("entities", result)
 
     def test_urgent_offer_extracts_entities(self):
-        workflow = EmailWorkflow(DecisionEngineClient(api_url="https://jev.example/triage", api_key="k"), FakeGemini())
+        analyzer = FakeAnalyzer()
+        workflow = EmailWorkflow(FixedClassifier(TriageResult("high", "offre_emploi", 0.9)), analyzer)
         email = EmailMessage(
             id="5",
             thread_id="t5",
@@ -127,27 +145,15 @@ class WorkflowTests(unittest.TestCase):
             body="",
         )
 
-        class FakeResponse:
-            def raise_for_status(self):
-                return None
-
-            def json(self):
-                return {
-                    "answers": {
-                        "urgency": {"choice": "high", "confidence": 0.9},
-                        "category": {"choice": "offre_emploi", "confidence": 0.9},
-                    }
-                }
-
-        with patch("src.triage.engine.requests.post", return_value=FakeResponse()):
-            result = workflow.run(email)
+        result = workflow.run(email)
 
         self.assertEqual(result["triage"].category, "offre_emploi")
         self.assertEqual(result["route"], "llm")
         self.assertEqual(result["entities"], {"poste": "DevOps", "entreprise": "Acme"})
+        self.assertEqual(analyzer.calls, [(True, True)])
 
     def test_llm_failure_still_routes_to_llm_with_snippet_fallback(self):
-        workflow = EmailWorkflow(DecisionEngineClient(api_url=""), FailingGemini())
+        workflow = EmailWorkflow(HeuristicClassifier(), FailingAnalyzer())
         email = EmailMessage(
             id="7",
             thread_id="t7",
@@ -165,25 +171,25 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("draft", result)
 
     def test_no_draft_requested_for_automated_sender(self):
-        gemini = FakeGemini()
+        analyzer = FakeAnalyzer()
         state = {
             "email": EmailMessage(id="8", thread_id="t8", sender="notifications@github.com", subject="s", snippet="n", body=""),
             "triage": TriageResult("high", "personnel", 0.9),
         }
 
-        result = EmailWorkflow(DecisionEngineClient(api_url=""), gemini)._llm_node(state)
+        result = EmailWorkflow(HeuristicClassifier(), analyzer)._llm_node(state)
 
-        self.assertEqual(gemini.calls, [(False, False)])
+        self.assertEqual(analyzer.calls, [(False, False)])
         self.assertNotIn("draft", result)
 
     def test_no_draft_requested_for_non_draftable_category(self):
-        gemini = FakeGemini()
+        analyzer = FakeAnalyzer()
         state = {"email": EmailMessage(id="9", thread_id="t9", sender="p@x.io", subject="s", snippet="n", body="")}
         state["triage"] = TriageResult("high", "notification_systeme", 0.9)
 
-        EmailWorkflow(DecisionEngineClient(api_url=""), gemini)._llm_node(state)
+        EmailWorkflow(HeuristicClassifier(), analyzer)._llm_node(state)
 
-        self.assertEqual(gemini.calls, [(False, False)])
+        self.assertEqual(analyzer.calls, [(False, False)])
 
 
 if __name__ == "__main__":

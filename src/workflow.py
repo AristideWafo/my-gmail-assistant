@@ -5,9 +5,8 @@ from langgraph.graph import END, StateGraph
 
 from src.domain import EmailMessage, LLMAnalysis, TriageResult
 from src.formatting import truncate
-from src.llm.gemini import GeminiClient
 from src.observability.metrics import Metrics
-from src.triage.engine import DecisionEngineClient
+from src.ports import EmailAnalyzer, EmailClassifier
 from src.triage.rules import apply_rules, is_automated_sender
 
 logger = logging.getLogger(__name__)
@@ -31,10 +30,13 @@ FALLBACK_SNIPPET_LIMIT = 300
 
 class EmailWorkflow:
     def __init__(
-        self, decision_engine: DecisionEngineClient, gemini: GeminiClient, low_confidence_threshold: float = 0.50
+        self,
+        classifier: EmailClassifier,
+        analyzer: EmailAnalyzer,
+        low_confidence_threshold: float = 0.50,
     ):
-        self.decision_engine = decision_engine
-        self.gemini = gemini
+        self.classifier = classifier
+        self.analyzer = analyzer
         self.low_confidence_threshold = low_confidence_threshold
         self.graph = self._build_graph()
 
@@ -65,7 +67,7 @@ class EmailWorkflow:
 
     def _triage_node(self, state: TriageState) -> dict[str, Any]:
         email = state["email"]
-        return {"triage": apply_rules(email.sender) or self.decision_engine.classify(email)}
+        return {"triage": apply_rules(email.sender) or self.classifier.classify(email)}
 
     def _llm_node(self, state: TriageState) -> dict[str, Any]:
         email = state["email"]
@@ -73,7 +75,7 @@ class EmailWorkflow:
         want_draft = triage.category in DRAFTABLE_CATEGORIES and not is_automated_sender(email.sender)
         want_entities = triage.category == "offre_emploi"
         try:
-            analysis = self.gemini.analyze(email, want_draft, want_entities)
+            analysis = self.analyzer.analyze(email, want_draft, want_entities)
         except Exception:
             # An urgent alert must still go out when the LLM is down or over quota.
             logger.exception("Gemini analysis failed for email %s; alerting without summary", email.id)

@@ -29,7 +29,7 @@ from src.interactions import InteractionHandler
 from src.llm import GeminiClient
 from src.observability import Metrics
 from src.storage import SqliteDecisionStore
-from src.triage import DecisionEngineClient
+from src.triage import FallbackClassifier, HeuristicClassifier, JevClassifier
 from src.triage.few_shot import MAX_EXAMPLES, build_examples
 from src.workflow import EmailWorkflow
 
@@ -55,10 +55,13 @@ class ApplicationContext:
             user_id=settings.gmail_user_id,
             unread_query=settings.fetch_query or build_unread_query(settings.fetch_max_age_days),
         )
-        self.triage = DecisionEngineClient(
-            settings.jev_api_url,
-            settings.jev_api_key,
-            examples_provider=self._few_shot_examples if settings.jev_few_shot_enabled else None,
+        self.triage = FallbackClassifier(
+            JevClassifier(
+                settings.jev_api_url,
+                settings.jev_api_key,
+                examples_provider=self._few_shot_examples if settings.jev_few_shot_enabled else None,
+            ),
+            HeuristicClassifier(),
         )
         self.gemini = GeminiClient(
             settings.gemini_api_key,
@@ -91,7 +94,7 @@ class ApplicationContext:
         return {
             "gmail": self.gmail.check_connection if self.gmail.is_configured else None,
             "gemini": self.gemini.check_connection if self.gemini.is_configured else None,
-            "jev": self.triage.check_connection if self.triage.enabled else None,
+            "jev": self.triage.check_connection if self.triage.primary.is_configured else None,
             "telegram": self.alerts.check_telegram if self.alerts.telegram_configured else None,
             "discord": self.alerts.check_discord if self.alerts.discord_configured else None,
         }

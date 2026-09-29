@@ -1,3 +1,5 @@
-from .engine import DecisionEngineClient
+from .engine import JevClassifier
+from .fallback import FallbackClassifier
+from .heuristic import HeuristicClassifier
 
-__all__ = ["DecisionEngineClient"]
+__all__ = ["FallbackClassifier", "HeuristicClassifier", "JevClassifier"]
