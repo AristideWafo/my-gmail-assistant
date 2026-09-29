@@ -28,6 +28,7 @@ class EmailMessage:
     body: str
     sender_domain: str = ""
     received_at: str = ""
+    message_id_header: str = ""
 
 
 class GmailClient:
@@ -167,16 +168,27 @@ class GmailClient:
             .execute()
         )
 
-    def create_draft(self, thread_id: str, to: str, subject: str, body: str) -> dict[str, Any] | None:
+    def create_draft(
+        self, thread_id: str, to: str, subject: str, body: str, in_reply_to: str = ""
+    ) -> dict[str, Any] | None:
         if not self._service:
             return None
 
         mime_message = MIMEText(body, "plain", "utf-8")
         mime_message["To"] = to
         mime_message["Subject"] = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+        if in_reply_to:
+            # threadId only threads on Gmail's side; other clients rely on these RFC 5322 headers.
+            mime_message["In-Reply-To"] = in_reply_to
+            mime_message["References"] = in_reply_to
         raw = base64.urlsafe_b64encode(mime_message.as_bytes()).decode("utf-8")
         payload = {"message": {"raw": raw, "threadId": thread_id}}
         return self._service.users().drafts().create(userId=self._user_id, body=payload).execute()
+
+    def send_draft(self, draft_id: str) -> dict[str, Any] | None:
+        if not self._service:
+            return None
+        return self._service.users().drafts().send(userId=self._user_id, body={"id": draft_id}).execute()
 
     @staticmethod
     def _extract_body(payload: dict[str, Any]) -> tuple[str, bool]:
@@ -199,9 +211,11 @@ class GmailClient:
 
     @classmethod
     def _parse_message(cls, message: dict[str, Any]) -> EmailMessage:
-        headers = {h.get("name", ""): h.get("value", "") for h in message.get("payload", {}).get("headers", [])}
-        sender = parseaddr(headers.get("From", ""))[1] or headers.get("From", "")
-        subject = headers.get("Subject", "(No subject)")
+        headers = {
+            h.get("name", "").lower(): h.get("value", "") for h in message.get("payload", {}).get("headers", [])
+        }
+        sender = parseaddr(headers.get("from", ""))[1] or headers.get("from", "")
+        subject = headers.get("subject", "(No subject)")
         snippet = message.get("snippet", "")
 
         body_data, is_html = cls._extract_body(message.get("payload", {}))
@@ -216,6 +230,7 @@ class GmailClient:
             body=body,
             sender_domain=extract_domain(sender),
             received_at=cls._received_at(message),
+            message_id_header=headers.get("message-id", ""),
         )
 
     @staticmethod
