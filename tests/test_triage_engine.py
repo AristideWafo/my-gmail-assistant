@@ -1,12 +1,15 @@
+import json
 import unittest
 from datetime import UTC, datetime
+from typing import ClassVar
 from unittest.mock import patch
 
 import requests
 
 from src.gmail.client import EmailMessage
 from src.observability.metrics import Metrics
-from src.triage.engine import DecisionEngineClient
+from src.triage.engine import CATEGORIES, URGENCIES, URGENCY_INSTRUCTIONS, DecisionEngineClient
+from src.triage.few_shot import FEW_SHOT_INSTRUCTION
 
 
 class DecisionEngineFallbackTests(unittest.TestCase):
@@ -162,6 +165,112 @@ class DecisionEngineFallbackTests(unittest.TestCase):
 
         self.assertEqual(result.urgency, "high")
         self.assertEqual(Metrics.jev_fallback._value.get(), before + 1)
+
+
+class FewShotRequestTests(unittest.TestCase):
+    EXAMPLES: ClassVar[list[dict[str, str]]] = [
+        {
+            "sender_domain": "corp.com",
+            "subject": "Quarterly report",
+            "wrong_urgency": "high",
+            "wrong_category": "personnel",
+            "correct_urgency": "medium",
+            "correct_category": "personnel",
+        }
+    ]
+
+    def setUp(self):
+        self.email = EmailMessage(
+            id="1",
+            thread_id="t1",
+            sender="person@example.com",
+            subject="Hello",
+            snippet="snippet",
+            body="body",
+            received_at="2026-09-25",
+        )
+
+    def _client(self, provider=None):
+        return DecisionEngineClient(
+            "https://jev.example/triage", api_key="k", examples_provider=provider
+        )
+
+    def test_request_without_provider_is_unchanged(self):
+        expected = {
+            "model": "jev-latest",
+            "state": {
+                "subject": "Hello",
+                "body": "body",
+                "sender": "person@example.com",
+                "received_at": "2026-09-25",
+                "today": datetime.now(UTC).date().isoformat(),
+            },
+            "questions": {
+                "urgency": {
+                    "type": "choice",
+                    "instructions": URGENCY_INSTRUCTIONS,
+                    "criteria": URGENCIES,
+                },
+                "category": {
+                    "type": "choice",
+                    "instructions": "Which category best describes this email?",
+                    "criteria": CATEGORIES,
+                },
+            },
+        }
+
+        request = self._client()._build_request(self.email)
+
+        self.assertEqual(json.dumps(request), json.dumps(expected))
+
+    def test_empty_examples_leave_request_unchanged(self):
+        self.assertEqual(
+            self._client(list)._build_request(self.email),
+            self._client()._build_request(self.email),
+        )
+
+    def test_examples_are_added_to_state_and_both_instructions(self):
+        request = self._client(lambda: self.EXAMPLES)._build_request(self.email)
+
+        self.assertEqual(request["state"]["examples"], self.EXAMPLES)
+        self.assertEqual(
+            request["questions"]["urgency"]["instructions"],
+            f"{URGENCY_INSTRUCTIONS} {FEW_SHOT_INSTRUCTION}",
+        )
+        self.assertEqual(
+            request["questions"]["category"]["instructions"],
+            f"Which category best describes this email? {FEW_SHOT_INSTRUCTION}",
+        )
+        self.assertNotIn(FEW_SHOT_INSTRUCTION, URGENCY_INSTRUCTIONS)
+
+    def test_classify_sends_examples_to_jev(self):
+        client = self._client(lambda: self.EXAMPLES)
+        response = DecisionEngineFallbackTests._jev_response("medium", "personnel")
+
+        with patch("src.triage.engine.requests.post", return_value=response) as post:
+            result = client.classify(self.email)
+
+        self.assertEqual(post.call_args.kwargs["json"]["state"]["examples"], self.EXAMPLES)
+        self.assertEqual(result.urgency, "medium")
+
+    def test_provider_failure_classifies_without_examples(self):
+        def broken():
+            raise RuntimeError("store unavailable")
+
+        client = self._client(broken)
+        response = DecisionEngineFallbackTests._jev_response("low", "newsletter")
+        before = Metrics.jev_fallback._value.get()
+
+        with (
+            self.assertLogs("src.triage.engine", level="WARNING") as logs,
+            patch("src.triage.engine.requests.post", return_value=response) as post,
+        ):
+            result = client.classify(self.email)
+
+        self.assertNotIn("examples", post.call_args.kwargs["json"]["state"])
+        self.assertEqual((result.urgency, result.category), ("low", "newsletter"))
+        self.assertEqual(Metrics.jev_fallback._value.get(), before)
+        self.assertIn("store unavailable", logs.output[0])
 
 
 if __name__ == "__main__":

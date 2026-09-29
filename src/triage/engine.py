@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -6,6 +7,7 @@ import requests
 
 from src.gmail.client import EmailMessage
 from src.observability.metrics import Metrics
+from src.triage.few_shot import FEW_SHOT_INSTRUCTION
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +45,17 @@ JEV_MODEL = "jev-latest"
 
 
 class DecisionEngineClient:
-    def __init__(self, api_url: str, api_key: str = "", timeout: int = 10) -> None:
+    def __init__(
+        self,
+        api_url: str,
+        api_key: str = "",
+        timeout: int = 10,
+        examples_provider: Callable[[], list[dict[str, str]]] | None = None,
+    ) -> None:
         self.api_url = api_url
         self.api_key = api_key
         self.timeout = timeout
+        self.examples_provider = examples_provider
 
     @property
     def enabled(self) -> bool:
@@ -66,9 +75,17 @@ class DecisionEngineClient:
         response.raise_for_status()
         return "API key accepted"
 
-    @staticmethod
-    def _build_request(email: EmailMessage) -> dict:
-        return {
+    def _load_examples(self) -> list[dict[str, str]]:
+        if self.examples_provider is None:
+            return []
+        try:
+            return self.examples_provider()
+        except Exception as exc:  # noqa: BLE001 - learning is best-effort, never block triage
+            logger.warning("Few-shot examples unavailable (%s), classifying without them", exc)
+            return []
+
+    def _build_request(self, email: EmailMessage) -> dict:
+        request = {
             "model": JEV_MODEL,
             "state": {
                 "subject": email.subject,
@@ -90,6 +107,12 @@ class DecisionEngineClient:
                 },
             },
         }
+        examples = self._load_examples()
+        if examples:
+            request["state"]["examples"] = examples
+            for question in request["questions"].values():
+                question["instructions"] = f"{question['instructions']} {FEW_SHOT_INSTRUCTION}"
+        return request
 
     @classmethod
     def _parse_answers(cls, data: dict) -> TriageResult:
