@@ -1,0 +1,282 @@
+import os
+import sqlite3
+import threading
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+
+from src.gmail.client import EmailMessage
+from src.triage.engine import TriageResult
+
+VERDICTS = ("valid", "false_urgent", "false_spam")
+EXCERPT_CHARS = 300
+
+_MEMORY = ":memory:"
+_DIR_MODE = 0o700
+_FILE_MODE = 0o600
+PRUNABLE_STATE_PREFIXES = ("reply:", "draft_sent:", "bot_draft:")
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS decisions (
+    message_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    excerpt TEXT NOT NULL,
+    urgency TEXT NOT NULL,
+    category TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    route TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    chat_message_id INTEGER,
+    message_id_header TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_decisions_chat_message_id ON decisions (chat_message_id);
+CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT NOT NULL UNIQUE,
+    verdict TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS alerted (
+    message_id TEXT PRIMARY KEY,
+    alerted_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS kv_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
+
+_DECISION_COLUMNS = (
+    "message_id, thread_id, sender, subject, excerpt, urgency, category, confidence, route, "
+    "created_at, chat_message_id, message_id_header"
+)
+
+
+@dataclass(frozen=True)
+class DecisionRecord:
+    message_id: str
+    thread_id: str
+    sender: str
+    subject: str
+    excerpt: str
+    urgency: str
+    category: str
+    confidence: float
+    route: str
+    created_at: str
+    chat_message_id: int | None = None
+    message_id_header: str = ""
+
+
+@dataclass(frozen=True)
+class Correction:
+    sender: str
+    subject: str
+    excerpt: str
+    predicted_urgency: str
+    predicted_category: str
+    verdict: str
+
+
+class DecisionStore:
+    def __init__(
+        self, path: str, clock: Callable[[], datetime] = lambda: datetime.now(UTC)
+    ) -> None:
+        self._clock = clock
+        self._lock = threading.Lock()
+        if path != _MEMORY:
+            _create_private_file(path)
+        # Shared by the polling thread and the Telegram listener; self._lock serializes access.
+        self._conn = sqlite3.connect(path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        with self._lock:
+            if path != _MEMORY:
+                self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.executescript(_SCHEMA)
+            self._conn.commit()
+
+    def record_decision(self, email: EmailMessage, triage: TriageResult, route: str) -> None:
+        excerpt = (email.body or email.snippet or "")[:EXCERPT_CHARS]
+        with self._lock, self._conn:
+            self._conn.execute(
+                f"INSERT INTO decisions ({_DECISION_COLUMNS}) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?) "
+                "ON CONFLICT(message_id) DO UPDATE SET "
+                "thread_id = excluded.thread_id, sender = excluded.sender, "
+                "subject = excluded.subject, excerpt = excluded.excerpt, "
+                "urgency = excluded.urgency, category = excluded.category, "
+                "confidence = excluded.confidence, route = excluded.route, "
+                "message_id_header = excluded.message_id_header",
+                (
+                    email.id,
+                    email.thread_id,
+                    email.sender,
+                    email.subject,
+                    excerpt,
+                    triage.urgency,
+                    triage.category,
+                    float(triage.confidence),
+                    route,
+                    self._now(),
+                    getattr(email, "message_id_header", "") or "",
+                ),
+            )
+
+    def get(self, message_id: str) -> DecisionRecord | None:
+        return self._fetch_decision("message_id = ?", message_id)
+
+    def attach_chat_message(self, message_id: str, chat_message_id: int) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE decisions SET chat_message_id = ? WHERE message_id = ?",
+                (chat_message_id, message_id),
+            )
+
+    def find_by_chat_message(self, chat_message_id: int) -> DecisionRecord | None:
+        # Telegram message ids are only unique per chat: after a TELEGRAM_CHAT_ID change an old
+        # alert can share the id, and the reply is meant for the newest one.
+        return self._fetch_decision(
+            "chat_message_id = ?", chat_message_id, order_by="created_at DESC, rowid DESC"
+        )
+
+    def record_feedback(self, message_id: str, verdict: str) -> bool:
+        if verdict not in VERDICTS:
+            raise ValueError(f"unknown verdict {verdict!r}, expected one of {VERDICTS}")
+        with self._lock, self._conn:
+            known = self._conn.execute(
+                "SELECT 1 FROM decisions WHERE message_id = ?", (message_id,)
+            ).fetchone()
+            if known is None:
+                return False
+            # REPLACE re-inserts with a fresh AUTOINCREMENT id, so the latest verdict sorts newest
+            # even when the clock yields identical timestamps.
+            self._conn.execute(
+                "INSERT OR REPLACE INTO feedback (message_id, verdict, created_at) "
+                "VALUES (?, ?, ?)",
+                (message_id, verdict, self._now()),
+            )
+        return True
+
+    def recent_corrections(self, limit: int) -> list[Correction]:
+        # SQLite treats a negative LIMIT as unbounded.
+        if limit <= 0:
+            return []
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT d.sender, d.subject, d.excerpt, d.urgency, d.category, f.verdict "
+                "FROM feedback f JOIN decisions d ON d.message_id = f.message_id "
+                "WHERE f.verdict != 'valid' ORDER BY f.id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            Correction(
+                sender=row["sender"],
+                subject=row["subject"],
+                excerpt=row["excerpt"],
+                predicted_urgency=row["urgency"],
+                predicted_category=row["category"],
+                verdict=row["verdict"],
+            )
+            for row in rows
+        ]
+
+    def feedback_counts(self) -> dict[str, int]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT verdict, COUNT(*) AS n FROM feedback GROUP BY verdict"
+            ).fetchall()
+        counts = dict.fromkeys(VERDICTS, 0)
+        counts.update({row["verdict"]: row["n"] for row in rows})
+        return counts
+
+    def mark_alerted(self, message_id: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                # A re-alert must refresh the timestamp or the time window would keep expiring.
+                "INSERT INTO alerted (message_id, alerted_at) VALUES (?, ?) "
+                "ON CONFLICT(message_id) DO UPDATE SET alerted_at = excluded.alerted_at",
+                (message_id, self._now()),
+            )
+
+    def was_alerted(self, message_id: str, within_seconds: float | None = None) -> bool:
+        query, params = "SELECT 1 FROM alerted WHERE message_id = ?", [message_id]
+        if within_seconds is not None:
+            query += " AND alerted_at >= ?"
+            params.append(self._cutoff(timedelta(seconds=within_seconds)))
+        with self._lock:
+            row = self._conn.execute(query, params).fetchone()
+        return row is not None
+
+    def get_state(self, key: str) -> str | None:
+        with self._lock:
+            row = self._conn.execute("SELECT value FROM kv_state WHERE key = ?", (key,)).fetchone()
+        return None if row is None else row["value"]
+
+    def set_state(self, key: str, value: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO kv_state (key, value, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET "
+                "value = excluded.value, updated_at = excluded.updated_at",
+                (key, value, self._now()),
+            )
+
+    def prune(self, older_than: timedelta) -> int:
+        """Deletes expired dedup state and unrated decisions; feedback and other state are kept."""
+        cutoff = self._cutoff(older_than)
+        # GLOB, not LIKE: "_" in the prefixes is a LIKE wildcard.
+        prefixes = " OR ".join("key GLOB ?" for _ in PRUNABLE_STATE_PREFIXES)
+        with self._lock, self._conn:
+            deleted = self._conn.execute(
+                "DELETE FROM decisions WHERE created_at < ? AND message_id NOT IN "
+                "(SELECT message_id FROM feedback)",
+                (cutoff,),
+            ).rowcount
+            deleted += self._conn.execute(
+                "DELETE FROM alerted WHERE alerted_at < ?", (cutoff,)
+            ).rowcount
+            deleted += self._conn.execute(
+                f"DELETE FROM kv_state WHERE updated_at < ? AND ({prefixes})",
+                (cutoff, *(f"{prefix}*" for prefix in PRUNABLE_STATE_PREFIXES)),
+            ).rowcount
+        return deleted
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def _fetch_decision(
+        self, where: str, value: object, order_by: str = "rowid"
+    ) -> DecisionRecord | None:
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT {_DECISION_COLUMNS} FROM decisions WHERE {where} "
+                f"ORDER BY {order_by} LIMIT 1",
+                (value,),
+            ).fetchone()
+        return None if row is None else DecisionRecord(**dict(row))
+
+    def _now(self) -> str:
+        return self._clock().isoformat()
+
+    def _cutoff(self, age: timedelta) -> str:
+        return (self._clock() - age).isoformat()
+
+
+def _create_private_file(path: str) -> None:
+    # The store holds mail subjects, senders and excerpts: keep it owner-only. Pre-existing
+    # directories (e.g. an image-owned /data) are left untouched; SQLite gives the -wal and
+    # -shm files the permissions of the database file.
+    directory = os.path.dirname(os.path.abspath(path))
+    if not os.path.isdir(directory):
+        os.makedirs(directory, exist_ok=True)
+        os.chmod(directory, _DIR_MODE)
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, _FILE_MODE)
+    except FileExistsError:
+        return
+    os.close(fd)
+    os.chmod(path, _FILE_MODE)
