@@ -14,8 +14,7 @@ from fastapi.responses import JSONResponse
 
 from src.config import Settings
 from src.expiring_set import ExpiringSet
-from src.gateways import AlertGateway
-from src.gateways.telegram_bot import TelegramBot, run_listener
+from src.gateways import AlertGateway, DiscordChannel, TelegramBot, TelegramChannel
 from src.gmail import GmailClient
 from src.gmail.client import build_unread_query
 from src.health import (
@@ -26,6 +25,7 @@ from src.health import (
     run_watchdog,
 )
 from src.interactions import InteractionHandler
+from src.interactions.listener import run_listener
 from src.llm import GeminiClient
 from src.observability import Metrics
 from src.storage import SqliteDecisionStore
@@ -74,11 +74,11 @@ class ApplicationContext:
             settings.telegram_chat_id,
             allowed_user_ids=settings.allowed_user_ids,
         )
+        self.telegram_channel = TelegramChannel(self.telegram)
+        self.discord_channel = DiscordChannel(settings.discord_webhook_url)
         self.inbound_enabled = self._resolve_inbound()
         self.alerts = AlertGateway(
-            telegram=self.telegram,
-            discord_webhook_url=settings.discord_webhook_url,
-            feedback_buttons=self.inbound_enabled,
+            [self.telegram_channel, self.discord_channel], feedback_buttons=self.inbound_enabled
         )
         self.interactions = InteractionHandler(self.store, self.telegram, self.gmail)
         self.workflow = EmailWorkflow(self.triage, self.gemini, settings.low_confidence_threshold)
@@ -95,8 +95,12 @@ class ApplicationContext:
             "gmail": self.gmail.check_connection if self.gmail.is_configured else None,
             "gemini": self.gemini.check_connection if self.gemini.is_configured else None,
             "jev": self.triage.check_connection if self.triage.primary.is_configured else None,
-            "telegram": self.alerts.check_telegram if self.alerts.telegram_configured else None,
-            "discord": self.alerts.check_discord if self.alerts.discord_configured else None,
+            "telegram": self.telegram_channel.check_connection
+            if self.telegram_channel.is_configured
+            else None,
+            "discord": self.discord_channel.check_connection
+            if self.discord_channel.has_webhook_url
+            else None,
         }
 
     def process_email(self, email):
@@ -187,7 +191,7 @@ class ApplicationContext:
     def _resolve_inbound(self) -> bool:
         if not self.settings.telegram_inbound_enabled:
             return False
-        if not self.telegram.configured:
+        if not self.telegram.is_configured:
             logger.warning("TELEGRAM_INBOUND_ENABLED ignored: Telegram is not configured")
             return False
         if not self.telegram.inbound_authorized:
@@ -311,15 +315,14 @@ def create_app(sync_history: bool | None = None) -> FastAPI:
         app.state.connection_checks = await asyncio.to_thread(
             run_startup_checks, ctx.connection_probes(), StartupCheckMode(settings.startup_checks)
         )
-        if ctx.alerts.telegram_configured:
-            # send_telegram_text already logs and swallows delivery failures (AlertGateway._safe_send);
-            # this only guards against an unexpected error in report formatting itself.
-            try:
-                await asyncio.to_thread(
-                    ctx.alerts.send_telegram_text, format_status_report(app.state.connection_checks)
-                )
-            except Exception:
-                logger.exception("Failed to send startup status report to Telegram")
+        # send_text already logs and swallows delivery failures (AlertGateway._safe_send); this
+        # only guards against an unexpected error in report formatting itself.
+        try:
+            await asyncio.to_thread(
+                ctx.alerts.send_text, format_status_report(app.state.connection_checks)
+            )
+        except Exception:
+            logger.exception("Failed to send startup status report to chat")
 
         if settings.sync_history:
             logger.info("Syncing Gmail history...")

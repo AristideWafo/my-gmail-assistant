@@ -2,8 +2,6 @@ import logging
 
 from src.domain import Button, CallbackEvent, ChatEvent, DecisionRecord, ReplyEvent
 from src.formatting import truncate
-from src.gateways.telegram_bot import TelegramBot
-from src.gmail.client import GmailClient
 from src.interactions.callbacks import (
     CANCEL,
     FEEDBACK,
@@ -13,7 +11,7 @@ from src.interactions.callbacks import (
     parse_callback,
 )
 from src.observability.metrics import Metrics
-from src.ports import DecisionStore
+from src.ports import ChatInbox, DecisionStore, MailProvider
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +33,10 @@ CANCELLED = "Brouillon conservé dans Gmail"
 
 
 class InteractionHandler:
-    def __init__(self, store: DecisionStore, bot: TelegramBot, gmail: GmailClient) -> None:
+    def __init__(self, store: DecisionStore, chat: ChatInbox, mail: MailProvider) -> None:
         self._store = store
-        self._bot = bot
-        self._gmail = gmail
+        self._chat = chat
+        self._mail = mail
 
     def dispatch(self, event: ChatEvent) -> None:
         if isinstance(event, CallbackEvent):
@@ -76,10 +74,10 @@ class InteractionHandler:
         # before calling Gmail, so a crash or timeout can at worst skip it, never send twice.
         self._store.set_state(sent_key, "1")
         try:
-            if not self._gmail.send_draft(callback.target):
+            if not self._mail.send_draft(callback.target):
                 raise RuntimeError("Gmail is not configured")
         except Exception:
-            logger.exception("Failed to send Gmail draft from Telegram")
+            logger.exception("Failed to send Gmail draft from chat")
             Metrics.mark_chat_reply("send_failed")
             self._answer(event, SEND_FAILED)
         else:
@@ -100,7 +98,7 @@ class InteractionHandler:
         offered_on = self._store.get_state(_offer_key(callback.target))
         if offered_on is not None and offered_on == str(event.message_id):
             return True
-        logger.warning("Rejected draft action on Telegram message %s", event.message_id)
+        logger.warning("Rejected draft action on chat message %s", event.message_id)
         Metrics.mark_chat_reply("rejected")
         self._answer(event, UNKNOWN_ACTION)
         return False
@@ -133,7 +131,7 @@ class InteractionHandler:
 
     def _create_draft(self, record: DecisionRecord, text: str) -> str | None:
         try:
-            return self._gmail.create_draft(
+            return self._mail.create_draft(
                 record.thread_id,
                 record.sender,
                 record.subject,
@@ -146,23 +144,23 @@ class InteractionHandler:
 
     def _answer(self, event: CallbackEvent, text: str) -> None:
         try:
-            self._bot.answer_callback(event.callback_id, text)
+            self._chat.answer_callback(event.callback_id, text)
         except Exception as exc:  # noqa: BLE001 - the ack is cosmetic, the action already happened
-            logger.warning("Failed to answer Telegram callback: %s", exc)
+            logger.warning("Failed to answer chat callback: %s", exc)
 
     def _clear(self, message_id: int) -> None:
         try:
-            self._bot.clear_buttons(message_id)
+            self._chat.clear_buttons(message_id)
         except Exception as exc:  # noqa: BLE001 - stale buttons are guarded by stored state
-            logger.warning("Failed to clear Telegram buttons on message %s: %s", message_id, exc)
+            logger.warning("Failed to clear chat buttons on message %s: %s", message_id, exc)
 
     def _notify(
         self, text: str, buttons: list[list[Button]] | None = None, reply_to: int | None = None
     ) -> int | None:
         try:
-            return self._bot.send_message(text, buttons=buttons, reply_to=reply_to)
+            return self._chat.send_message(text, buttons=buttons, reply_to=reply_to)
         except Exception as exc:  # noqa: BLE001 - the draft, if any, is already safe in Gmail
-            logger.warning("Failed to send Telegram message: %s", exc)
+            logger.warning("Failed to send chat message: %s", exc)
             return None
 
 

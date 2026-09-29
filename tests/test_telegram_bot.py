@@ -1,17 +1,12 @@
-import threading
 import unittest
 from unittest.mock import MagicMock
 
 import requests
 from prometheus_client import REGISTRY
 
-from src.gateways.telegram_bot import (
-    CallbackEvent,
-    ReplyEvent,
-    TelegramApiError,
-    TelegramBot,
-    run_listener,
-)
+from src.domain import CallbackEvent, ReplyEvent
+from src.gateways.telegram_bot import TelegramApiError, TelegramBot, TelegramChannel
+from src.ports import AlertChannel, ChannelDeliveryError, ChatInbox
 
 TOKEN = "123456:SECRET-token"
 CHAT_ID = "42"
@@ -62,9 +57,12 @@ def last_poll() -> float:
 
 class ConfiguredTests(unittest.TestCase):
     def test_requires_token_and_chat_id(self):
-        self.assertTrue(TelegramBot(TOKEN, CHAT_ID).configured)
-        self.assertFalse(TelegramBot("", CHAT_ID).configured)
-        self.assertFalse(TelegramBot(TOKEN, "").configured)
+        self.assertTrue(TelegramBot(TOKEN, CHAT_ID).is_configured)
+        self.assertFalse(TelegramBot("", CHAT_ID).is_configured)
+        self.assertFalse(TelegramBot(TOKEN, "").is_configured)
+
+    def test_bot_is_a_chat_inbox(self):
+        self.assertIsInstance(TelegramBot(TOKEN, CHAT_ID), ChatInbox)
 
 
 class SendMessageTests(unittest.TestCase):
@@ -315,121 +313,35 @@ class InboundAuthorizationTests(unittest.TestCase):
         self.assertEqual(bot.get_updates(None), ([], 2))
 
 
-class FakeStopping:
-    """Stops the listener after a fixed number of loop iterations."""
-
-    def __init__(self, iterations: int) -> None:
-        self._remaining = iterations
-
-    def is_set(self) -> bool:
-        self._remaining -= 1
-        return self._remaining < 0
-
-
-class RunListenerTests(unittest.TestCase):
-    def run_listener(self, bot, iterations, dispatch=None, load_offset=lambda: None):
-        saved, sleeps = [], []
-        run_listener(
-            bot,
-            dispatch or MagicMock(),
-            load_offset,
-            saved.append,
-            FakeStopping(iterations),
-            sleep=sleeps.append,
-        )
-        return saved, sleeps
-
-    def test_returns_immediately_when_stopping_is_set(self):
-        bot = MagicMock()
-        stopping = threading.Event()
-        stopping.set()
-
-        run_listener(bot, MagicMock(), lambda: None, MagicMock(), stopping, sleep=MagicMock())
-
-        bot.get_updates.assert_not_called()
-
+class PollingObservabilityTests(unittest.TestCase):
     def test_poll_outcomes_are_measured(self):
-        bot = MagicMock()
-        bot.get_updates.side_effect = [requests.ConnectionError(), ([], None)]
+        bot, _ = make_bot(requests.ConnectionError("down"), api_response([]))
         errors_before = poll_errors()
 
-        with self.assertLogs("src.gateways.telegram_bot", level="WARNING"):
-            self.run_listener(bot, 1)
+        with (
+            self.assertLogs("src.gateways.telegram_bot", level="WARNING"),
+            self.assertRaises(TelegramApiError),
+        ):
+            bot.get_updates(None)
         self.assertEqual(poll_errors(), errors_before + 1)
-        self.run_listener(bot, 1)
+        bot.get_updates(None)
 
         self.assertEqual(poll_errors(), errors_before + 1)
         self.assertGreater(last_poll(), 0)
-
-    def test_backoff_doubles_caps_at_60_and_resets_on_success(self):
-        bot = MagicMock()
-        failures = [requests.ConnectionError()] * 8
-        bot.get_updates.side_effect = [*failures, ([], None), requests.ConnectionError()]
-
-        with self.assertLogs("src.gateways.telegram_bot", level="WARNING"):
-            _, sleeps = self.run_listener(bot, 10)
-
-        self.assertEqual(sleeps, [1, 2, 4, 8, 16, 32, 60, 60, 1])
-
-    def test_offset_saved_after_dispatch_and_passed_to_next_poll(self):
-        order = []
-        bot = MagicMock()
-        event = ReplyEvent(1, 2, "t")
-        bot.get_updates.side_effect = [([event], 11), ([], 11)]
-        saved = []
-
-        def save(offset):
-            order.append("save")
-            saved.append(offset)
-
-        run_listener(
-            bot,
-            lambda e: order.append("dispatch"),
-            lambda: 10,
-            save,
-            FakeStopping(2),
-            sleep=MagicMock(),
-        )
-
-        self.assertEqual(order, ["dispatch", "save"])
-        self.assertEqual(saved, [11])
-        self.assertEqual([c.args[0] for c in bot.get_updates.call_args_list], [10, 11])
-
-    def test_offset_saved_when_batch_only_had_ignored_updates(self):
-        bot = MagicMock()
-        bot.get_updates.return_value = ([], 20)
-
-        saved, _ = self.run_listener(bot, 1, load_offset=lambda: 19)
-
-        self.assertEqual(saved, [20])
-
-    def test_dispatch_failure_does_not_stop_other_events_or_loop(self):
-        bot = MagicMock()
-        first, second = ReplyEvent(1, 2, "a"), ReplyEvent(3, 4, "b")
-        bot.get_updates.side_effect = [([first, second], 5), ([], 5)]
-        dispatch = MagicMock(side_effect=[RuntimeError("boom"), None])
-
-        with self.assertLogs("src.gateways.telegram_bot", level="ERROR"):
-            saved, _ = self.run_listener(bot, 2, dispatch=dispatch)
-
-        self.assertEqual(dispatch.call_count, 2)
-        self.assertEqual(saved, [5])
-        self.assertEqual(bot.get_updates.call_count, 2)
 
     def test_token_never_logged_on_poll_failure(self):
         response = MagicMock(status_code=502)
         response.raise_for_status.side_effect = requests.HTTPError(
             f"502 for url: https://api.telegram.org/bot{TOKEN}/getUpdates", response=response
         )
-        http = MagicMock()
-        http.post.side_effect = [
-            response,
-            requests.ConnectionError(f"Max retries with url: /bot{TOKEN}/getUpdates"),
-        ]
-        bot = TelegramBot(TOKEN, CHAT_ID, http=http)
+        bot, _ = make_bot(
+            response, requests.ConnectionError(f"Max retries with url: /bot{TOKEN}/getUpdates")
+        )
 
         with self.assertLogs("src.gateways.telegram_bot", level="WARNING") as logs:
-            self.run_listener(bot, 2)
+            for _ in range(2):
+                with self.assertRaises(TelegramApiError):
+                    bot.get_updates(None)
 
         output = "\n".join(logs.output)
         self.assertNotIn(TOKEN, output)
@@ -437,38 +349,46 @@ class RunListenerTests(unittest.TestCase):
         self.assertIn("502", output)
         self.assertIn("ConnectionError", output)
 
-    def test_token_never_logged_when_handler_propagates_bot_error(self):
-        http = MagicMock()
-        http.post.side_effect = requests.ConnectionError(f"url: /bot{TOKEN}/answerCallbackQuery")
-        bot = TelegramBot(TOKEN, CHAT_ID, http=http)
-        listener_bot = MagicMock()
-        listener_bot.get_updates.return_value = ([CallbackEvent("cb", 1, "d")], 2)
 
-        with self.assertLogs("src.gateways.telegram_bot", level="ERROR") as logs:
-            self.run_listener(listener_bot, 1, dispatch=lambda e: bot.answer_callback("cb"))
+class TelegramChannelTests(unittest.TestCase):
+    def test_is_an_interactive_alert_channel(self):
+        channel = TelegramChannel(TelegramBot(TOKEN, CHAT_ID))
 
-        self.assertNotIn(TOKEN, "\n".join(logs.output))
+        self.assertIsInstance(channel, AlertChannel)
+        self.assertEqual(channel.name, "telegram")
+        self.assertTrue(channel.interactive)
+        self.assertTrue(channel.is_configured)
+        self.assertFalse(TelegramChannel(TelegramBot("", CHAT_ID)).is_configured)
 
-    def test_unexpected_errors_never_escape(self):
-        bot = MagicMock()
-        bot.get_updates.side_effect = ValueError("bad json")
-        failing_load = MagicMock(side_effect=OSError("disk"))
+    def test_send_forwards_buttons_and_returns_the_message_id(self):
+        bot, http = make_bot(api_response({"message_id": 321}))
 
-        with self.assertLogs("src.gateways.telegram_bot", level="WARNING"):
-            _, sleeps = self.run_listener(bot, 1, load_offset=failing_load)
+        message_id = TelegramChannel(bot).send("Urgent", [[("Ok", "fb:v:1")]])
 
-        self.assertEqual(sleeps, [1])
-        bot.get_updates.assert_called_once_with(None)
+        self.assertEqual(message_id, 321)
+        keyboard = http.post.call_args.kwargs["json"]["reply_markup"]["inline_keyboard"]
+        self.assertEqual(keyboard, [[{"text": "Ok", "callback_data": "fb:v:1"}]])
 
-    def test_save_failure_is_logged_and_loop_continues(self):
-        bot = MagicMock()
-        bot.get_updates.side_effect = [([], 3), ([], 3)]
-        failing_save = MagicMock(side_effect=OSError())
+    def test_api_failure_becomes_a_sanitized_delivery_error(self):
+        response = MagicMock(status_code=403)
+        response.raise_for_status.side_effect = requests.HTTPError(
+            f"403 for url: https://api.telegram.org/bot{TOKEN}/sendMessage", response=response
+        )
+        bot, _ = make_bot(response)
 
-        with self.assertLogs("src.gateways.telegram_bot", level="ERROR"):
-            run_listener(bot, MagicMock(), lambda: None, failing_save, FakeStopping(2), MagicMock())
+        with self.assertRaises(ChannelDeliveryError) as ctx:
+            TelegramChannel(bot).send("x")
 
-        self.assertEqual(bot.get_updates.call_count, 2)
+        self.assertEqual(
+            str(ctx.exception), "Telegram sendMessage failed: HTTPError (status 403)"
+        )
+        self.assertIsNone(ctx.exception.__cause__)
+
+    def test_check_connection_reports_the_bot_username_via_get_me(self):
+        bot, http = make_bot(api_response({"username": "mybot"}))
+
+        self.assertEqual(TelegramChannel(bot).check_connection(), "bot @mybot reachable")
+        self.assertEqual(http.post.call_args.args[0], f"https://api.telegram.org/bot{TOKEN}/getMe")
 
 
 if __name__ == "__main__":

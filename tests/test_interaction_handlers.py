@@ -4,12 +4,12 @@ from unittest.mock import MagicMock, patch
 from prometheus_client import REGISTRY
 
 from src.domain import CallbackEvent, EmailMessage, ReplyEvent, TriageResult
-from src.gateways.telegram_bot import TelegramApiError
 from src.interactions import InteractionHandler
 from src.interactions.callbacks import (
     Callback,
     draft_buttons,
     feedback_buttons,
+    is_valid_callback_data,
     parse_callback,
 )
 from src.interactions.handlers import REPLY_HINT, SEND_FAILED
@@ -85,7 +85,7 @@ class FeedbackTests(HandlerTestCase):
         self.bot.clear_buttons.assert_not_called()
 
     def test_telegram_failure_on_ack_still_clears_buttons(self):
-        self.bot.answer_callback.side_effect = TelegramApiError("answerCallbackQuery failed")
+        self.bot.answer_callback.side_effect = RuntimeError("answerCallbackQuery failed")
 
         with self.assertLogs("src.interactions.handlers", level="WARNING"):
             self.handler.dispatch(callback("fb:u:m1"))
@@ -168,7 +168,7 @@ class ReplyTests(HandlerTestCase):
         self.assertEqual(self.reply_statuses(), ["draft_failed"])
 
     def test_preview_failure_keeps_the_draft_and_blocks_duplicates(self):
-        self.bot.send_message.side_effect = TelegramApiError("Telegram sendMessage failed")
+        self.bot.send_message.side_effect = RuntimeError("sendMessage failed")
 
         with self.assertLogs("src.interactions.handlers", level="WARNING"):
             self.handler.dispatch(reply())
@@ -330,6 +330,13 @@ class CallbackCodecTests(unittest.TestCase):
         self.assertIsNone(feedback_buttons("x" * 60))
         self.assertIsNone(draft_buttons("x" * 60))
         self.assertIsNotNone(feedback_buttons("x" * 59))
+
+    def test_callback_data_must_be_a_non_empty_string_of_at_most_64_utf8_bytes(self):
+        self.assertTrue(is_valid_callback_data("x" * 64))
+        self.assertFalse(is_valid_callback_data("x" * 65))
+        self.assertFalse(is_valid_callback_data("é" * 33))
+        self.assertFalse(is_valid_callback_data(""))
+        self.assertFalse(is_valid_callback_data(12))
 
     def test_unknown_or_incomplete_data_is_rejected(self):
         for data in ("", "fb", "fb:v", "fb:z:m1", "send", "cancel:", "other:1"):

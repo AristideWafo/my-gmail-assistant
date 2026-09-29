@@ -5,8 +5,7 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from src.domain import EmailMessage
-from src.gateways import AlertGateway
-from src.gateways.telegram_bot import TelegramBot
+from src.gateways import AlertGateway, DiscordChannel, TelegramBot, TelegramChannel
 from src.gmail.client import GmailClient
 from src.health import StartupCheckError, StartupCheckMode, run_startup_checks
 from src.triage import HeuristicClassifier, JevClassifier
@@ -20,10 +19,15 @@ def http_error(status: int, url: str) -> requests.HTTPError:
     return requests.HTTPError(f"{status} for url: {url}", response=response)
 
 
-def telegram_gateway(*responses, chat_id="42", **kwargs) -> tuple[AlertGateway, MagicMock]:
+def telegram_channel(*responses, chat_id="42") -> tuple[TelegramChannel, MagicMock]:
     http = MagicMock()
     http.post.side_effect = list(responses)
-    return AlertGateway(telegram=TelegramBot("tok", chat_id, http=http), **kwargs), http
+    return TelegramChannel(TelegramBot("tok", chat_id, http=http)), http
+
+
+def telegram_gateway(*responses, discord_url="") -> tuple[AlertGateway, MagicMock]:
+    channel, http = telegram_channel(*responses)
+    return AlertGateway([channel, DiscordChannel(discord_url)]), http
 
 
 def telegram_ok(result) -> MagicMock:
@@ -107,39 +111,22 @@ class ClientProbeTests(unittest.TestCase):
         self.assertEqual(post.call_args.kwargs["headers"], {"Authorization": "Bearer k"})
 
     def test_telegram_probe_uses_get_me_without_sending_message(self):
-        gateway, http = telegram_gateway(telegram_ok({"username": "mybot"}), chat_id="1")
+        channel, http = telegram_channel(telegram_ok({"username": "mybot"}), chat_id="1")
 
-        detail = gateway.check_telegram()
+        detail = channel.check_connection()
 
         self.assertEqual(http.post.call_args.args[0], "https://api.telegram.org/bottok/getMe")
         self.assertEqual(detail, "bot @mybot reachable")
 
     def test_telegram_probe_failure_never_carries_the_token(self):
-        http = MagicMock()
-        http.post.side_effect = requests.ConnectionError("Max retries with url: /bottok/getMe")
-        gateway = AlertGateway(telegram=TelegramBot("tok", "1", http=http))
+        channel, _ = telegram_channel(
+            requests.ConnectionError("Max retries with url: /bottok/getMe"), chat_id="1"
+        )
 
-        results = run_startup_checks({"telegram": gateway.check_telegram}, StartupCheckMode.WARN)
+        results = run_startup_checks({"telegram": channel.check_connection}, StartupCheckMode.WARN)
 
         self.assertEqual(results[0].status, "failed")
         self.assertNotIn("tok", results[0].detail)
-
-    def test_discord_probe_reads_webhook_without_posting(self):
-        gateway = AlertGateway(discord_webhook_url=VALID_DISCORD_URL)
-
-        with patch("src.gateways.alerts.requests.get", return_value=MagicMock()) as get, patch(
-            "src.gateways.alerts.requests.post"
-        ) as post:
-            gateway.check_discord()
-
-        get.assert_called_once()
-        post.assert_not_called()
-
-    def test_alert_gateway_configuration_flags(self):
-        self.assertFalse(AlertGateway().telegram_configured)
-        self.assertFalse(AlertGateway(telegram=TelegramBot("t", "")).telegram_configured)
-        self.assertTrue(AlertGateway(telegram=TelegramBot("t", "1")).telegram_configured)
-        self.assertTrue(AlertGateway(discord_webhook_url="u").discord_configured)
 
 
 class ConnectionProbesTests(unittest.TestCase):
@@ -154,6 +141,24 @@ class ConnectionProbesTests(unittest.TestCase):
 
         self.assertEqual(set(probes), {"gmail", "gemini", "jev", "telegram", "discord"})
         self.assertTrue(all(probe is None for probe in probes.values()))
+
+    def test_configured_channels_are_probed_including_a_malformed_discord_url(self):
+        from main import ApplicationContext
+        from src.config import Settings
+
+        settings = Settings(
+            _env_file=None,
+            db_path=":memory:",
+            telegram_bot_token="t",
+            telegram_chat_id="1",
+            discord_webhook_url="https://discord.com/api/webhooks/123",
+        )
+        with self.assertLogs("src.gateways.discord", level="ERROR"):
+            ctx = ApplicationContext(settings)
+        probes = ctx.connection_probes()
+
+        self.assertEqual(probes["telegram"], ctx.telegram_channel.check_connection)
+        self.assertEqual(probes["discord"], ctx.discord_channel.check_connection)
 
 
 if __name__ == "__main__":
@@ -178,20 +183,23 @@ class FormatStatusReportTests(unittest.TestCase):
         self.assertIn("⏭️ jev: not configured", report)
 
 
-class SendTelegramTextTests(unittest.TestCase):
+class SendTextTests(unittest.TestCase):
     def test_sends_to_configured_chat(self):
         gateway, http = telegram_gateway(telegram_ok({"message_id": 1}))
 
-        gateway.send_telegram_text("hello")
+        gateway.send_text("hello")
 
         self.assertEqual(http.post.call_args.args[0], "https://api.telegram.org/bottok/sendMessage")
         self.assertEqual(http.post.call_args.kwargs["json"], {"chat_id": "42", "text": "hello"})
 
-    def test_noop_when_not_configured(self):
-        with patch("src.gateways.alerts.requests.post") as post:
-            AlertGateway().send_telegram_text("hello")
+    def test_never_posts_to_discord(self):
+        gateway, http = telegram_gateway(telegram_ok({"message_id": 1}), discord_url=VALID_DISCORD_URL)
+
+        with patch("src.gateways.discord.requests.post") as post:
+            gateway.send_text("hello")
 
         post.assert_not_called()
+        self.assertEqual(http.post.call_count, 1)
 
     def test_telegram_api_error_status_is_caught_and_logged_not_raised(self):
         response = MagicMock()
@@ -199,7 +207,7 @@ class SendTelegramTextTests(unittest.TestCase):
         gateway, _ = telegram_gateway(response)
 
         with self.assertLogs("src.gateways.alerts", level=logging.WARNING) as logs:
-            gateway.send_telegram_text("hello")  # must not raise
+            gateway.send_text("hello")  # must not raise
 
         self.assertIn("telegram", logs.output[0])
         self.assertIn("status 403", logs.output[0])
@@ -208,12 +216,12 @@ class SendTelegramTextTests(unittest.TestCase):
     def test_urgent_alert_sends_discord_even_if_telegram_fails(self):
         telegram_response = MagicMock()
         telegram_response.raise_for_status.side_effect = http_error(500, "https://api.telegram.org/bottok/sendMessage")
-        gateway, http = telegram_gateway(telegram_response, discord_webhook_url=VALID_DISCORD_URL)
+        gateway, http = telegram_gateway(telegram_response, discord_url=VALID_DISCORD_URL)
         discord_response = MagicMock()
         email = EmailMessage(id="1", thread_id="t1", sender="a@b.com", subject="s", snippet="s", body="")
         triage = HeuristicClassifier().classify(email)
 
-        with patch("src.gateways.alerts.requests.post", return_value=discord_response) as post:
+        with patch("src.gateways.discord.requests.post", return_value=discord_response) as post:
             gateway.send_urgent_alert(email, triage)  # must not raise
 
         self.assertEqual(http.post.call_count, 1)
