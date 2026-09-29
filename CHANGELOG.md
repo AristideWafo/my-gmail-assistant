@@ -1,6 +1,98 @@
 # CHANGELOG
 
 
+## v0.7.0 (2026-09-29)
+
+### Documentation
+
+- Document the Phase 3 feedback loop and chat replies
+  ([#35](https://github.com/AristideWafo/my-gmail-assistant/pull/35),
+  [`28594db`](https://github.com/AristideWafo/my-gmail-assistant/commit/28594db0ad23464511ce297930a8655a9a43fd1e))
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+### Features
+
+- Wire feedback loop and Telegram replies into the assistant
+  ([#34](https://github.com/AristideWafo/my-gmail-assistant/pull/34),
+  [`812726e`](https://github.com/AristideWafo/my-gmail-assistant/commit/812726e413d12d38ea7d8e41ce541276cd8c5d76))
+
+Urgent Telegram alerts carry [Valider]/[Faux-Urgent]/[Faux-Spam] buttons when the inbound listener
+  is enabled; verdicts land in the SQLite store and can feed JEV few-shot examples. Replying to an
+  alert creates a threaded Gmail draft that is only sent after an explicit [Envoyer] press, claimed
+  before the Gmail call so it is sent at most once.
+
+Telegram delivery now goes through TelegramBot, so the bot token no longer leaks into logs;
+  alerted-mail dedup is persisted and survives restarts.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- **gmail**: Thread reply drafts and allow sending a draft
+  ([#31](https://github.com/AristideWafo/my-gmail-assistant/pull/31),
+  [`3909145`](https://github.com/AristideWafo/my-gmail-assistant/commit/3909145b9b4625094f8a27ca41324de4bf1472fb))
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- **storage**: Add SQLite decision and feedback store
+  ([#30](https://github.com/AristideWafo/my-gmail-assistant/pull/30),
+  [`4c86cab`](https://github.com/AristideWafo/my-gmail-assistant/commit/4c86cabad7aa777084623e1c06ebe9dd871d39b6))
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- **telegram**: Add inbound long-polling bot with inline buttons
+  ([#32](https://github.com/AristideWafo/my-gmail-assistant/pull/32),
+  [`5fd8fcd`](https://github.com/AristideWafo/my-gmail-assistant/commit/5fd8fcd7c2bf61741d533989feb8c5031fa9fb22))
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- **triage**: Inject user corrections as JEV few-shot examples
+  ([#33](https://github.com/AristideWafo/my-gmail-assistant/pull/33),
+  [`379f3a0`](https://github.com/AristideWafo/my-gmail-assistant/commit/379f3a033f42e6841e3e008fa0442068db27d063))
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+### Refactoring
+
+- Put external components behind ports with env-selected adapters
+  ([#36](https://github.com/AristideWafo/my-gmail-assistant/pull/36),
+  [`970b6d1`](https://github.com/AristideWafo/my-gmail-assistant/commit/970b6d1ba9a61d8c072ad41aa2489d4a8438166d))
+
+* refactor: extract domain models and ports
+
+Move shared data types (EmailMessage, TriageResult, LLMAnalysis, DecisionRecord, Correction, chat
+  events) into src/domain so core code no longer imports them from Gmail/JEV/Gemini/Telegram
+  modules, and declare a typing.Protocol per external capability in src/ports (mail, classifier,
+  LLM, alert channel, chat inbox, decision store).
+
+Gmail create_draft now returns the draft id and send_draft a bool, so the mail port does not leak
+  Gmail's response shape.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+* refactor(triage): split JEV and heuristic classifiers behind the classifier port
+
+JevClassifier now only talks to JEV and raises on failure; HeuristicClassifier holds the local
+  rules; FallbackClassifier composes them, logging and counting jev_fallback_total as before.
+  EmailWorkflow depends on the EmailClassifier and EmailAnalyzer ports only.
+
+* refactor(gateways): alert channels and chat inbox behind ports
+
+* refactor: select adapters through a bootstrap registry
+
+* refactor: address review findings on the ports refactor
+
+- FallbackClassifier is now provider-agnostic: recoverable errors and the fallback hook are injected
+  by the bootstrap (JEV keeps jev_fallback_total). - The chat inbox gets its own startup probe when
+  no alert channel shares its client (e.g. ALERT_CHANNELS=discord with CHAT_INBOX=telegram). -
+  src.gateways no longer re-exports adapters, so importing AlertGateway from core code does not load
+  Telegram/Discord modules. - A Telegram poll failure logs one warning (listener) instead of two. -
+  Docs: ALERT_CHANNELS order wording, PLAN.md classifier naming.
+
+---------
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+
 ## v0.6.0 (2026-09-28)
 
 ### Bug Fixes
