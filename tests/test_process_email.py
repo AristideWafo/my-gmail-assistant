@@ -6,9 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from main import ALERTED_TTL_SECONDS, RETENTION, ApplicationContext
 from src.config import Settings
+from src.domain import EmailMessage, TriageResult
 from src.expiring_set import ExpiringSet
-from src.gmail.client import EmailMessage
-from src.triage.engine import TriageResult
 
 
 def make_settings(**overrides) -> Settings:

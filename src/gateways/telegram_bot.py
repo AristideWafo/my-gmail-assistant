@@ -2,11 +2,11 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 import requests
 
+from src.domain import Button, CallbackEvent, ChatEvent, ReplyEvent
 from src.observability.metrics import Metrics
 
 logger = logging.getLogger(__name__)
@@ -23,22 +23,6 @@ UNAUTHORIZED_USER = "unauthorized_user"
 MALFORMED = "malformed"
 
 
-@dataclass(frozen=True)
-class CallbackEvent:
-    callback_id: str
-    message_id: int
-    data: str
-
-
-@dataclass(frozen=True)
-class ReplyEvent:
-    message_id: int
-    reply_to_message_id: int
-    text: str
-
-
-Button = tuple[str, str]
-Event = CallbackEvent | ReplyEvent
 
 
 class TelegramApiError(requests.RequestException):
@@ -108,7 +92,7 @@ class TelegramBot:
             },
         )
 
-    def get_updates(self, offset: int | None) -> tuple[list[Event], int | None]:
+    def get_updates(self, offset: int | None) -> tuple[list[ChatEvent], int | None]:
         payload: dict[str, Any] = {
             "timeout": self._poll_timeout,
             "allowed_updates": ["message", "callback_query"],
@@ -121,7 +105,7 @@ class TelegramBot:
             timeout=self._poll_timeout + POLL_HTTP_TIMEOUT_MARGIN_SECONDS,
             expect=list,
         )
-        events: list[Event] = []
+        events: list[ChatEvent] = []
         next_offset = offset
         for update in updates:
             update_id = update.get("update_id") if isinstance(update, dict) else None
@@ -134,7 +118,7 @@ class TelegramBot:
                 events.append(event)
         return events, next_offset
 
-    def _parse_update(self, update: dict) -> Event | None:
+    def _parse_update(self, update: dict) -> ChatEvent | None:
         if "callback_query" in update:
             return self._parse_callback(update["callback_query"])
         if "message" in update:
@@ -247,7 +231,7 @@ def is_valid_callback_data(data: Any) -> bool:
 
 def run_listener(
     bot: TelegramBot,
-    dispatch: Callable[[Event], None],
+    dispatch: Callable[[ChatEvent], None],
     load_offset: Callable[[], int | None],
     save_offset: Callable[[int], None],
     stopping: threading.Event,
@@ -290,7 +274,7 @@ def _safe_load_offset(load_offset: Callable[[], int | None]) -> int | None:
         return None
 
 
-def _safe_dispatch(dispatch: Callable[[Event], None], event: Event) -> None:
+def _safe_dispatch(dispatch: Callable[[ChatEvent], None], event: ChatEvent) -> None:
     try:
         dispatch(event)
     except Exception:

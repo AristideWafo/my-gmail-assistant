@@ -1,6 +1,7 @@
 import unittest
 
-from src.triage.engine import DecisionEngineClient, TriageResult
+from src.domain import TriageResult
+from src.triage.engine import DecisionEngineClient
 from src.workflow import EmailWorkflow
 
 # (urgency, category, confidence, expected route) taken from a real production log where

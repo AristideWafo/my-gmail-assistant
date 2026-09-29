@@ -1,3 +1,3 @@
-from .engine import DecisionEngineClient, TriageResult
+from .engine import DecisionEngineClient
 
-__all__ = ["DecisionEngineClient", "TriageResult"]
+__all__ = ["DecisionEngineClient"]

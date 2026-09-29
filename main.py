@@ -28,7 +28,7 @@ from src.health import (
 from src.interactions import InteractionHandler
 from src.llm import GeminiClient
 from src.observability import Metrics
-from src.storage import DecisionStore
+from src.storage import SqliteDecisionStore
 from src.triage import DecisionEngineClient
 from src.triage.few_shot import MAX_EXAMPLES, build_examples
 from src.workflow import EmailWorkflow
@@ -47,7 +47,7 @@ PRUNE_INTERVAL_SECONDS = 24 * 3600
 class ApplicationContext:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.store = DecisionStore(settings.db_path)
+        self.store = SqliteDecisionStore(settings.db_path)
         self.gmail = GmailClient(
             client_id=settings.google_client_id,
             client_secret=settings.google_client_secret,

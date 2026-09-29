@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from google.api_core.exceptions import ResourceExhausted
 
-from src.gmail.client import EmailMessage
+from src.domain import EmailMessage
 from src.llm.gemini import GeminiClient
 from src.llm.rate_limit import RateLimiter
 from src.observability.metrics import Metrics

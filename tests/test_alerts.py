@@ -3,11 +3,10 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
+from src.domain import EmailMessage, TriageResult
 from src.gateways.alerts import AlertDeliveryError, AlertGateway, dedup_key, format_urgent_alert
 from src.gateways.telegram_bot import TelegramApiError
-from src.gmail.client import EmailMessage
 from src.health import StartupCheckMode, run_startup_checks
-from src.triage.engine import TriageResult
 
 
 def make_email(**overrides) -> EmailMessage:

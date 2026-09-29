@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from prometheus_client import REGISTRY
 
-from src.gateways.telegram_bot import CallbackEvent, ReplyEvent, TelegramApiError
-from src.gmail.client import EmailMessage
+from src.domain import CallbackEvent, EmailMessage, ReplyEvent, TriageResult
+from src.gateways.telegram_bot import TelegramApiError
 from src.interactions import InteractionHandler
 from src.interactions.callbacks import (
     Callback,
@@ -14,8 +14,7 @@ from src.interactions.callbacks import (
 )
 from src.interactions.handlers import REPLY_HINT, SEND_FAILED
 from src.observability.metrics import Metrics
-from src.storage import DecisionStore
-from src.triage.engine import TriageResult
+from src.storage import SqliteDecisionStore
 
 ALERT_MESSAGE_ID = 500
 PREVIEW_MESSAGE_ID = 901
@@ -43,15 +42,15 @@ def reply(text: str = "Oui, 14h me va.", message_id: int = 900, to: int = ALERT_
 
 class HandlerTestCase(unittest.TestCase):
     def setUp(self):
-        self.store = DecisionStore(":memory:")
+        self.store = SqliteDecisionStore(":memory:")
         self.addCleanup(self.store.close)
         self.store.record_decision(make_email(), TriageResult("high", "personnel", 0.9), "llm")
         self.store.attach_chat_message("m1", ALERT_MESSAGE_ID)
         self.bot = MagicMock()
         self.bot.send_message.return_value = PREVIEW_MESSAGE_ID
         self.gmail = MagicMock()
-        self.gmail.create_draft.return_value = {"id": "r-42"}
-        self.gmail.send_draft.return_value = {"id": "sent"}
+        self.gmail.create_draft.return_value = "r-42"
+        self.gmail.send_draft.return_value = True
         self.handler = InteractionHandler(self.store, self.bot, self.gmail)
         metrics = patch("src.interactions.handlers.Metrics")
         self.metrics = metrics.start()
@@ -179,7 +178,7 @@ class ReplyTests(HandlerTestCase):
         self.assertIsNone(self.store.get_state("bot_draft:r-42"))
 
     def test_oversized_draft_id_is_previewed_without_buttons(self):
-        self.gmail.create_draft.return_value = {"id": "r" * 80}
+        self.gmail.create_draft.return_value = "r" * 80
 
         self.handler.dispatch(reply())
 
@@ -235,7 +234,7 @@ class SendTests(HandlerTestCase):
         self.assertEqual(self.reply_statuses(), ["send_failed", "duplicate"])
 
     def test_unconfigured_gmail_is_a_failed_send(self):
-        self.gmail.send_draft.return_value = None
+        self.gmail.send_draft.return_value = False
 
         with self.assertLogs("src.interactions.handlers", level="ERROR"):
             self.handler.dispatch(callback("send:r-42", message_id=901))

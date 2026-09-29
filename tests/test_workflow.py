@@ -1,9 +1,8 @@
 import unittest
 from unittest.mock import patch
 
-from src.gmail.client import EmailMessage
-from src.llm.gemini import LLMAnalysis
-from src.triage.engine import DecisionEngineClient, TriageResult
+from src.domain import EmailMessage, LLMAnalysis, TriageResult
+from src.triage.engine import DecisionEngineClient
 from src.workflow import EmailWorkflow
 
 

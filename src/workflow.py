@@ -3,11 +3,11 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
+from src.domain import EmailMessage, LLMAnalysis, TriageResult
 from src.formatting import truncate
-from src.gmail.client import EmailMessage
-from src.llm.gemini import GeminiClient, LLMAnalysis
+from src.llm.gemini import GeminiClient
 from src.observability.metrics import Metrics
-from src.triage.engine import DecisionEngineClient, TriageResult
+from src.triage.engine import DecisionEngineClient
 from src.triage.rules import apply_rules, is_automated_sender
 
 logger = logging.getLogger(__name__)

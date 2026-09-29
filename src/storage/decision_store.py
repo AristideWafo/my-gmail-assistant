@@ -2,13 +2,10 @@ import os
 import sqlite3
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from src.gmail.client import EmailMessage
-from src.triage.engine import TriageResult
+from src.domain import VERDICTS, Correction, DecisionRecord, EmailMessage, TriageResult
 
-VERDICTS = ("valid", "false_urgent", "false_spam")
 EXCERPT_CHARS = 300
 
 _MEMORY = ":memory:"
@@ -55,33 +52,7 @@ _DECISION_COLUMNS = (
 )
 
 
-@dataclass(frozen=True)
-class DecisionRecord:
-    message_id: str
-    thread_id: str
-    sender: str
-    subject: str
-    excerpt: str
-    urgency: str
-    category: str
-    confidence: float
-    route: str
-    created_at: str
-    chat_message_id: int | None = None
-    message_id_header: str = ""
-
-
-@dataclass(frozen=True)
-class Correction:
-    sender: str
-    subject: str
-    excerpt: str
-    predicted_urgency: str
-    predicted_category: str
-    verdict: str
-
-
-class DecisionStore:
+class SqliteDecisionStore:
     def __init__(
         self, path: str, clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     ) -> None:

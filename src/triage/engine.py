@@ -1,22 +1,14 @@
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import requests
 
-from src.gmail.client import EmailMessage
+from src.domain import EmailMessage, TriageResult
 from src.observability.metrics import Metrics
 from src.triage.few_shot import FEW_SHOT_INSTRUCTION
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class TriageResult:
-    urgency: str
-    category: str
-    confidence: float
 
 
 URGENCIES = {

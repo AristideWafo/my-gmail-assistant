@@ -1,7 +1,8 @@
 import logging
 
+from src.domain import Button, CallbackEvent, ChatEvent, DecisionRecord, ReplyEvent
 from src.formatting import truncate
-from src.gateways.telegram_bot import Button, CallbackEvent, Event, ReplyEvent, TelegramBot
+from src.gateways.telegram_bot import TelegramBot
 from src.gmail.client import GmailClient
 from src.interactions.callbacks import (
     CANCEL,
@@ -12,7 +13,7 @@ from src.interactions.callbacks import (
     parse_callback,
 )
 from src.observability.metrics import Metrics
-from src.storage.decision_store import DecisionRecord, DecisionStore
+from src.ports import DecisionStore
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class InteractionHandler:
         self._bot = bot
         self._gmail = gmail
 
-    def dispatch(self, event: Event) -> None:
+    def dispatch(self, event: ChatEvent) -> None:
         if isinstance(event, CallbackEvent):
             self._on_callback(event)
         elif isinstance(event, ReplyEvent):
@@ -75,7 +76,7 @@ class InteractionHandler:
         # before calling Gmail, so a crash or timeout can at worst skip it, never send twice.
         self._store.set_state(sent_key, "1")
         try:
-            if self._gmail.send_draft(callback.target) is None:
+            if not self._gmail.send_draft(callback.target):
                 raise RuntimeError("Gmail is not configured")
         except Exception:
             logger.exception("Failed to send Gmail draft from Telegram")
@@ -132,7 +133,7 @@ class InteractionHandler:
 
     def _create_draft(self, record: DecisionRecord, text: str) -> str | None:
         try:
-            draft = self._gmail.create_draft(
+            return self._gmail.create_draft(
                 record.thread_id,
                 record.sender,
                 record.subject,
@@ -142,7 +143,6 @@ class InteractionHandler:
         except Exception:
             logger.exception("Failed to create Gmail draft for email %s", record.message_id)
             return None
-        return (draft or {}).get("id")
 
     def _answer(self, event: CallbackEvent, text: str) -> None:
         try:

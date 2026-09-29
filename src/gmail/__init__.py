@@ -1,3 +1,3 @@
-from .client import EmailMessage, GmailClient
+from .client import GmailClient
 
-__all__ = ["EmailMessage", "GmailClient"]
+__all__ = ["GmailClient"]

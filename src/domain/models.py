@@ -1,0 +1,74 @@
+from dataclasses import dataclass, field
+
+VERDICTS = ("valid", "false_urgent", "false_spam")
+
+
+@dataclass
+class EmailMessage:
+    id: str
+    thread_id: str
+    sender: str
+    subject: str
+    snippet: str
+    body: str
+    sender_domain: str = ""
+    received_at: str = ""
+    message_id_header: str = ""
+
+
+@dataclass
+class TriageResult:
+    urgency: str
+    category: str
+    confidence: float
+
+
+@dataclass
+class LLMAnalysis:
+    summary: str = ""
+    draft: str = ""
+    entities: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class DecisionRecord:
+    message_id: str
+    thread_id: str
+    sender: str
+    subject: str
+    excerpt: str
+    urgency: str
+    category: str
+    confidence: float
+    route: str
+    created_at: str
+    chat_message_id: int | None = None
+    message_id_header: str = ""
+
+
+@dataclass(frozen=True)
+class Correction:
+    sender: str
+    subject: str
+    excerpt: str
+    predicted_urgency: str
+    predicted_category: str
+    verdict: str
+
+
+@dataclass(frozen=True)
+class CallbackEvent:
+    callback_id: str
+    message_id: int
+    data: str
+
+
+@dataclass(frozen=True)
+class ReplyEvent:
+    message_id: int
+    reply_to_message_id: int
+    text: str
+
+
+Button = tuple[str, str]
+ChatEvent = CallbackEvent | ReplyEvent

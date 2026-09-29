@@ -5,15 +5,14 @@ from typing import TypeVar
 
 import requests
 
+from src.domain import EmailMessage, TriageResult
 from src.errors import ConfigurationError
 from src.expiring_set import ExpiringSet
 from src.formatting import strip_markdown, truncate
 from src.gateways.circuit_breaker import CircuitBreaker
 from src.gateways.telegram_bot import TelegramApiError, TelegramBot
-from src.gmail.client import EmailMessage
 from src.interactions.callbacks import feedback_buttons
 from src.observability.metrics import Metrics
-from src.triage.engine import TriageResult
 from src.triage.rules import is_automated_sender
 
 logger = logging.getLogger(__name__)

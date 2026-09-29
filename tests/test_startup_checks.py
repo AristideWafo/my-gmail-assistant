@@ -4,9 +4,10 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
+from src.domain import EmailMessage
 from src.gateways import AlertGateway
 from src.gateways.telegram_bot import TelegramBot
-from src.gmail.client import EmailMessage, GmailClient
+from src.gmail.client import GmailClient
 from src.health import StartupCheckError, StartupCheckMode, run_startup_checks
 from src.triage.engine import DecisionEngineClient
 

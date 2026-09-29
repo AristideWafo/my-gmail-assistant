@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import requests
 
-from src.gmail.client import EmailMessage
+from src.domain import EmailMessage
 from src.observability.metrics import Metrics
 from src.triage.engine import CATEGORIES, URGENCIES, URGENCY_INSTRUCTIONS, DecisionEngineClient
 from src.triage.few_shot import FEW_SHOT_INSTRUCTION

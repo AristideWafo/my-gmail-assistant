@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
-from src.gateways.telegram_bot import Button, is_valid_callback_data
+from src.domain import Button
+from src.gateways.telegram_bot import is_valid_callback_data
 
 FEEDBACK = "fb"
 SEND = "send"
