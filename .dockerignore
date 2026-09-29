@@ -16,3 +16,7 @@ tests
 README.md
 CLAUDE.md
 CHANGELOG.md
+data/
+*.db
+*.db-wal
+*.db-shm

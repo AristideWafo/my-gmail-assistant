@@ -155,6 +155,12 @@ class CallbackActionsTests(unittest.TestCase):
             {"chat_id": CHAT_ID, "message_id": 7, "reply_markup": {"inline_keyboard": []}},
         )
 
+    def test_get_me_returns_the_bot_profile(self):
+        bot, http = make_bot(api_response({"username": "mybot"}))
+
+        self.assertEqual(bot.get_me(), {"username": "mybot"})
+        self.assertTrue(http.post.call_args.args[0].endswith("/getMe"))
+
 
 class GetUpdatesTests(unittest.TestCase):
     def test_long_poll_parameters(self):

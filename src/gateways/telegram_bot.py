@@ -89,6 +89,9 @@ class TelegramBot:
             raise TelegramApiError("Telegram sendMessage returned no message id")
         return message_id
 
+    def get_me(self) -> dict:
+        return self._call("getMe", {}, expect=dict)
+
     def answer_callback(self, callback_id: str, text: str = "") -> None:
         payload = {"callback_query_id": callback_id}
         if text:
@@ -145,7 +148,7 @@ class TelegramBot:
         if not self._is_authorized(message, query.get("from")):
             return None
         callback_id, data = query.get("id"), query.get("data")
-        if not isinstance(callback_id, str) or not _is_valid_callback_data(data):
+        if not isinstance(callback_id, str) or not is_valid_callback_data(data):
             return _reject(MALFORMED)
         if not _is_int(message.get("message_id")):
             return _reject(MALFORMED)
@@ -238,7 +241,7 @@ def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _is_valid_callback_data(data: Any) -> bool:
+def is_valid_callback_data(data: Any) -> bool:
     return isinstance(data, str) and 0 < len(data.encode("utf-8")) <= CALLBACK_DATA_MAX_BYTES
 
 

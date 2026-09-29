@@ -1,7 +1,8 @@
 import asyncio
 import json
+import os
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from main import create_app, poll_once, sync_history_once
 from src.health import PollHealth, run_watchdog
@@ -59,6 +60,11 @@ class WatchdogTests(unittest.TestCase):
 
 
 class HealthzEndpointTests(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, {"DB_PATH": ":memory:"})
+        env.start()
+        self.addCleanup(env.stop)
+
     def call_healthz(self, app):
         endpoint = next(route.endpoint for route in app.routes if getattr(route, "path", "") == "/healthz")
         return asyncio.run(endpoint())
@@ -102,6 +108,14 @@ class PollOnceObservabilityTests(unittest.TestCase):
 
         self.assertEqual(ctx.health.beat.call_count, 2)
         self.assertGreater(Metrics.last_poll_timestamp._value.get(), 0)
+
+    def test_each_poll_gives_the_store_a_chance_to_prune(self):
+        ctx = make_ctx()
+        ctx.gmail.fetch_unread.side_effect = RuntimeError("down")
+
+        poll_once(ctx)
+
+        ctx.prune_if_due.assert_called_once_with()
 
     def test_failing_email_is_counted_and_still_beats(self):
         ctx = make_ctx()
