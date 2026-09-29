@@ -238,6 +238,94 @@
           "legendFormat": "age"
         }
       ]
+    },
+    {
+      "id": 12,
+      "title": "Alert feedback (verdicts over the range, by verdict)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (verdict) (increase(feedback_total[$__range]))",
+          "legendFormat": "{{verdict}}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Telegram replies (rate, by status)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(chat_replies_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Seconds since last Telegram poll (inbound listener)",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 40
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "time() - (telegram_last_poll_timestamp_seconds > 0)",
+          "legendFormat": "age"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Telegram poll errors and rejected updates (rate)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 40
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(telegram_poll_errors_total[5m])",
+          "legendFormat": "poll errors/s"
+        },
+        {
+          "expr": "sum by (reason) (rate(telegram_inbound_rejected_total[5m]))",
+          "legendFormat": "rejected {{reason}}"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,
