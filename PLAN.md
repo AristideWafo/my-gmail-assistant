@@ -41,6 +41,7 @@ Ce document suit l'architecture cible (voir `README.md` pour l'usage) et l'état
 
 ## Risques ouverts (indépendants des phases)
 
+- Architecture ports & adapters : le cœur ne dépend que de `src/ports` ; `src/bootstrap.py` choisit les adaptateurs via `MAIL_PROVIDER`, `CLASSIFIER`, `LLM_PROVIDER`, `ALERT_CHANNELS`, `CHAT_INBOX`, `STORE_BACKEND` (valeur inconnue = arrêt au démarrage). Une seule implémentation par port hors triage/canaux pour l'instant
 - Pas de limite mémoire Docker sur `prometheus`/`grafana`, seul `assistant` est borné — risque swap/crash sur VPS 4 Go
 - Un seul poller par token Telegram : deux instances avec `TELEGRAM_INBOUND_ENABLED=true` (ex. local + VPS) se volent les mises à jour (409) — n'activer le flag que sur une instance
 - Le fichier SQLite (`/data/assistant.db` + `-wal`/`-shm`) est désormais un état à sauvegarder : sa perte efface l'historique des verdicts et la dédup des alertes (risque de ré-alerte d'un mail non commité). Créé en `0600` (dossier `0700` s'il est créé par l'app) ; préférer le volume nommé à un bind mount, dont propriétaire et droits restent à gérer côté hôte

@@ -2,12 +2,15 @@ import os
 import tempfile
 import threading
 import unittest
+from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 from main import ALERTED_TTL_SECONDS, RETENTION, ApplicationContext
+from src.bootstrap import build_components
 from src.config import Settings
 from src.domain import EmailMessage, TriageResult
 from src.expiring_set import ExpiringSet
+from tests.fakes import FakeChat, fake_components
 
 
 def make_settings(**overrides) -> Settings:
@@ -15,8 +18,8 @@ def make_settings(**overrides) -> Settings:
 
 
 def make_context(route, result_extra=None, **settings):
-    ctx = ApplicationContext(make_settings(**settings))
-    ctx.gmail = MagicMock()
+    settings = make_settings(**settings)
+    ctx = ApplicationContext(settings, replace(build_components(settings), mail=MagicMock()))
     ctx.alerts = MagicMock()
     ctx.alerts.send_urgent_alert.return_value = 555
     ctx.workflow = MagicMock()
@@ -46,8 +49,8 @@ class UrgentHandlingTests(unittest.TestCase):
         ctx = make_context("llm", {"draft": "Bonjour"})
         calls = MagicMock()
         calls.attach_mock(ctx.alerts.send_urgent_alert, "alert")
-        calls.attach_mock(ctx.gmail.create_draft, "draft")
-        calls.attach_mock(ctx.gmail.label_message, "label")
+        calls.attach_mock(ctx.mail.create_draft, "draft")
+        calls.attach_mock(ctx.mail.label_message, "label")
 
         ctx.process_email(make_email())
 
@@ -58,29 +61,29 @@ class UrgentHandlingTests(unittest.TestCase):
 
         ctx.process_email(make_email())
 
-        ctx.gmail.create_draft.assert_called_once_with(
+        ctx.mail.create_draft.assert_called_once_with(
             "t1", "a@b.com", "Hi", "Bonjour", in_reply_to="<abc@mail.example>"
         )
 
     def test_draft_failure_does_not_block_label(self):
         ctx = make_context("llm", {"draft": "Bonjour"})
-        ctx.gmail.create_draft.side_effect = RuntimeError("boom")
+        ctx.mail.create_draft.side_effect = RuntimeError("boom")
 
         with self.assertLogs("gmail-assistant", level="ERROR"):
             ctx.process_email(make_email())
 
-        ctx.gmail.label_message.assert_called_once_with("m1", "urgent")
+        ctx.mail.label_message.assert_called_once_with("m1", "urgent")
 
     def test_no_draft_is_created_when_workflow_returned_none(self):
         ctx = make_context("llm")
 
         ctx.process_email(make_email())
 
-        ctx.gmail.create_draft.assert_not_called()
+        ctx.mail.create_draft.assert_not_called()
 
     def test_label_failure_retry_does_not_alert_or_rerun_workflow_again(self):
         ctx = make_context("llm", {"draft": "Bonjour"})
-        ctx.gmail.label_message.side_effect = [RuntimeError("boom"), None]
+        ctx.mail.label_message.side_effect = [RuntimeError("boom"), None]
         email = make_email()
 
         with self.assertRaises(RuntimeError):
@@ -89,7 +92,7 @@ class UrgentHandlingTests(unittest.TestCase):
 
         ctx.alerts.send_urgent_alert.assert_called_once()
         ctx.workflow.run.assert_called_once()
-        self.assertEqual(ctx.gmail.label_message.call_count, 2)
+        self.assertEqual(ctx.mail.label_message.call_count, 2)
 
     def test_alert_failure_leaves_mail_for_retry(self):
         ctx = make_context("llm")
@@ -98,7 +101,7 @@ class UrgentHandlingTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             ctx.process_email(make_email())
 
-        ctx.gmail.label_message.assert_not_called()
+        ctx.mail.label_message.assert_not_called()
         self.assertFalse(ctx.store.was_alerted("m1"))
 
     def test_non_urgent_routes_never_alert(self):
@@ -146,14 +149,14 @@ class DecisionPersistenceTests(unittest.TestCase):
         with self.assertLogs("gmail-assistant", level="ERROR"):
             ctx.process_email(make_email())
 
-        ctx.gmail.label_message.assert_called_once_with("m1", "urgent")
+        ctx.mail.label_message.assert_called_once_with("m1", "urgent")
 
     def test_failed_bookkeeping_and_label_still_alert_only_once(self):
         ctx = make_context("llm")
         ctx.store = MagicMock()
         ctx.store.was_alerted.return_value = False
         ctx.store.mark_alerted.side_effect = RuntimeError("disk full")
-        ctx.gmail.label_message.side_effect = RuntimeError("gmail down")
+        ctx.mail.label_message.side_effect = RuntimeError("gmail down")
 
         with self.assertLogs("gmail-assistant", level="ERROR"):
             with self.assertRaises(RuntimeError):
@@ -179,7 +182,7 @@ class DecisionPersistenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = os.path.join(tmp, "assistant.db")
             first = make_context("llm", db_path=db_path)
-            first.gmail.label_message.side_effect = RuntimeError("boom")
+            first.mail.label_message.side_effect = RuntimeError("boom")
             with self.assertRaises(RuntimeError):
                 first.process_email(make_email())
             first.store.close()
@@ -190,23 +193,7 @@ class DecisionPersistenceTests(unittest.TestCase):
 
         restarted.alerts.send_urgent_alert.assert_not_called()
         restarted.workflow.run.assert_not_called()
-        restarted.gmail.label_message.assert_called_once_with("m1", "urgent")
-
-
-class FewShotWiringTests(unittest.TestCase):
-    def test_disabled_by_default(self):
-        self.assertIsNone(ApplicationContext(make_settings()).triage.primary.examples_provider)
-
-    def test_enabled_provider_reads_corrections_from_the_store(self):
-        ctx = ApplicationContext(make_settings(jev_few_shot_enabled=True))
-        ctx.store.record_decision(make_email(), TriageResult("high", "personnel", 0.9), "llm")
-        ctx.store.record_feedback("m1", "false_urgent")
-
-        examples = ctx.triage.primary.examples_provider()
-
-        self.assertEqual(len(examples), 1)
-        self.assertEqual(examples[0]["sender_domain"], "b.com")
-        self.assertEqual(examples[0]["correct_urgency"], "medium")
+        restarted.mail.label_message.assert_called_once_with("m1", "urgent")
 
 
 class TelegramListenerTests(unittest.TestCase):
@@ -255,7 +242,7 @@ class TelegramListenerTests(unittest.TestCase):
 
         self.assertTrue(ctx.inbound_enabled)
         self.assertTrue(ctx.alerts._feedback_buttons)
-        self.assertTrue(ctx.telegram.inbound_authorized)
+        self.assertTrue(ctx.chat.inbound_authorized)
 
     def test_enabled_runs_the_listener_with_the_shared_bot_and_handler(self):
         settings = make_settings(
@@ -265,7 +252,7 @@ class TelegramListenerTests(unittest.TestCase):
         started = threading.Event()
 
         def fake_listener(bot, dispatch, load_offset, save_offset, stopping, sleep):
-            self.assertIs(bot, ctx.telegram)
+            self.assertIs(bot, ctx.chat)
             self.assertEqual(dispatch, ctx.interactions.dispatch)
             self.assertIs(stopping, ctx.stopping)
             save_offset(41)
@@ -293,6 +280,31 @@ class TelegramListenerTests(unittest.TestCase):
 
         self.assertTrue(on.alerts._feedback_buttons)
         self.assertFalse(off.alerts._feedback_buttons)
+
+
+class ChatInboxSelectionTests(unittest.TestCase):
+    def test_without_chat_inbox_inbound_is_refused_and_alerts_carry_no_buttons(self):
+        settings = make_settings(telegram_inbound_enabled=True)
+        with self.assertLogs("gmail-assistant", level="WARNING") as logs:
+            ctx = ApplicationContext(settings, fake_components(chat=None))
+
+        with patch("main.run_listener") as run:
+            ctx.start_telegram_listener()
+
+        run.assert_not_called()
+        self.assertIsNone(ctx.interactions)
+        self.assertFalse(ctx.alerts._feedback_buttons)
+        self.assertIn("CHAT_INBOX", "\n".join(logs.output))
+
+    def test_injected_chat_inbox_drives_inbound(self):
+        chat = FakeChat()
+        ctx = ApplicationContext(
+            make_settings(telegram_inbound_enabled=True), fake_components(chat=chat)
+        )
+
+        self.assertTrue(ctx.inbound_enabled)
+        self.assertIs(ctx.chat, chat)
+        self.assertTrue(ctx.alerts._feedback_buttons)
 
 
 class PruneTests(unittest.TestCase):

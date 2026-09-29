@@ -102,7 +102,7 @@ class HealthzEndpointTests(unittest.TestCase):
 class PollOnceObservabilityTests(unittest.TestCase):
     def test_successful_poll_beats_and_stamps_the_metric(self):
         ctx = make_ctx()
-        ctx.gmail.fetch_unread.return_value = [MagicMock(id="1")]
+        ctx.mail.fetch_unread.return_value = [MagicMock(id="1")]
 
         poll_once(ctx)
 
@@ -111,7 +111,7 @@ class PollOnceObservabilityTests(unittest.TestCase):
 
     def test_each_poll_gives_the_store_a_chance_to_prune(self):
         ctx = make_ctx()
-        ctx.gmail.fetch_unread.side_effect = RuntimeError("down")
+        ctx.mail.fetch_unread.side_effect = RuntimeError("down")
 
         poll_once(ctx)
 
@@ -119,7 +119,7 @@ class PollOnceObservabilityTests(unittest.TestCase):
 
     def test_failing_email_is_counted_and_still_beats(self):
         ctx = make_ctx()
-        ctx.gmail.fetch_unread.return_value = [MagicMock(id="1")]
+        ctx.mail.fetch_unread.return_value = [MagicMock(id="1")]
         ctx.process_email.side_effect = RuntimeError("boom")
         before = Metrics.emails_skipped._value.get()
 
@@ -130,7 +130,7 @@ class PollOnceObservabilityTests(unittest.TestCase):
 
     def test_failed_fetch_still_beats_so_a_gmail_outage_never_triggers_the_watchdog(self):
         ctx = make_ctx()
-        ctx.gmail.fetch_unread.side_effect = RuntimeError("down")
+        ctx.mail.fetch_unread.side_effect = RuntimeError("down")
         before = Metrics.last_poll_timestamp._value.get()
 
         poll_once(ctx)
@@ -141,7 +141,7 @@ class PollOnceObservabilityTests(unittest.TestCase):
     def test_stop_request_ends_the_batch_between_emails(self):
         ctx = make_ctx()
         ctx.stopping.is_set.side_effect = [False, True]
-        ctx.gmail.fetch_unread.return_value = [MagicMock(id="1"), MagicMock(id="2")]
+        ctx.mail.fetch_unread.return_value = [MagicMock(id="1"), MagicMock(id="2")]
 
         poll_once(ctx)
 
@@ -149,7 +149,7 @@ class PollOnceObservabilityTests(unittest.TestCase):
 
     def test_history_sync_beats_after_each_email_and_stops_on_request(self):
         ctx = make_ctx()
-        ctx.gmail.fetch_history.return_value = [MagicMock(id="1"), MagicMock(id="2"), MagicMock(id="3")]
+        ctx.mail.fetch_history.return_value = [MagicMock(id="1"), MagicMock(id="2"), MagicMock(id="3")]
         ctx.stopping.is_set.side_effect = [False, False, True]
 
         sync_history_once(ctx)

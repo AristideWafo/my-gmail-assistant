@@ -129,38 +129,6 @@ class ClientProbeTests(unittest.TestCase):
         self.assertNotIn("tok", results[0].detail)
 
 
-class ConnectionProbesTests(unittest.TestCase):
-    def test_unconfigured_services_are_skipped(self):
-        from main import ApplicationContext
-        from src.config import Settings
-
-        settings = Settings(
-            _env_file=None, jev_api_key="", gemini_api_key="", google_client_id="", db_path=":memory:"
-        )
-        probes = ApplicationContext(settings).connection_probes()
-
-        self.assertEqual(set(probes), {"gmail", "gemini", "jev", "telegram", "discord"})
-        self.assertTrue(all(probe is None for probe in probes.values()))
-
-    def test_configured_channels_are_probed_including_a_malformed_discord_url(self):
-        from main import ApplicationContext
-        from src.config import Settings
-
-        settings = Settings(
-            _env_file=None,
-            db_path=":memory:",
-            telegram_bot_token="t",
-            telegram_chat_id="1",
-            discord_webhook_url="https://discord.com/api/webhooks/123",
-        )
-        with self.assertLogs("src.gateways.discord", level="ERROR"):
-            ctx = ApplicationContext(settings)
-        probes = ctx.connection_probes()
-
-        self.assertEqual(probes["telegram"], ctx.telegram_channel.check_connection)
-        self.assertEqual(probes["discord"], ctx.discord_channel.check_connection)
-
-
 if __name__ == "__main__":
     unittest.main()
 

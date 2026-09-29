@@ -12,11 +12,10 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from src.bootstrap import Components, build_components, connection_probes
 from src.config import Settings
 from src.expiring_set import ExpiringSet
-from src.gateways import AlertGateway, DiscordChannel, TelegramBot, TelegramChannel
-from src.gmail import GmailClient
-from src.gmail.client import build_unread_query
+from src.gateways.alerts import AlertGateway
 from src.health import (
     PollHealth,
     StartupCheckMode,
@@ -26,11 +25,7 @@ from src.health import (
 )
 from src.interactions import InteractionHandler
 from src.interactions.listener import run_listener
-from src.llm import GeminiClient
 from src.observability import Metrics
-from src.storage import SqliteDecisionStore
-from src.triage import FallbackClassifier, HeuristicClassifier, JevClassifier
-from src.triage.few_shot import MAX_EXAMPLES, build_examples
 from src.workflow import EmailWorkflow
 
 logging.basicConfig(level=logging.INFO)
@@ -45,43 +40,24 @@ PRUNE_INTERVAL_SECONDS = 24 * 3600
 
 
 class ApplicationContext:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, components: Components | None = None):
         self.settings = settings
-        self.store = SqliteDecisionStore(settings.db_path)
-        self.gmail = GmailClient(
-            client_id=settings.google_client_id,
-            client_secret=settings.google_client_secret,
-            refresh_token=settings.gmail_refresh_token,
-            user_id=settings.gmail_user_id,
-            unread_query=settings.fetch_query or build_unread_query(settings.fetch_max_age_days),
-        )
-        self.triage = FallbackClassifier(
-            JevClassifier(
-                settings.jev_api_url,
-                settings.jev_api_key,
-                examples_provider=self._few_shot_examples if settings.jev_few_shot_enabled else None,
-            ),
-            HeuristicClassifier(),
-        )
-        self.gemini = GeminiClient(
-            settings.gemini_api_key,
-            settings.gemini_model,
-            max_rpm=settings.gemini_max_rpm,
-            user_name=settings.user_display_name,
-        )
-        self.telegram = TelegramBot(
-            settings.telegram_bot_token,
-            settings.telegram_chat_id,
-            allowed_user_ids=settings.allowed_user_ids,
-        )
-        self.telegram_channel = TelegramChannel(self.telegram)
-        self.discord_channel = DiscordChannel(settings.discord_webhook_url)
+        self.components = components or build_components(settings)
+        self.store = self.components.store
+        self.mail = self.components.mail
+        self.chat = self.components.chat
         self.inbound_enabled = self._resolve_inbound()
         self.alerts = AlertGateway(
-            [self.telegram_channel, self.discord_channel], feedback_buttons=self.inbound_enabled
+            list(self.components.channels), feedback_buttons=self.inbound_enabled
         )
-        self.interactions = InteractionHandler(self.store, self.telegram, self.gmail)
-        self.workflow = EmailWorkflow(self.triage, self.gemini, settings.low_confidence_threshold)
+        self.interactions = (
+            InteractionHandler(self.store, self.chat, self.mail) if self.chat is not None else None
+        )
+        self.workflow = EmailWorkflow(
+            self.components.classifier,
+            self.components.analyzer,
+            settings.low_confidence_threshold,
+        )
         self.health = PollHealth(settings.poll_stale_after_seconds)
         self.stopping = threading.Event()
         self.listener: threading.Thread | None = None
@@ -91,17 +67,7 @@ class ApplicationContext:
         self._last_prune: float | None = None
 
     def connection_probes(self):
-        return {
-            "gmail": self.gmail.check_connection if self.gmail.is_configured else None,
-            "gemini": self.gemini.check_connection if self.gemini.is_configured else None,
-            "jev": self.triage.check_connection if self.triage.primary.is_configured else None,
-            "telegram": self.telegram_channel.check_connection
-            if self.telegram_channel.is_configured
-            else None,
-            "discord": self.discord_channel.check_connection
-            if self.discord_channel.has_webhook_url
-            else None,
-        }
+        return connection_probes(self.components)
 
     def process_email(self, email):
         started = perf_counter()
@@ -109,7 +75,7 @@ class ApplicationContext:
             email.id, within_seconds=ALERTED_TTL_SECONDS
         ):
             # The alert already went out but the commit (label removing UNREAD) failed last cycle.
-            self.gmail.label_message(email.id, "urgent")
+            self.mail.label_message(email.id, "urgent")
             return
 
         result = self.workflow.run(email)
@@ -120,9 +86,9 @@ class ApplicationContext:
         )
 
         if route == "reject":
-            self.gmail.archive_message(email.id)
+            self.mail.archive_message(email.id)
         elif route == "label":
-            self.gmail.label_message(email.id, triage.category)
+            self.mail.label_message(email.id, triage.category)
         elif route == "llm":
             self._handle_urgent(email, triage, result)
 
@@ -152,7 +118,7 @@ class ApplicationContext:
             )
         if result.get("draft"):
             self._best_effort(
-                lambda: self.gmail.create_draft(
+                lambda: self.mail.create_draft(
                     email.thread_id,
                     email.sender,
                     email.subject,
@@ -162,7 +128,7 @@ class ApplicationContext:
                 "create draft",
                 email.id,
             )
-        self.gmail.label_message(email.id, "urgent")
+        self.mail.label_message(email.id, "urgent")
 
     @staticmethod
     def _best_effort(action: Callable[[], object], description: str, email_id: str) -> None:
@@ -172,9 +138,6 @@ class ApplicationContext:
             action()
         except Exception:
             logger.exception("Failed to %s for email %s; continuing", description, email_id)
-
-    def _few_shot_examples(self) -> list[dict[str, str]]:
-        return build_examples(self.store.recent_corrections(MAX_EXAMPLES))
 
     def prune_if_due(self) -> None:
         now = monotonic()
@@ -191,10 +154,13 @@ class ApplicationContext:
     def _resolve_inbound(self) -> bool:
         if not self.settings.telegram_inbound_enabled:
             return False
-        if not self.telegram.is_configured:
+        if self.chat is None:
+            logger.warning("TELEGRAM_INBOUND_ENABLED ignored: CHAT_INBOX is none")
+            return False
+        if not self.chat.is_configured:
             logger.warning("TELEGRAM_INBOUND_ENABLED ignored: Telegram is not configured")
             return False
-        if not self.telegram.inbound_authorized:
+        if not self.chat.inbound_authorized:
             logger.error(
                 "TELEGRAM_INBOUND_ENABLED ignored: TELEGRAM_ALLOWED_USER_IDS is required when "
                 "TELEGRAM_CHAT_ID is a group or channel"
@@ -208,7 +174,7 @@ class ApplicationContext:
         self.listener = threading.Thread(
             target=run_listener,
             args=(
-                self.telegram,
+                self.chat,
                 self.interactions.dispatch,
                 self._load_telegram_offset,
                 self._save_telegram_offset,
@@ -251,7 +217,7 @@ def poll_once(ctx: ApplicationContext) -> None:
     # failure must therefore be caught and logged right here, never allowed to propagate.
     ctx.prune_if_due()
     try:
-        emails = ctx.gmail.fetch_unread()
+        emails = ctx.mail.fetch_unread()
     except Exception:
         logger.exception("Failed to fetch unread emails; will retry next cycle")
         # The loop is alive; a Gmail outage must not make the watchdog restart-loop the container.
@@ -273,7 +239,7 @@ def poll_once(ctx: ApplicationContext) -> None:
 
 
 def sync_history_once(ctx: ApplicationContext) -> None:
-    for email in ctx.gmail.fetch_history():
+    for email in ctx.mail.fetch_history():
         if ctx.stopping.is_set():
             return
         ctx.process_email(email)
