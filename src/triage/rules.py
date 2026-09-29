@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 
-from src.triage.engine import TriageResult
+from src.domain import TriageResult
 
 _AUTOMATED_LOCAL_PART_RE = re.compile(
     r"(no[-_.]?reply|do[-_.]?not[-_.]?reply|notification|newsletter|mailer-daemon|bounce|alerts?$)", re.IGNORECASE

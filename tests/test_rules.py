@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock
 
-from src.gmail.client import EmailMessage
+from src.domain import EmailMessage
 from src.triage.rules import apply_rules
 from src.workflow import EmailWorkflow
 

@@ -7,6 +7,9 @@ Modular AI email triage assistant built with **FastAPI** and a **LangGraph** wor
 ```text
 main.py
 └── src/
+    ├── domain/         # Plain models shared by every layer (EmailMessage, TriageResult, ...)
+    ├── ports/          # typing.Protocol interfaces the core depends on
+    ├── bootstrap.py    # The only place that picks and builds concrete adapters
     ├── gmail/          # OAuth2 Gmail client + unread/history ingestion + labels/drafts
     ├── triage/         # Fast triage decision engine (JEV API + fallback heuristics)
     ├── llm/            # Gemini summary + draft generation
@@ -92,6 +95,27 @@ Also configure:
 - `DISCORD_WEBHOOK_URL` (must be `https://discord.com/api/webhooks/<id>/<token>`)
 - `FETCH_MAX_AGE_DAYS` (default `3`; only unread inbox mails newer than this are processed; promotions are filtered by the classifier, never dropped by the query) and `FETCH_QUERY` (full Gmail query override)
 - `LOW_CONFIDENCE_THRESHOLD` (default `0.50`; below it a mail is labeled and never archived, and only `high` urgency triggers an alert)
+
+## Choosing / adding implementations
+
+The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interactions/`) only talks to the protocols in `src/ports`. `src/bootstrap.py` builds the concrete adapters from these selectors:
+
+| Variable | Default | Choices |
+| --- | --- | --- |
+| `MAIL_PROVIDER` | `gmail` | `gmail` |
+| `CLASSIFIER` | `jev` | `jev` (JEV with heuristic fallback), `heuristic` (local rules only) |
+| `LLM_PROVIDER` | `gemini` | `gemini` |
+| `ALERT_CHANNELS` | `telegram,discord` | comma-separated list of `telegram`, `discord`; every listed channel receives alerts in this order, the first interactive one carries reply buttons; unlisted channels are not built |
+| `CHAT_INBOX` | `telegram` | `telegram`, `none` (no inbound buttons or replies) |
+| `STORE_BACKEND` | `sqlite` | `sqlite` |
+
+An unknown value stops startup with an error listing the valid choices. Startup connection checks are named after the selected implementation (`gmail`, `gemini`, `jev`/`heuristic`, `telegram`, `discord`).
+
+To add an implementation:
+
+1. Implement the matching protocol from `src/ports` in a new adapter module.
+2. Register a factory for it in the matching registry of `src/bootstrap.py` (`MAIL_PROVIDERS`, `CLASSIFIERS`, `ANALYZERS`, `ALERT_CHANNELS`, `CHAT_INBOXES`, `STORES`). Factories receive a `BuildContext` exposing the settings, the store and shared clients.
+3. `tests/test_ports_conformance.py` iterates the registries, so the new adapter is checked against its protocol automatically; it also fails if a core module imports an adapter directly.
 
 ## Health and watchdog
 

@@ -1,13 +1,10 @@
 import unittest
-from unittest.mock import MagicMock, patch
 
-import requests
+from prometheus_client import REGISTRY
 
+from src.domain import EmailMessage, TriageResult
 from src.gateways.alerts import AlertDeliveryError, AlertGateway, dedup_key, format_urgent_alert
-from src.gateways.telegram_bot import TelegramApiError
-from src.gmail.client import EmailMessage
-from src.health import StartupCheckMode, run_startup_checks
-from src.triage.engine import TriageResult
+from src.ports import ChannelDeliveryError
 
 
 def make_email(**overrides) -> EmailMessage:
@@ -22,16 +19,33 @@ def make_email(**overrides) -> EmailMessage:
     return EmailMessage(**{**fields, **overrides})
 
 
-def make_bot(message_id=77, error=None) -> MagicMock:
-    bot = MagicMock(configured=True)
-    bot.send_message.return_value = message_id
-    if error is not None:
-        bot.send_message.side_effect = error
-    return bot
+class FakeChannel:
+    def __init__(self, name="chat", interactive=True, configured=True, message_id=77, error=None):
+        self.name = name
+        self.interactive = interactive
+        self.is_configured = configured
+        self.message_id = message_id if interactive else None
+        self.error = error
+        self.sent: list[tuple[str, object]] = []
+
+    def check_connection(self) -> str:
+        return "ok"
+
+    def send(self, text, buttons=None):
+        self.sent.append((text, buttons))
+        if self.error is not None:
+            raise self.error
+        return self.message_id
 
 
-def telegram_down() -> TelegramApiError:
-    return TelegramApiError("Telegram sendMessage failed: ConnectionError (status n/a)")
+def down() -> ChannelDeliveryError:
+    return ChannelDeliveryError("ConnectionError (status n/a)")
+
+
+def sent_count() -> float:
+    return REGISTRY.get_sample_value(
+        "alerts_total", {"channel": "webhook", "status": "sent"}
+    ) or 0.0
 
 
 class FormatUrgentAlertTests(unittest.TestCase):
@@ -61,105 +75,88 @@ class FormatUrgentAlertTests(unittest.TestCase):
         self.assertLessEqual(len(text), 4000)
 
 
-class SafeSendTests(unittest.TestCase):
-    def test_delivery_failure_is_logged_and_reported_to_the_caller_for_retry(self):
-        gateway = AlertGateway(discord_webhook_url="https://discord.com/api/webhooks/1/abc")
-        with (
-            patch("src.gateways.alerts.requests.post", side_effect=requests.ConnectionError("down")),
-            self.assertLogs("src.gateways.alerts", level="WARNING"),
-            self.assertRaises(AlertDeliveryError),
-        ):
-            gateway.send_urgent_alert(make_email(), TriageResult("high", "personnel", 0.9), "s")
+HIGH = TriageResult("high", "alerte_technique", 0.9)
 
-    def test_one_delivering_channel_is_enough(self):
+
+class DeliveryTests(unittest.TestCase):
+    def test_all_channels_failing_is_logged_and_reported_to_the_caller_for_retry(self):
         gateway = AlertGateway(
-            telegram=make_bot(error=telegram_down()), discord_webhook_url=VALID_DISCORD_URL
+            [FakeChannel(error=down()), FakeChannel("webhook", False, error=down())]
         )
 
-        with patch("src.gateways.alerts.requests.post"), self.assertLogs("src.gateways.alerts"):
-            self.assertIsNone(gateway.send_urgent_alert(make_email(), HIGH, "s"))
-
-    def test_discord_failure_log_never_contains_the_webhook_token(self):
-        gateway = AlertGateway(discord_webhook_url=VALID_DISCORD_URL)
-        error = requests.ConnectionError(f"Max retries exceeded with url: {VALID_DISCORD_URL}")
         with (
-            patch("src.gateways.alerts.requests.post", side_effect=error),
             self.assertLogs("src.gateways.alerts", level="WARNING") as logs,
             self.assertRaises(AlertDeliveryError),
         ):
             gateway.send_urgent_alert(make_email(), HIGH, "s")
 
-        self.assertNotIn("abc-DEF_1", "\n".join(logs.output))
-        self.assertIn("ConnectionError", logs.output[0])
+        self.assertIn("ConnectionError (status n/a)", logs.output[0])
 
-    def test_unconfigured_bot_is_not_a_channel(self):
-        bot = make_bot()
-        bot.configured = False
+    def test_one_delivering_channel_is_enough(self):
+        gateway = AlertGateway([FakeChannel(error=down()), FakeChannel("webhook", False)])
 
-        self.assertIsNone(AlertGateway(telegram=bot).send_urgent_alert(make_email(), HIGH, "s"))
-        bot.send_message.assert_not_called()
+        with self.assertLogs("src.gateways.alerts"):
+            self.assertIsNone(gateway.send_urgent_alert(make_email(), HIGH, "s"))
+
+    def test_returns_the_first_delivered_interactive_message_id(self):
+        channels = [
+            FakeChannel("webhook", False),
+            FakeChannel("a", error=down()),
+            FakeChannel("b", message_id=321),
+            FakeChannel("c", message_id=999),
+        ]
+
+        with self.assertLogs("src.gateways.alerts"):
+            message_id = AlertGateway(channels).send_urgent_alert(make_email(), HIGH, "s")
+
+        self.assertEqual(message_id, 321)
+        self.assertTrue(all(len(channel.sent) == 1 for channel in channels))
+
+    def test_unconfigured_channel_is_skipped(self):
+        channel = FakeChannel(configured=False)
+
+        self.assertIsNone(AlertGateway([channel]).send_urgent_alert(make_email(), HIGH, "s"))
+        self.assertEqual(channel.sent, [])
 
     def test_no_configured_channel_is_not_a_failure(self):
-        AlertGateway().send_urgent_alert(make_email(), HIGH, "s")
+        AlertGateway([]).send_urgent_alert(make_email(), HIGH, "s")
+        AlertGateway([FakeChannel(configured=False)]).send_urgent_alert(make_email(), HIGH, "s")
+
+    def test_unexpected_errors_are_not_swallowed(self):
+        gateway = AlertGateway([FakeChannel(error=ValueError("bug"))])
+
+        with self.assertRaises(ValueError):
+            gateway.send_urgent_alert(make_email(), HIGH, "s")
+
+    def test_successful_delivery_is_counted_per_channel(self):
+        before = sent_count()
+
+        AlertGateway([FakeChannel("webhook", False)]).send_urgent_alert(make_email(), HIGH, "s")
+
+        self.assertEqual(sent_count(), before + 1)
 
     def test_alert_skipped_by_open_breakers_is_reported_as_undelivered(self):
-        bot = make_bot(error=telegram_down())
-        gateway = AlertGateway(telegram=bot)
+        channel = FakeChannel(error=down())
+        gateway = AlertGateway([channel])
         with self.assertLogs("src.gateways.alerts"):
             for i in range(5):
                 with self.assertRaises(AlertDeliveryError):
                     gateway.send_urgent_alert(make_email(sender=f"p{i}@x.io"), HIGH, "s")
-        bot.send_message.reset_mock()
+        channel.sent.clear()
         with self.assertRaises(AlertDeliveryError):
             gateway.send_urgent_alert(make_email(sender="p9@x.io"), HIGH, "s")
-        bot.send_message.assert_not_called()
+        self.assertEqual(channel.sent, [])
 
     def test_failed_alert_does_not_poison_the_dedup_window(self):
-        bot = make_bot(error=telegram_down())
-        gateway = AlertGateway(telegram=bot)
+        channel = FakeChannel(error=down())
+        gateway = AlertGateway([channel])
         email = make_email()
         with self.assertLogs("src.gateways.alerts"), self.assertRaises(AlertDeliveryError):
             gateway.send_urgent_alert(email, HIGH, "s")
 
-        bot.send_message.side_effect = None
+        channel.error = None
         self.assertEqual(gateway.send_urgent_alert(email, HIGH, "s"), 77)
-        self.assertEqual(bot.send_message.call_count, 2)
-
-    def test_discord_content_is_truncated_to_its_2000_character_limit(self):
-        gateway = AlertGateway(discord_webhook_url=VALID_DISCORD_URL)
-        with patch("src.gateways.alerts.requests.post") as post:
-            gateway.send_urgent_alert(make_email(), HIGH, "x" * 3500)
-
-        self.assertLessEqual(len(post.call_args.kwargs["json"]["content"]), 2000)
-
-
-VALID_DISCORD_URL = "https://discord.com/api/webhooks/123/abc-DEF_1"
-HIGH = TriageResult("high", "alerte_technique", 0.9)
-
-
-class DiscordWebhookValidationTests(unittest.TestCase):
-    def test_url_without_token_is_rejected_at_startup_without_leaking_it(self):
-        gateway = AlertGateway(discord_webhook_url="https://discord.com/api/webhooks/123456789")
-
-        results = run_startup_checks({"discord": gateway.check_discord}, StartupCheckMode.WARN)
-
-        self.assertEqual(results[0].status, "failed")
-        self.assertIn("malformed", results[0].detail)
-        self.assertNotIn("123456789", results[0].detail)
-
-    def test_malformed_url_is_logged_once_and_never_posted_to(self):
-        with self.assertLogs("src.gateways.alerts", level="ERROR"):
-            gateway = AlertGateway(discord_webhook_url="https://discord.com/api/webhooks/123")
-
-        with patch("src.gateways.alerts.requests.post") as post:
-            gateway.send_urgent_alert(make_email(), HIGH, "s")
-
-        post.assert_not_called()
-
-    def test_valid_url_forms_are_accepted(self):
-        for url in (VALID_DISCORD_URL, "https://discordapp.com/api/webhooks/1/tok", "https://canary.discord.com/api/webhooks/1/tok/"):
-            with self.subTest(url=url), patch("src.gateways.alerts.requests.get"):
-                self.assertEqual(AlertGateway(discord_webhook_url=url).check_discord(), "webhook reachable")
+        self.assertEqual(len(channel.sent), 2)
 
 
 class DedupTests(unittest.TestCase):
@@ -174,54 +171,47 @@ class DedupTests(unittest.TestCase):
         self.assertNotEqual(dedup_key(base), dedup_key(make_email(sender="other@github.com")))
 
     def test_repeated_automated_alert_is_sent_once(self):
-        bot = make_bot()
-        gateway = AlertGateway(telegram=bot)
+        channel = FakeChannel()
+        gateway = AlertGateway([channel])
         gateway.send_urgent_alert(make_email(subject="Run failed (53fc758)"), HIGH, "s")
         second = gateway.send_urgent_alert(make_email(subject="Run failed (acc1a3a)"), HIGH, "s")
 
         self.assertIsNone(second)
-        self.assertEqual(bot.send_message.call_count, 1)
+        self.assertEqual(len(channel.sent), 1)
 
     def test_human_mail_is_never_deduplicated(self):
-        bot = make_bot()
-        gateway = AlertGateway(telegram=bot)
+        channel = FakeChannel()
+        gateway = AlertGateway([channel])
         email = make_email(sender="celine@outlook.com", subject="Rencontre demain")
         gateway.send_urgent_alert(email, HIGH, "s")
         gateway.send_urgent_alert(email, HIGH, "s")
 
-        self.assertEqual(bot.send_message.call_count, 2)
+        self.assertEqual(len(channel.sent), 2)
 
 
 class CircuitBreakerIntegrationTests(unittest.TestCase):
     def test_channel_pauses_after_repeated_failures_without_affecting_the_other(self):
-        bot = make_bot()
-        gateway = AlertGateway(telegram=bot, discord_webhook_url=VALID_DISCORD_URL)
+        healthy, failing = FakeChannel(), FakeChannel("webhook", False, error=down())
+        gateway = AlertGateway([healthy, failing])
 
-        with patch(
-            "src.gateways.alerts.requests.post", side_effect=requests.ConnectionError("down")
-        ) as discord_post, self.assertLogs("src.gateways.alerts", level="WARNING") as logs:
+        with self.assertLogs("src.gateways.alerts", level="WARNING") as logs:
             for i in range(8):
                 gateway.send_urgent_alert(make_email(sender=f"p{i}@x.io", subject=f"s{i}"), HIGH, "s")
 
-        self.assertEqual(discord_post.call_count, 5)
-        self.assertEqual(bot.send_message.call_count, 8)
+        self.assertEqual(len(failing.sent), 5)
+        self.assertEqual(len(healthy.sent), 8)
         self.assertEqual(sum("pausing" in line for line in logs.output), 1)
 
 
-class TelegramAlertTests(unittest.TestCase):
-    def test_returns_the_telegram_message_id(self):
-        gateway = AlertGateway(telegram=make_bot(message_id=321))
-
-        self.assertEqual(gateway.send_urgent_alert(make_email(), HIGH, "s"), 321)
-
-    def test_feedback_buttons_carry_the_gmail_id(self):
-        bot = make_bot()
-        AlertGateway(telegram=bot, feedback_buttons=True).send_urgent_alert(
+class ButtonTests(unittest.TestCase):
+    def test_feedback_buttons_carry_the_gmail_id_on_interactive_channels_only(self):
+        chat, webhook = FakeChannel(), FakeChannel("webhook", False)
+        AlertGateway([chat, webhook], feedback_buttons=True).send_urgent_alert(
             make_email(id="18c2f0a1b2c3d4e5"), HIGH, "s"
         )
 
         self.assertEqual(
-            bot.send_message.call_args.kwargs["buttons"],
+            chat.sent[0][1],
             [
                 [
                     ("Valider", "fb:v:18c2f0a1b2c3d4e5"),
@@ -230,27 +220,45 @@ class TelegramAlertTests(unittest.TestCase):
                 ]
             ],
         )
+        self.assertIsNone(webhook.sent[0][1])
 
     def test_no_buttons_without_the_flag(self):
-        bot = make_bot()
-        AlertGateway(telegram=bot).send_urgent_alert(make_email(), HIGH, "s")
+        channel = FakeChannel()
+        AlertGateway([channel]).send_urgent_alert(make_email(), HIGH, "s")
 
-        self.assertIsNone(bot.send_message.call_args.kwargs["buttons"])
+        self.assertIsNone(channel.sent[0][1])
 
     def test_oversized_id_sends_the_alert_without_buttons(self):
-        bot = make_bot()
-        AlertGateway(telegram=bot, feedback_buttons=True).send_urgent_alert(
+        channel = FakeChannel()
+        AlertGateway([channel], feedback_buttons=True).send_urgent_alert(
             make_email(id="x" * 80), HIGH, "s"
         )
 
-        bot.send_message.assert_called_once()
-        self.assertIsNone(bot.send_message.call_args.kwargs["buttons"])
+        self.assertEqual(len(channel.sent), 1)
+        self.assertIsNone(channel.sent[0][1])
 
-    def test_check_telegram_reports_the_bot_username(self):
-        bot = make_bot()
-        bot.get_me.return_value = {"username": "mybot"}
 
-        self.assertEqual(AlertGateway(telegram=bot).check_telegram(), "bot @mybot reachable")
+class SendTextTests(unittest.TestCase):
+    def test_goes_to_configured_interactive_channels_only(self):
+        chat, webhook = FakeChannel(), FakeChannel("webhook", False)
+        off = FakeChannel("off", configured=False)
+
+        AlertGateway([chat, webhook, off]).send_text("hello")
+
+        self.assertEqual(chat.sent, [("hello", None)])
+        self.assertEqual(webhook.sent, [])
+        self.assertEqual(off.sent, [])
+
+    def test_failure_is_logged_not_raised(self):
+        with self.assertLogs("src.gateways.alerts", level="WARNING"):
+            AlertGateway([FakeChannel(error=down())]).send_text("hello")
+
+
+class ChannelProtocolTests(unittest.TestCase):
+    def test_fake_satisfies_the_port(self):
+        from src.ports import AlertChannel
+
+        self.assertIsInstance(FakeChannel(), AlertChannel)
 
 
 if __name__ == "__main__":

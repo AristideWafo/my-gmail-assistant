@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     telegram_allowed_user_ids: str = ""
     jev_few_shot_enabled: bool = False
 
+    mail_provider: str = "gmail"
+    classifier: str = "jev"
+    llm_provider: str = "gemini"
+    # Comma-separated; every listed channel is sent to, in this order (first interactive one wins replies).
+    alert_channels: str = "telegram,discord"
+    chat_inbox: str = "telegram"
+    store_backend: str = "sqlite"
+
     @field_validator("telegram_allowed_user_ids")
     @classmethod
     def _validate_user_ids(cls, value: str) -> str:
@@ -58,6 +66,10 @@ class Settings(BaseSettings):
     @property
     def allowed_user_ids(self) -> frozenset[int]:
         return parse_user_ids(self.telegram_allowed_user_ids)
+
+    @property
+    def alert_channel_names(self) -> list[str]:
+        return [name.strip() for name in self.alert_channels.split(",") if name.strip()]
 
     @property
     def poll_stale_after_seconds(self) -> int:

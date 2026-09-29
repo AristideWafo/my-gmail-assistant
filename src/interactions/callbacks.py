@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+from typing import Any
 
-from src.gateways.telegram_bot import Button, is_valid_callback_data
+from src.domain import Button
 
 FEEDBACK = "fb"
 SEND = "send"
 CANCEL = "cancel"
+CALLBACK_DATA_MAX_BYTES = 64
 
 VERDICT_CODES = {"v": "valid", "u": "false_urgent", "s": "false_spam"}
 _FEEDBACK_LABELS = (("v", "Valider"), ("u", "Faux-Urgent"), ("s", "Faux-Spam"))
@@ -25,6 +27,10 @@ def feedback_buttons(gmail_id: str) -> list[list[Button]] | None:
 
 def draft_buttons(draft_id: str) -> list[list[Button]] | None:
     return _single_row([("Envoyer", f"{SEND}:{draft_id}"), ("Annuler", f"{CANCEL}:{draft_id}")])
+
+
+def is_valid_callback_data(data: Any) -> bool:
+    return isinstance(data, str) and 0 < len(data.encode("utf-8")) <= CALLBACK_DATA_MAX_BYTES
 
 
 def parse_callback(data: str) -> Callback | None:

@@ -106,6 +106,12 @@ class GmailClientActionsTests(unittest.TestCase):
         self.assertIsNone(message["In-Reply-To"])
         self.assertIsNone(message["References"])
 
+    def test_create_draft_returns_the_draft_id(self):
+        client, service = make_client_with_service()
+        service.users().drafts().create().execute.return_value = {"id": "draft-1", "message": {}}
+
+        self.assertEqual(client.create_draft("t", "to@example.com", "s", "b"), "draft-1")
+
     def test_create_draft_returns_none_when_not_configured(self):
         client = GmailClient(client_id="", client_secret="", refresh_token="")
 
@@ -118,12 +124,12 @@ class GmailClientActionsTests(unittest.TestCase):
         result = client.send_draft("draft-1")
 
         service.users().drafts().send.assert_called_with(userId="me", body={"id": "draft-1"})
-        self.assertEqual(result, {"id": "sent-1", "threadId": "t"})
+        self.assertTrue(result)
 
-    def test_send_draft_returns_none_when_not_configured(self):
+    def test_send_draft_returns_false_when_not_configured(self):
         client = GmailClient(client_id="", client_secret="", refresh_token="")
 
-        self.assertIsNone(client.send_draft("draft-1"))
+        self.assertFalse(client.send_draft("draft-1"))
 
 
 def _b64(text: str) -> str:

@@ -1,22 +1,13 @@
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import requests
 
-from src.gmail.client import EmailMessage
-from src.observability.metrics import Metrics
+from src.domain import EmailMessage, TriageResult
 from src.triage.few_shot import FEW_SHOT_INSTRUCTION
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class TriageResult:
-    urgency: str
-    category: str
-    confidence: float
 
 
 URGENCIES = {
@@ -42,9 +33,11 @@ URGENCY_INSTRUCTIONS = (
     "Bulk, automated or marketing mail is never high."
 )
 JEV_MODEL = "jev-latest"
+# KeyError/ValueError/TypeError cover a malformed or non-JSON JEV payload.
+JEV_RECOVERABLE_ERRORS = (requests.RequestException, KeyError, ValueError, TypeError)
 
 
-class DecisionEngineClient:
+class JevClassifier:
     def __init__(
         self,
         api_url: str,
@@ -58,7 +51,7 @@ class DecisionEngineClient:
         self.examples_provider = examples_provider
 
     @property
-    def enabled(self) -> bool:
+    def is_configured(self) -> bool:
         return bool(self.api_url and self.api_key)
 
     def check_connection(self) -> str:
@@ -125,37 +118,14 @@ class DecisionEngineClient:
         )
 
     def classify(self, email: EmailMessage) -> TriageResult:
-        if self.enabled:
-            try:
-                response = requests.post(
-                    self.api_url,
-                    json=self._build_request(email),
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                    timeout=self.timeout,
-                )
-                response.raise_for_status()
-                return self._parse_answers(response.json())
-            except (requests.RequestException, KeyError, ValueError, TypeError) as exc:
-                logger.warning("JEV API failed at %s (%s), falling back to heuristic", self.api_url, exc)
-                Metrics.mark_jev_fallback()
-
-        return self._fallback_classification(email)
-
-    @staticmethod
-    def _fallback_classification(email: EmailMessage) -> TriageResult:
-        text = f"{email.subject} {email.snippet}".lower()
-        sender = f"{email.sender} {email.sender_domain}".lower()
-
-        if any(term in sender for term in ["no-reply", "noreply", "newsletter"]) or "unsubscribe" in text:
-            return TriageResult(urgency="low", category="newsletter", confidence=0.70)
-
-        if any(term in text for term in ["urgent", "asap", "immediately", "deadline"]):
-            return TriageResult(urgency="high", category="personnel", confidence=0.76)
-
-        if any(term in text for term in ["offer", "interview", "recruiter", "position"]):
-            return TriageResult(urgency="medium", category="offre_emploi", confidence=0.68)
-
-        return TriageResult(urgency="low", category="personnel", confidence=0.60)
+        response = requests.post(
+            self.api_url,
+            json=self._build_request(email),
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return self._parse_answers(response.json())
 
     @staticmethod
     def _normalize_urgency(value: str) -> str:

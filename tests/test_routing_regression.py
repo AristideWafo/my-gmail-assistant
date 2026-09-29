@@ -1,6 +1,7 @@
 import unittest
 
-from src.triage.engine import DecisionEngineClient, TriageResult
+from src.domain import TriageResult
+from src.triage import HeuristicClassifier
 from src.workflow import EmailWorkflow
 
 # (urgency, category, confidence, expected route) taken from a real production log where
@@ -28,7 +29,7 @@ OBSERVED_CASES = [
 
 class RoutingRegressionTests(unittest.TestCase):
     def setUp(self):
-        self.workflow = EmailWorkflow(DecisionEngineClient(api_url=""), gemini=None)
+        self.workflow = EmailWorkflow(HeuristicClassifier(), analyzer=None)
 
     def route(self, urgency, category, confidence):
         return self.workflow._route_after_triage({"triage": TriageResult(urgency, category, confidence)})
@@ -48,7 +49,7 @@ class RoutingRegressionTests(unittest.TestCase):
                 self.assertEqual(self.route("low", category, 0.10), "label")
 
     def test_threshold_is_configurable(self):
-        workflow = EmailWorkflow(DecisionEngineClient(api_url=""), gemini=None, low_confidence_threshold=0.80)
+        workflow = EmailWorkflow(HeuristicClassifier(), analyzer=None, low_confidence_threshold=0.80)
         state = {"triage": TriageResult("low", "notification_systeme", 0.70)}
         self.assertEqual(workflow._route_after_triage(state), "label")
 

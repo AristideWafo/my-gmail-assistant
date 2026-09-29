@@ -1,44 +1,22 @@
 import logging
-import threading
-import time
-from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 import requests
 
+from src.domain import Button, CallbackEvent, ChatEvent, ReplyEvent
+from src.interactions.callbacks import is_valid_callback_data
 from src.observability.metrics import Metrics
+from src.ports import ChannelDeliveryError
 
 logger = logging.getLogger(__name__)
 
 API_BASE_URL = "https://api.telegram.org"
 REQUEST_TIMEOUT_SECONDS = 10
 POLL_HTTP_TIMEOUT_MARGIN_SECONDS = 10
-CALLBACK_DATA_MAX_BYTES = 64
-INITIAL_BACKOFF_SECONDS = 1.0
-MAX_BACKOFF_SECONDS = 60.0
 
 FOREIGN_CHAT = "foreign_chat"
 UNAUTHORIZED_USER = "unauthorized_user"
 MALFORMED = "malformed"
-
-
-@dataclass(frozen=True)
-class CallbackEvent:
-    callback_id: str
-    message_id: int
-    data: str
-
-
-@dataclass(frozen=True)
-class ReplyEvent:
-    message_id: int
-    reply_to_message_id: int
-    text: str
-
-
-Button = tuple[str, str]
-Event = CallbackEvent | ReplyEvent
 
 
 class TelegramApiError(requests.RequestException):
@@ -61,7 +39,7 @@ class TelegramBot:
         self._allowed_user_ids = frozenset(allowed_user_ids) or _private_chat_user(self._chat_id)
 
     @property
-    def configured(self) -> bool:
+    def is_configured(self) -> bool:
         return bool(self._token and self._chat_id)
 
     @property
@@ -92,6 +70,9 @@ class TelegramBot:
     def get_me(self) -> dict:
         return self._call("getMe", {}, expect=dict)
 
+    def check_connection(self) -> str:
+        return f"bot @{self.get_me()['username']} reachable"
+
     def answer_callback(self, callback_id: str, text: str = "") -> None:
         payload = {"callback_query_id": callback_id}
         if text:
@@ -108,20 +89,27 @@ class TelegramBot:
             },
         )
 
-    def get_updates(self, offset: int | None) -> tuple[list[Event], int | None]:
+    def get_updates(self, offset: int | None) -> tuple[list[ChatEvent], int | None]:
         payload: dict[str, Any] = {
             "timeout": self._poll_timeout,
             "allowed_updates": ["message", "callback_query"],
         }
         if offset is not None:
             payload["offset"] = offset
-        updates = self._call(
-            "getUpdates",
-            payload,
-            timeout=self._poll_timeout + POLL_HTTP_TIMEOUT_MARGIN_SECONDS,
-            expect=list,
-        )
-        events: list[Event] = []
+        try:
+            updates = self._call(
+                "getUpdates",
+                payload,
+                timeout=self._poll_timeout + POLL_HTTP_TIMEOUT_MARGIN_SECONDS,
+                expect=list,
+            )
+        except Exception as exc:
+            Metrics.mark_telegram_poll_error()
+            # The listener already warns with the retry delay; keep the sanitized detail at debug.
+            logger.debug("Telegram polling failed: %s", _describe(exc))
+            raise
+        Metrics.mark_telegram_poll_success()
+        events: list[ChatEvent] = []
         next_offset = offset
         for update in updates:
             update_id = update.get("update_id") if isinstance(update, dict) else None
@@ -134,7 +122,7 @@ class TelegramBot:
                 events.append(event)
         return events, next_offset
 
-    def _parse_update(self, update: dict) -> Event | None:
+    def _parse_update(self, update: dict) -> ChatEvent | None:
         if "callback_query" in update:
             return self._parse_callback(update["callback_query"])
         if "message" in update:
@@ -241,64 +229,28 @@ def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def is_valid_callback_data(data: Any) -> bool:
-    return isinstance(data, str) and 0 < len(data.encode("utf-8")) <= CALLBACK_DATA_MAX_BYTES
-
-
-def run_listener(
-    bot: TelegramBot,
-    dispatch: Callable[[Event], None],
-    load_offset: Callable[[], int | None],
-    save_offset: Callable[[int], None],
-    stopping: threading.Event,
-    sleep: Callable[[float], None] = time.sleep,
-) -> None:
-    """Delivers events at-least-once: the offset is saved only after the batch is dispatched."""
-    offset = _safe_load_offset(load_offset)
-    backoff = INITIAL_BACKOFF_SECONDS
-    while not stopping.is_set():
-        try:
-            events, next_offset = bot.get_updates(offset)
-        except Exception as exc:  # noqa: BLE001 - the listener thread must never die
-            Metrics.mark_telegram_poll_error()
-            logger.warning(
-                "Telegram polling failed (%s); retrying in %.0fs", _describe(exc), backoff
-            )
-            sleep(backoff)
-            backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
-            continue
-        Metrics.mark_telegram_poll_success()
-        backoff = INITIAL_BACKOFF_SECONDS
-        for event in events:
-            _safe_dispatch(dispatch, event)
-        if next_offset is not None and next_offset != offset:
-            offset = next_offset
-            _safe_save_offset(save_offset, offset)
-
-
 def _describe(exc: Exception) -> str:
     if isinstance(exc, TelegramApiError):
         return str(exc)
     return type(exc).__name__
 
 
-def _safe_load_offset(load_offset: Callable[[], int | None]) -> int | None:
-    try:
-        return load_offset()
-    except Exception:
-        logger.exception("Failed to load Telegram update offset; starting without one")
-        return None
+class TelegramChannel:
+    name = "telegram"
+    interactive = True
 
+    def __init__(self, bot: TelegramBot) -> None:
+        self._bot = bot
 
-def _safe_dispatch(dispatch: Callable[[Event], None], event: Event) -> None:
-    try:
-        dispatch(event)
-    except Exception:
-        logger.exception("Telegram event handler failed for %s", type(event).__name__)
+    @property
+    def is_configured(self) -> bool:
+        return self._bot.is_configured
 
+    def check_connection(self) -> str:
+        return self._bot.check_connection()
 
-def _safe_save_offset(save_offset: Callable[[int], None], offset: int) -> None:
-    try:
-        save_offset(offset)
-    except Exception:
-        logger.exception("Failed to persist Telegram update offset %s", offset)
+    def send(self, text: str, buttons: list[list[Button]] | None = None) -> int:
+        try:
+            return self._bot.send_message(text, buttons=buttons)
+        except TelegramApiError as exc:
+            raise ChannelDeliveryError(str(exc)) from None

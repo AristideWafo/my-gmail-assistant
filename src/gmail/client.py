@@ -1,7 +1,6 @@
 import base64
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.mime.text import MIMEText
 from email.utils import parseaddr
@@ -11,24 +10,12 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from src.domain import EmailMessage
 from src.gmail.text_cleaning import clean_body, decode_body, extract_domain
 
 
 def build_unread_query(max_age_days: int) -> str:
     return f"is:unread in:inbox newer_than:{max_age_days}d"
-
-
-@dataclass
-class EmailMessage:
-    id: str
-    thread_id: str
-    sender: str
-    subject: str
-    snippet: str
-    body: str
-    sender_domain: str = ""
-    received_at: str = ""
-    message_id_header: str = ""
 
 
 class GmailClient:
@@ -170,7 +157,7 @@ class GmailClient:
 
     def create_draft(
         self, thread_id: str, to: str, subject: str, body: str, in_reply_to: str = ""
-    ) -> dict[str, Any] | None:
+    ) -> str | None:
         if not self._service:
             return None
 
@@ -183,12 +170,14 @@ class GmailClient:
             mime_message["References"] = in_reply_to
         raw = base64.urlsafe_b64encode(mime_message.as_bytes()).decode("utf-8")
         payload = {"message": {"raw": raw, "threadId": thread_id}}
-        return self._service.users().drafts().create(userId=self._user_id, body=payload).execute()
+        draft = self._service.users().drafts().create(userId=self._user_id, body=payload).execute()
+        return draft.get("id")
 
-    def send_draft(self, draft_id: str) -> dict[str, Any] | None:
+    def send_draft(self, draft_id: str) -> bool:
         if not self._service:
-            return None
-        return self._service.users().drafts().send(userId=self._user_id, body={"id": draft_id}).execute()
+            return False
+        self._service.users().drafts().send(userId=self._user_id, body={"id": draft_id}).execute()
+        return True
 
     @staticmethod
     def _extract_body(payload: dict[str, Any]) -> tuple[str, bool]:

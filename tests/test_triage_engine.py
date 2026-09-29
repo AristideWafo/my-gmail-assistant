@@ -6,13 +6,14 @@ from unittest.mock import patch
 
 import requests
 
-from src.gmail.client import EmailMessage
+from src.domain import EmailMessage
 from src.observability.metrics import Metrics
-from src.triage.engine import CATEGORIES, URGENCIES, URGENCY_INSTRUCTIONS, DecisionEngineClient
+from src.ports import EmailClassifier
+from src.triage.engine import CATEGORIES, URGENCIES, URGENCY_INSTRUCTIONS, JevClassifier
 from src.triage.few_shot import FEW_SHOT_INSTRUCTION
 
 
-class DecisionEngineFallbackTests(unittest.TestCase):
+class JevClassifierTests(unittest.TestCase):
     def setUp(self):
         self.email = EmailMessage(
             id="1",
@@ -23,32 +24,25 @@ class DecisionEngineFallbackTests(unittest.TestCase):
             body="",
         )
 
-    def test_classify_falls_back_and_counts_metric_on_request_exception(self):
-        client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="k")
+    def test_is_configured_requires_url_and_key(self):
+        self.assertTrue(JevClassifier("https://jev.example/triage", api_key="k").is_configured)
+        self.assertFalse(JevClassifier("https://jev.example/triage", api_key="").is_configured)
+        self.assertFalse(JevClassifier("", api_key="k").is_configured)
+
+    def test_implements_classifier_port(self):
+        self.assertIsInstance(JevClassifier("https://jev.example/triage", api_key="k"), EmailClassifier)
+
+    def test_classify_raises_on_request_exception_without_counting_fallback(self):
+        client = JevClassifier(api_url="https://jev.example/triage", api_key="k")
         before = Metrics.jev_fallback._value.get()
 
-        with patch("src.triage.engine.requests.post", side_effect=requests.RequestException("boom")):
-            result = client.classify(self.email)
+        with (
+            patch("src.triage.engine.requests.post", side_effect=requests.RequestException("boom")),
+            self.assertRaises(requests.RequestException),
+        ):
+            client.classify(self.email)
 
-        self.assertEqual(result.urgency, "high")
-        self.assertEqual(result.category, "personnel")
-        self.assertEqual(Metrics.jev_fallback._value.get(), before + 1)
-
-    def test_fallback_detects_newsletter_by_sender(self):
-        client = DecisionEngineClient(api_url="")
-        email = EmailMessage(
-            id="2",
-            thread_id="t2",
-            sender="newsletter@brand.com",
-            subject="This week's digest",
-            snippet="Great deals inside, click to unsubscribe",
-            body="",
-        )
-
-        result = client.classify(email)
-
-        self.assertEqual(result.category, "newsletter")
-        self.assertEqual(result.urgency, "low")
+        self.assertEqual(Metrics.jev_fallback._value.get(), before)
 
     @staticmethod
     def _jev_response(urgency, category, urgency_conf=0.9, category_conf=0.8):
@@ -67,7 +61,7 @@ class DecisionEngineFallbackTests(unittest.TestCase):
         return FakeResponse()
 
     def test_classify_maps_jev_answers_and_takes_min_confidence(self):
-        client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="k")
+        client = JevClassifier(api_url="https://jev.example/triage", api_key="k")
 
         with patch("src.triage.engine.requests.post", return_value=self._jev_response("medium", "offre_emploi")):
             result = client.classify(self.email)
@@ -75,7 +69,7 @@ class DecisionEngineFallbackTests(unittest.TestCase):
         self.assertEqual((result.urgency, result.category, result.confidence), ("medium", "offre_emploi", 0.8))
 
     def test_classify_accepts_spam_category(self):
-        client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="k")
+        client = JevClassifier(api_url="https://jev.example/triage", api_key="k")
 
         with patch("src.triage.engine.requests.post", return_value=self._jev_response("low", "spam")):
             result = client.classify(self.email)
@@ -83,7 +77,7 @@ class DecisionEngineFallbackTests(unittest.TestCase):
         self.assertEqual(result.category, "spam")
 
     def test_classify_accepts_notification_systeme_and_mise_en_relation(self):
-        client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="k")
+        client = JevClassifier(api_url="https://jev.example/triage", api_key="k")
 
         with patch("src.triage.engine.requests.post", return_value=self._jev_response("low", "notification_systeme")):
             result = client.classify(self.email)
@@ -94,7 +88,7 @@ class DecisionEngineFallbackTests(unittest.TestCase):
         self.assertEqual(result.category, "mise_en_relation")
 
     def test_classify_sends_bearer_key_and_typed_questions(self):
-        client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="secret")
+        client = JevClassifier(api_url="https://jev.example/triage", api_key="secret")
 
         with patch("src.triage.engine.requests.post", return_value=self._jev_response("low", "general")) as post:
             client.classify(self.email)
@@ -120,7 +114,7 @@ class DecisionEngineFallbackTests(unittest.TestCase):
         )
 
     def test_classify_sends_dates_and_a_strict_urgency_definition(self):
-        client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="secret")
+        client = JevClassifier(api_url="https://jev.example/triage", api_key="secret")
         self.email.received_at = "2026-09-25"
 
         with patch("src.triage.engine.requests.post", return_value=self._jev_response("low", "personnel")) as post:
@@ -132,7 +126,7 @@ class DecisionEngineFallbackTests(unittest.TestCase):
         self.assertIn("never high", payload["questions"]["urgency"]["instructions"])
 
     def test_classify_accepts_new_categories(self):
-        client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="k")
+        client = JevClassifier(api_url="https://jev.example/triage", api_key="k")
         for category in ("alerte_emploi", "promotion", "alerte_technique"):
             with (
                 self.subTest(category=category),
@@ -140,18 +134,8 @@ class DecisionEngineFallbackTests(unittest.TestCase):
             ):
                 self.assertEqual(client.classify(self.email).category, category)
 
-    def test_classify_skips_api_without_key(self):
-        client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="")
-
-        with patch("src.triage.engine.requests.post") as post:
-            result = client.classify(self.email)
-
-        post.assert_not_called()
-        self.assertEqual(result.urgency, "high")
-
-    def test_classify_falls_back_on_malformed_response(self):
-        client = DecisionEngineClient(api_url="https://jev.example/triage", api_key="k")
-        before = Metrics.jev_fallback._value.get()
+    def test_classify_raises_on_malformed_response(self):
+        client = JevClassifier(api_url="https://jev.example/triage", api_key="k")
 
         class BadResponse:
             def raise_for_status(self):
@@ -160,11 +144,11 @@ class DecisionEngineFallbackTests(unittest.TestCase):
             def json(self):
                 return {"answers": {}}
 
-        with patch("src.triage.engine.requests.post", return_value=BadResponse()):
-            result = client.classify(self.email)
-
-        self.assertEqual(result.urgency, "high")
-        self.assertEqual(Metrics.jev_fallback._value.get(), before + 1)
+        with (
+            patch("src.triage.engine.requests.post", return_value=BadResponse()),
+            self.assertRaises(KeyError),
+        ):
+            client.classify(self.email)
 
 
 class FewShotRequestTests(unittest.TestCase):
@@ -191,7 +175,7 @@ class FewShotRequestTests(unittest.TestCase):
         )
 
     def _client(self, provider=None):
-        return DecisionEngineClient(
+        return JevClassifier(
             "https://jev.example/triage", api_key="k", examples_provider=provider
         )
 
@@ -245,7 +229,7 @@ class FewShotRequestTests(unittest.TestCase):
 
     def test_classify_sends_examples_to_jev(self):
         client = self._client(lambda: self.EXAMPLES)
-        response = DecisionEngineFallbackTests._jev_response("medium", "personnel")
+        response = JevClassifierTests._jev_response("medium", "personnel")
 
         with patch("src.triage.engine.requests.post", return_value=response) as post:
             result = client.classify(self.email)
@@ -258,7 +242,7 @@ class FewShotRequestTests(unittest.TestCase):
             raise RuntimeError("store unavailable")
 
         client = self._client(broken)
-        response = DecisionEngineFallbackTests._jev_response("low", "newsletter")
+        response = JevClassifierTests._jev_response("low", "newsletter")
         before = Metrics.jev_fallback._value.get()
 
         with (

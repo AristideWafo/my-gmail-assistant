@@ -6,10 +6,9 @@ import threading
 import unittest
 from datetime import UTC, datetime, timedelta
 
-from src.gmail.client import EmailMessage
-from src.storage import VERDICTS, Correction, DecisionRecord, DecisionStore
+from src.domain import VERDICTS, Correction, DecisionRecord, EmailMessage, TriageResult
+from src.storage import SqliteDecisionStore
 from src.storage.decision_store import EXCERPT_CHARS
-from src.triage.engine import TriageResult
 
 
 def make_email(message_id="m1", body="body text", snippet="snippet", **overrides):
@@ -33,7 +32,7 @@ def make_triage(urgency="high", category="alerte_technique", confidence=0.9):
 class DecisionStoreTests(unittest.TestCase):
     def setUp(self):
         self.now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
-        self.store = DecisionStore(":memory:", clock=lambda: self.now)
+        self.store = SqliteDecisionStore(":memory:", clock=lambda: self.now)
 
     def tearDown(self):
         self.store.close()
@@ -277,7 +276,7 @@ class DecisionStoreFileTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_creates_parent_directory_and_persists_across_reopen(self):
-        store = DecisionStore(self.path)
+        store = SqliteDecisionStore(self.path)
         store.record_decision(make_email(), make_triage(), "alert")
         store.attach_chat_message("m1", 99)
         store.record_feedback("m1", "false_urgent")
@@ -285,7 +284,7 @@ class DecisionStoreFileTests(unittest.TestCase):
         store.set_state("history_id", "123")
         store.close()
 
-        reopened = DecisionStore(self.path)
+        reopened = SqliteDecisionStore(self.path)
         try:
             self.assertEqual(reopened.find_by_chat_message(99).message_id, "m1")
             self.assertEqual(reopened.recent_corrections(5)[0].verdict, "false_urgent")
@@ -295,7 +294,7 @@ class DecisionStoreFileTests(unittest.TestCase):
             reopened.close()
 
     def test_file_database_uses_wal(self):
-        DecisionStore(self.path).close()
+        SqliteDecisionStore(self.path).close()
         conn = sqlite3.connect(self.path)
         try:
             mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
@@ -304,7 +303,7 @@ class DecisionStoreFileTests(unittest.TestCase):
         self.assertEqual(mode, "wal")
 
     def test_creates_private_database_and_directory(self):
-        store = DecisionStore(self.path)
+        store = SqliteDecisionStore(self.path)
         store.record_decision(make_email(), make_triage(), "alert")
         try:
             self.assertEqual(_mode(self.path), 0o600)
@@ -317,10 +316,10 @@ class DecisionStoreFileTests(unittest.TestCase):
         directory = os.path.dirname(self.path)
         os.makedirs(directory, mode=0o755)
         os.chmod(directory, 0o755)
-        DecisionStore(self.path).close()
+        SqliteDecisionStore(self.path).close()
         os.chmod(self.path, 0o640)
 
-        DecisionStore(self.path).close()
+        SqliteDecisionStore(self.path).close()
 
         self.assertEqual(_mode(directory), 0o755)
         self.assertEqual(_mode(self.path), 0o640)

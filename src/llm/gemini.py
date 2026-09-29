@@ -3,13 +3,12 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
 
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted
 
+from src.domain import EmailMessage, LLMAnalysis
 from src.formatting import clean_draft, has_placeholder, strip_markdown
-from src.gmail.client import EmailMessage
 from src.llm.rate_limit import RateLimiter
 from src.observability.metrics import Metrics
 
@@ -27,13 +26,6 @@ PRICING_PER_MILLION_TOKENS: dict[str, tuple[float, float]] = {
     "gemini-2.5-flash": (0.30, 2.50),
 }
 _unpriced_models_warned: set[str] = set()
-
-
-@dataclass
-class LLMAnalysis:
-    summary: str = ""
-    draft: str = ""
-    entities: dict = field(default_factory=dict)
 
 
 def _retry_delay(exc: Exception) -> float:
