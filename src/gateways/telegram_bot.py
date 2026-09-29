@@ -70,6 +70,9 @@ class TelegramBot:
     def get_me(self) -> dict:
         return self._call("getMe", {}, expect=dict)
 
+    def check_connection(self) -> str:
+        return f"bot @{self.get_me()['username']} reachable"
+
     def answer_callback(self, callback_id: str, text: str = "") -> None:
         payload = {"callback_query_id": callback_id}
         if text:
@@ -102,7 +105,8 @@ class TelegramBot:
             )
         except Exception as exc:
             Metrics.mark_telegram_poll_error()
-            logger.warning("Telegram polling failed: %s", _describe(exc))
+            # The listener already warns with the retry delay; keep the sanitized detail at debug.
+            logger.debug("Telegram polling failed: %s", _describe(exc))
             raise
         Metrics.mark_telegram_poll_success()
         events: list[ChatEvent] = []
@@ -243,7 +247,7 @@ class TelegramChannel:
         return self._bot.is_configured
 
     def check_connection(self) -> str:
-        return f"bot @{self._bot.get_me()['username']} reachable"
+        return self._bot.check_connection()
 
     def send(self, text: str, buttons: list[list[Button]] | None = None) -> int:
         try:

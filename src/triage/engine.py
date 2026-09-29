@@ -33,6 +33,8 @@ URGENCY_INSTRUCTIONS = (
     "Bulk, automated or marketing mail is never high."
 )
 JEV_MODEL = "jev-latest"
+# KeyError/ValueError/TypeError cover a malformed or non-JSON JEV payload.
+JEV_RECOVERABLE_ERRORS = (requests.RequestException, KeyError, ValueError, TypeError)
 
 
 class JevClassifier:

@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     mail_provider: str = "gmail"
     classifier: str = "jev"
     llm_provider: str = "gemini"
-    # Comma-separated; the order is the delivery priority.
+    # Comma-separated; every listed channel is sent to, in this order (first interactive one wins replies).
     alert_channels: str = "telegram,discord"
     chat_inbox: str = "telegram"
     store_backend: str = "sqlite"

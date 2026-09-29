@@ -105,7 +105,7 @@ The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interacti
 | `MAIL_PROVIDER` | `gmail` | `gmail` |
 | `CLASSIFIER` | `jev` | `jev` (JEV with heuristic fallback), `heuristic` (local rules only) |
 | `LLM_PROVIDER` | `gemini` | `gemini` |
-| `ALERT_CHANNELS` | `telegram,discord` | comma-separated list of `telegram`, `discord`; order is delivery priority, unlisted channels are not built |
+| `ALERT_CHANNELS` | `telegram,discord` | comma-separated list of `telegram`, `discord`; every listed channel receives alerts in this order, the first interactive one carries reply buttons; unlisted channels are not built |
 | `CHAT_INBOX` | `telegram` | `telegram`, `none` (no inbound buttons or replies) |
 | `STORE_BACKEND` | `sqlite` | `sqlite` |
 

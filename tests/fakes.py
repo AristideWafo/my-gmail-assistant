@@ -79,6 +79,9 @@ class FakeChat:
     is_configured: bool = True
     inbound_authorized: bool = True
 
+    def check_connection(self) -> str:
+        return "ok"
+
     def get_updates(self, offset: int | None) -> tuple[list[ChatEvent], int | None]:
         return [], offset
 

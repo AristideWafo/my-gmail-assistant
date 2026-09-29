@@ -13,7 +13,7 @@ Ce document suit l'architecture cible (voir `README.md` pour l'usage) et l'état
 
 ## Phase 2 — Intégration JEV et triage logique
 
-- ✅ `DecisionEngineClient` : appelle JEV via API HTTP + fallback heuristique si indisponible
+- ✅ `JevClassifier` : appelle JEV via API HTTP, composé avec `HeuristicClassifier` dans `FallbackClassifier` (repli si JEV indisponible)
 - ✅ `EmailWorkflow` (LangGraph) : graphe `classify → (llm | archive | label)`
 - 🟡 JEV appelé en HTTP externe, pas hébergé localement comme prévu au plan initial (accepté tel quel, hors scope actuel)
 - ✅ Échec JEV loggé (`logger.warning`) et compté (`jev_fallback_total`)

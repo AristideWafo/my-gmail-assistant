@@ -171,7 +171,7 @@ class GmailClient:
         raw = base64.urlsafe_b64encode(mime_message.as_bytes()).decode("utf-8")
         payload = {"message": {"raw": raw, "threadId": thread_id}}
         draft = self._service.users().drafts().create(userId=self._user_id, body=payload).execute()
-        return draft["id"]
+        return draft.get("id")
 
     def send_draft(self, draft_id: str) -> bool:
         if not self._service:

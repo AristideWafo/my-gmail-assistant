@@ -319,7 +319,7 @@ class PollingObservabilityTests(unittest.TestCase):
         errors_before = poll_errors()
 
         with (
-            self.assertLogs("src.gateways.telegram_bot", level="WARNING"),
+            self.assertLogs("src.gateways.telegram_bot", level="DEBUG"),
             self.assertRaises(TelegramApiError),
         ):
             bot.get_updates(None)
@@ -338,7 +338,7 @@ class PollingObservabilityTests(unittest.TestCase):
             response, requests.ConnectionError(f"Max retries with url: /bot{TOKEN}/getUpdates")
         )
 
-        with self.assertLogs("src.gateways.telegram_bot", level="WARNING") as logs:
+        with self.assertLogs("src.gateways.telegram_bot", level="DEBUG") as logs:
             for _ in range(2):
                 with self.assertRaises(TelegramApiError):
                     bot.get_updates(None)

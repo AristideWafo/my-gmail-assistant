@@ -145,10 +145,24 @@ class ConnectionProbesTests(unittest.TestCase):
             connection_probes(components)["jev"], components.classifier.check_connection
         )
 
+    def test_chat_inbox_is_probed_when_no_alert_channel_shares_its_client(self):
+        components = build(
+            alert_channels="discord", telegram_bot_token="t", telegram_chat_id="1"
+        )
+
+        probes = connection_probes(components)
+
+        self.assertEqual(probes["telegram"], components.chat.check_connection)
+
+    def test_chat_inbox_is_not_probed_twice_alongside_its_alert_channel(self):
+        probes = connection_probes(build(telegram_bot_token="t", telegram_chat_id="1"))
+
+        self.assertEqual(list(probes).count("telegram"), 1)
+
     def test_probes_follow_the_selection(self):
         probes = connection_probes(build(classifier="heuristic", alert_channels="discord"))
 
-        self.assertEqual(list(probes), ["gmail", "gemini", "heuristic", "discord"])
+        self.assertEqual(list(probes), ["gmail", "gemini", "heuristic", "discord", "telegram"])
         self.assertIsNotNone(probes["heuristic"])
 
     def test_injected_components_are_gated_on_is_configured(self):

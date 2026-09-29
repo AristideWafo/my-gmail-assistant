@@ -1,21 +1,23 @@
 import logging
-
-import requests
+from collections.abc import Callable
 
 from src.domain import EmailMessage, TriageResult
-from src.observability.metrics import Metrics
 from src.ports import EmailClassifier
 
 logger = logging.getLogger(__name__)
 
-# KeyError/ValueError/TypeError cover a malformed or non-JSON payload from the primary.
-RECOVERABLE_ERRORS = (requests.RequestException, KeyError, ValueError, TypeError)
-
-
 class FallbackClassifier:
-    def __init__(self, primary: EmailClassifier, secondary: EmailClassifier) -> None:
+    def __init__(
+        self,
+        primary: EmailClassifier,
+        secondary: EmailClassifier,
+        recoverable: tuple[type[Exception], ...],
+        on_fallback: Callable[[], None] = lambda: None,
+    ) -> None:
         self.primary = primary
         self.secondary = secondary
+        self._recoverable = recoverable
+        self._on_fallback = on_fallback
 
     @property
     def is_configured(self) -> bool:
@@ -28,12 +30,12 @@ class FallbackClassifier:
         if self.primary.is_configured:
             try:
                 return self.primary.classify(email)
-            except RECOVERABLE_ERRORS as exc:
+            except self._recoverable as exc:
                 logger.warning(
                     "%s failed (%s), falling back to %s",
                     type(self.primary).__name__,
                     exc,
                     type(self.secondary).__name__,
                 )
-                Metrics.mark_jev_fallback()
+                self._on_fallback()
         return self.secondary.classify(email)

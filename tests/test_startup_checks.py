@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from src.domain import EmailMessage
-from src.gateways import AlertGateway, DiscordChannel, TelegramBot, TelegramChannel
+from src.gateways import AlertGateway
+from src.gateways.discord import DiscordChannel
+from src.gateways.telegram_bot import TelegramBot, TelegramChannel
 from src.gmail.client import GmailClient
 from src.health import StartupCheckError, StartupCheckMode, run_startup_checks
 from src.triage import HeuristicClassifier, JevClassifier

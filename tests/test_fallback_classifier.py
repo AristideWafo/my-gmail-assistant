@@ -7,8 +7,15 @@ from src.domain import EmailMessage, TriageResult
 from src.observability.metrics import Metrics
 from src.ports import EmailClassifier
 from src.triage import FallbackClassifier, HeuristicClassifier, JevClassifier
+from src.triage.engine import JEV_RECOVERABLE_ERRORS
 
 EMAIL = EmailMessage(id="1", thread_id="t1", sender="a@b.io", subject="s", snippet="n", body="")
+
+
+def jev_fallback(primary, secondary):
+    return FallbackClassifier(
+        primary, secondary, JEV_RECOVERABLE_ERRORS, on_fallback=Metrics.mark_jev_fallback
+    )
 
 
 class StubClassifier:
@@ -45,11 +52,11 @@ class FallbackClassifierTests(unittest.TestCase):
         return Metrics.jev_fallback._value.get() - self.before
 
     def test_implements_classifier_port(self):
-        self.assertIsInstance(FallbackClassifier(StubClassifier(), StubClassifier()), EmailClassifier)
+        self.assertIsInstance(jev_fallback(StubClassifier(), StubClassifier()), EmailClassifier)
 
     def test_uses_primary_when_it_succeeds(self):
         secondary = StubClassifier(SECONDARY_RESULT)
-        classifier = FallbackClassifier(StubClassifier(PRIMARY_RESULT), secondary)
+        classifier = jev_fallback(StubClassifier(PRIMARY_RESULT), secondary)
 
         self.assertEqual(classifier.classify(EMAIL), PRIMARY_RESULT)
         self.assertEqual(secondary.calls, [])
@@ -60,7 +67,7 @@ class FallbackClassifierTests(unittest.TestCase):
             with self.subTest(error=type(error).__name__):
                 before = Metrics.jev_fallback._value.get()
                 secondary = StubClassifier(SECONDARY_RESULT)
-                classifier = FallbackClassifier(StubClassifier(error=error), secondary)
+                classifier = jev_fallback(StubClassifier(error=error), secondary)
 
                 with self.assertLogs("src.triage.fallback", level="WARNING") as logs:
                     result = classifier.classify(EMAIL)
@@ -71,7 +78,7 @@ class FallbackClassifierTests(unittest.TestCase):
                 self.assertIn("falling back", logs.output[0])
 
     def test_unexpected_primary_error_propagates(self):
-        classifier = FallbackClassifier(
+        classifier = jev_fallback(
             StubClassifier(error=RuntimeError("bug")), StubClassifier(SECONDARY_RESULT)
         )
 
@@ -80,7 +87,7 @@ class FallbackClassifierTests(unittest.TestCase):
 
     def test_unconfigured_primary_goes_straight_to_secondary_without_metric(self):
         primary = StubClassifier(PRIMARY_RESULT, configured=False)
-        classifier = FallbackClassifier(primary, StubClassifier(SECONDARY_RESULT))
+        classifier = jev_fallback(primary, StubClassifier(SECONDARY_RESULT))
 
         with self.assertNoLogs("src.triage.fallback", level="WARNING"):
             self.assertEqual(classifier.classify(EMAIL), SECONDARY_RESULT)
@@ -92,13 +99,13 @@ class FallbackClassifierTests(unittest.TestCase):
         cases = [((True, False), True), ((False, True), True), ((False, False), False)]
         for (primary, secondary), expected in cases:
             with self.subTest(primary=primary, secondary=secondary):
-                classifier = FallbackClassifier(
+                classifier = jev_fallback(
                     StubClassifier(configured=primary), StubClassifier(configured=secondary)
                 )
                 self.assertIs(classifier.is_configured, expected)
 
     def test_check_connection_delegates_to_primary(self):
-        classifier = FallbackClassifier(
+        classifier = jev_fallback(
             StubClassifier(connection="API key accepted"), StubClassifier(connection="local heuristic")
         )
 
@@ -117,7 +124,7 @@ class JevWithHeuristicFallbackTests(unittest.TestCase):
         )
 
     def classifier(self, api_key="k"):
-        return FallbackClassifier(
+        return jev_fallback(
             JevClassifier("https://jev.example/triage", api_key=api_key), HeuristicClassifier()
         )
 
@@ -140,3 +147,25 @@ class JevWithHeuristicFallbackTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GenericFallbackTests(unittest.TestCase):
+    def test_only_declared_errors_trigger_the_fallback(self):
+        calls = []
+        classifier = FallbackClassifier(
+            StubClassifier(error=OSError("down")),
+            StubClassifier(SECONDARY_RESULT),
+            recoverable=(OSError,),
+            on_fallback=lambda: calls.append(1),
+        )
+
+        self.assertEqual(classifier.classify(EMAIL), SECONDARY_RESULT)
+        self.assertEqual(calls, [1])
+
+    def test_undeclared_errors_propagate(self):
+        classifier = FallbackClassifier(
+            StubClassifier(error=KeyError("x")), StubClassifier(SECONDARY_RESULT), (OSError,)
+        )
+
+        with self.assertRaises(KeyError):
+            classifier.classify(EMAIL)
