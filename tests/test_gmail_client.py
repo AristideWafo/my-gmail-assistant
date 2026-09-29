@@ -67,11 +67,11 @@ class GmailClientActionsTests(unittest.TestCase):
             body={"addLabelIds": ["label-existing"], "removeLabelIds": ["UNREAD"]},
         )
 
-    def create_and_parse_draft(self, subject="Subject", body="Body text"):
+    def create_and_parse_draft(self, subject="Subject", body="Body text", **kwargs):
         client, service = make_client_with_service()
         service.users().drafts().create().execute.return_value = {"id": "draft-1"}
 
-        client.create_draft("thread-1", "to@example.com", subject, body)
+        client.create_draft("thread-1", "to@example.com", subject, body, **kwargs)
 
         _, kwargs = service.users().drafts().create.call_args
         self.assertEqual(kwargs["body"]["message"]["threadId"], "thread-1")
@@ -93,6 +93,37 @@ class GmailClientActionsTests(unittest.TestCase):
 
     def test_create_draft_does_not_stack_re_prefixes(self):
         self.assertEqual(self.create_and_parse_draft(subject="RE: Hello")["Subject"], "RE: Hello")
+
+    def test_create_draft_sets_threading_headers_when_replying_to_a_message_id(self):
+        message = self.create_and_parse_draft(in_reply_to="<abc@mail.example.com>")
+
+        self.assertEqual(message["In-Reply-To"], "<abc@mail.example.com>")
+        self.assertEqual(message["References"], "<abc@mail.example.com>")
+
+    def test_create_draft_omits_threading_headers_without_message_id(self):
+        message = self.create_and_parse_draft()
+
+        self.assertIsNone(message["In-Reply-To"])
+        self.assertIsNone(message["References"])
+
+    def test_create_draft_returns_none_when_not_configured(self):
+        client = GmailClient(client_id="", client_secret="", refresh_token="")
+
+        self.assertIsNone(client.create_draft("t", "to@example.com", "s", "b", in_reply_to="<x@y>"))
+
+    def test_send_draft_sends_the_draft_by_id(self):
+        client, service = make_client_with_service()
+        service.users().drafts().send().execute.return_value = {"id": "sent-1", "threadId": "t"}
+
+        result = client.send_draft("draft-1")
+
+        service.users().drafts().send.assert_called_with(userId="me", body={"id": "draft-1"})
+        self.assertEqual(result, {"id": "sent-1", "threadId": "t"})
+
+    def test_send_draft_returns_none_when_not_configured(self):
+        client = GmailClient(client_id="", client_secret="", refresh_token="")
+
+        self.assertIsNone(client.send_draft("draft-1"))
 
 
 def _b64(text: str) -> str:
@@ -150,6 +181,28 @@ class GmailClientParsingTests(unittest.TestCase):
         email = GmailClient._parse_message(message)
 
         self.assertEqual(email.body, "Hi & welcome")
+
+
+class MessageIdHeaderTests(unittest.TestCase):
+    @staticmethod
+    def parse_with_headers(headers):
+        return GmailClient._parse_message({"id": "1", "threadId": "t", "payload": {"headers": headers}})
+
+    def test_parse_message_exposes_the_message_id_header(self):
+        for name in ("Message-ID", "Message-Id", "message-id"):
+            with self.subTest(name=name):
+                email = self.parse_with_headers([{"name": name, "value": "<abc@mail.example.com>"}])
+                self.assertEqual(email.message_id_header, "<abc@mail.example.com>")
+
+    def test_missing_message_id_header_gives_empty_string(self):
+        self.assertEqual(self.parse_with_headers([]).message_id_header, "")
+
+    def test_lowercase_from_and_subject_headers_are_read(self):
+        email = self.parse_with_headers(
+            [{"name": "from", "value": "Jane <jane@example.com>"}, {"name": "subject", "value": "Hi"}]
+        )
+
+        self.assertEqual((email.sender, email.subject), ("jane@example.com", "Hi"))
 
 
 class GmailClientBackoffTests(unittest.TestCase):
