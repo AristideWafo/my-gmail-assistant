@@ -3,8 +3,10 @@ import asyncio
 import logging
 import os
 import threading
+from collections.abc import Callable
 from contextlib import suppress
-from time import perf_counter
+from datetime import timedelta
+from time import monotonic, perf_counter
 
 import uvicorn
 from fastapi import FastAPI
@@ -13,6 +15,7 @@ from fastapi.responses import JSONResponse
 from src.config import Settings
 from src.expiring_set import ExpiringSet
 from src.gateways import AlertGateway
+from src.gateways.telegram_bot import TelegramBot, run_listener
 from src.gmail import GmailClient
 from src.gmail.client import build_unread_query
 from src.health import (
@@ -22,20 +25,29 @@ from src.health import (
     run_startup_checks,
     run_watchdog,
 )
+from src.interactions import InteractionHandler
 from src.llm import GeminiClient
 from src.observability import Metrics
+from src.storage import DecisionStore
 from src.triage import DecisionEngineClient
+from src.triage.few_shot import MAX_EXAMPLES, build_examples
 from src.workflow import EmailWorkflow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("gmail-assistant")
 
+TELEGRAM_OFFSET_KEY = "telegram_offset"
+LISTENER_JOIN_TIMEOUT_SECONDS = 5
+# A mail re-marked unread after this window is processed (and alerted) again.
 ALERTED_TTL_SECONDS = 24 * 3600
+RETENTION = timedelta(days=90)
+PRUNE_INTERVAL_SECONDS = 24 * 3600
 
 
 class ApplicationContext:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.store = DecisionStore(settings.db_path)
         self.gmail = GmailClient(
             client_id=settings.google_client_id,
             client_secret=settings.google_client_secret,
@@ -43,22 +55,37 @@ class ApplicationContext:
             user_id=settings.gmail_user_id,
             unread_query=settings.fetch_query or build_unread_query(settings.fetch_max_age_days),
         )
-        self.triage = DecisionEngineClient(settings.jev_api_url, settings.jev_api_key)
+        self.triage = DecisionEngineClient(
+            settings.jev_api_url,
+            settings.jev_api_key,
+            examples_provider=self._few_shot_examples if settings.jev_few_shot_enabled else None,
+        )
         self.gemini = GeminiClient(
             settings.gemini_api_key,
             settings.gemini_model,
             max_rpm=settings.gemini_max_rpm,
             user_name=settings.user_display_name,
         )
-        self.alerts = AlertGateway(
-            telegram_bot_token=settings.telegram_bot_token,
-            telegram_chat_id=settings.telegram_chat_id,
-            discord_webhook_url=settings.discord_webhook_url,
+        self.telegram = TelegramBot(
+            settings.telegram_bot_token,
+            settings.telegram_chat_id,
+            allowed_user_ids=settings.allowed_user_ids,
         )
+        self.inbound_enabled = self._resolve_inbound()
+        self.alerts = AlertGateway(
+            telegram=self.telegram,
+            discord_webhook_url=settings.discord_webhook_url,
+            feedback_buttons=self.inbound_enabled,
+        )
+        self.interactions = InteractionHandler(self.store, self.telegram, self.gmail)
         self.workflow = EmailWorkflow(self.triage, self.gemini, settings.low_confidence_threshold)
-        self.alerted = ExpiringSet(ALERTED_TTL_SECONDS)
         self.health = PollHealth(settings.poll_stale_after_seconds)
         self.stopping = threading.Event()
+        self.listener: threading.Thread | None = None
+        # Backs up the persisted flag: if both mark_alerted and the label fail, the mail must not
+        # be re-alerted every cycle.
+        self.recently_alerted = ExpiringSet(ALERTED_TTL_SECONDS)
+        self._last_prune: float | None = None
 
     def connection_probes(self):
         return {
@@ -71,7 +98,9 @@ class ApplicationContext:
 
     def process_email(self, email):
         started = perf_counter()
-        if email.id in self.alerted:
+        if email.id in self.recently_alerted or self.store.was_alerted(
+            email.id, within_seconds=ALERTED_TTL_SECONDS
+        ):
             # The alert already went out but the commit (label removing UNREAD) failed last cycle.
             self.gmail.label_message(email.id, "urgent")
             return
@@ -79,6 +108,9 @@ class ApplicationContext:
         result = self.workflow.run(email)
         triage = result["triage"]
         route = result["route"]
+        self._best_effort(
+            lambda: self.store.record_decision(email, triage, route), "record decision", email.id
+        )
 
         if route == "reject":
             self.gmail.archive_message(email.id)
@@ -99,16 +131,101 @@ class ApplicationContext:
         )
 
     def _handle_urgent(self, email, triage, result) -> None:
-        # Order matters: alert first (never lose it), draft is best-effort, and the label
-        # that removes UNREAD is the commit point so a failure anywhere earlier retries the mail.
-        self.alerts.send_urgent_alert(email, triage, self._alert_summary(result))
-        self.alerted.add(email.id)
+        # Order matters: alert first (never lose it), then persist it as alerted so a retry only
+        # relabels, draft is best-effort, and the label that removes UNREAD is the commit point so
+        # a failure anywhere earlier retries the mail.
+        chat_message_id = self.alerts.send_urgent_alert(email, triage, self._alert_summary(result))
+        self.recently_alerted.add(email.id)
+        self._best_effort(lambda: self.store.mark_alerted(email.id), "mark alerted", email.id)
+        if chat_message_id is not None:
+            self._best_effort(
+                lambda: self.store.attach_chat_message(email.id, chat_message_id),
+                "link Telegram alert",
+                email.id,
+            )
         if result.get("draft"):
-            try:
-                self.gmail.create_draft(email.thread_id, email.sender, email.subject, result["draft"])
-            except Exception:
-                logger.exception("Failed to create draft for email %s; continuing", email.id)
+            self._best_effort(
+                lambda: self.gmail.create_draft(
+                    email.thread_id,
+                    email.sender,
+                    email.subject,
+                    result["draft"],
+                    in_reply_to=email.message_id_header,
+                ),
+                "create draft",
+                email.id,
+            )
         self.gmail.label_message(email.id, "urgent")
+
+    @staticmethod
+    def _best_effort(action: Callable[[], object], description: str, email_id: str) -> None:
+        # Once the alert is out, raising would skip the label commit and re-alert the mail on
+        # every retry; a lost row or draft only degrades feedback, dedup or convenience.
+        try:
+            action()
+        except Exception:
+            logger.exception("Failed to %s for email %s; continuing", description, email_id)
+
+    def _few_shot_examples(self) -> list[dict[str, str]]:
+        return build_examples(self.store.recent_corrections(MAX_EXAMPLES))
+
+    def prune_if_due(self) -> None:
+        now = monotonic()
+        if self._last_prune is not None and now - self._last_prune < PRUNE_INTERVAL_SECONDS:
+            return
+        self._last_prune = now
+        try:
+            deleted = self.store.prune(RETENTION)
+        except Exception:
+            logger.exception("Failed to prune the decision store; will retry tomorrow")
+            return
+        logger.info("Pruned %d expired row(s) from the decision store", deleted)
+
+    def _resolve_inbound(self) -> bool:
+        if not self.settings.telegram_inbound_enabled:
+            return False
+        if not self.telegram.configured:
+            logger.warning("TELEGRAM_INBOUND_ENABLED ignored: Telegram is not configured")
+            return False
+        if not self.telegram.inbound_authorized:
+            logger.error(
+                "TELEGRAM_INBOUND_ENABLED ignored: TELEGRAM_ALLOWED_USER_IDS is required when "
+                "TELEGRAM_CHAT_ID is a group or channel"
+            )
+            return False
+        return True
+
+    def start_telegram_listener(self) -> None:
+        if not self.inbound_enabled:
+            return
+        self.listener = threading.Thread(
+            target=run_listener,
+            args=(
+                self.telegram,
+                self.interactions.dispatch,
+                self._load_telegram_offset,
+                self._save_telegram_offset,
+                self.stopping,
+            ),
+            kwargs={"sleep": self.stopping.wait},
+            name="telegram-listener",
+            daemon=True,
+        )
+        self.listener.start()
+
+    def close(self) -> None:
+        self.stopping.set()
+        # A long poll can keep the listener blocked for ~40s; it is a daemon, so wait only briefly.
+        if self.listener is not None:
+            self.listener.join(LISTENER_JOIN_TIMEOUT_SECONDS)
+        self.store.close()
+
+    def _load_telegram_offset(self) -> int | None:
+        value = self.store.get_state(TELEGRAM_OFFSET_KEY)
+        return int(value) if value else None
+
+    def _save_telegram_offset(self, offset: int) -> None:
+        self.store.set_state(TELEGRAM_OFFSET_KEY, str(offset))
 
     @staticmethod
     def _alert_summary(result) -> str:
@@ -125,6 +242,7 @@ def poll_once(ctx: ApplicationContext) -> None:
     # exception raised out of here would kill polling forever with zero log line - the task just
     # dies silently and nothing is ever processed again until the container restarts. Every
     # failure must therefore be caught and logged right here, never allowed to propagate.
+    ctx.prune_if_due()
     try:
         emails = ctx.gmail.fetch_unread()
     except Exception:
@@ -204,6 +322,7 @@ def create_app(sync_history: bool | None = None) -> FastAPI:
             logger.info("Syncing Gmail history...")
             await asyncio.to_thread(sync_history_once, ctx)
 
+        ctx.start_telegram_listener()
         ctx.health.beat()
         app.state.polling_task = asyncio.create_task(polling_loop(ctx))
         if settings.watchdog_enabled:
@@ -219,6 +338,7 @@ def create_app(sync_history: bool | None = None) -> FastAPI:
                 task.cancel()
                 with suppress(asyncio.CancelledError):
                     await task
+        await asyncio.to_thread(ctx.close)
 
     return app
 

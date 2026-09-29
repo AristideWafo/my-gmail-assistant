@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from src.gateways.alerts import AlertDeliveryError, AlertGateway, dedup_key, format_urgent_alert
+from src.gateways.telegram_bot import TelegramApiError
 from src.gmail.client import EmailMessage
 from src.health import StartupCheckMode, run_startup_checks
 from src.triage.engine import TriageResult
@@ -19,6 +20,18 @@ def make_email(**overrides) -> EmailMessage:
         "body": "b",
     }
     return EmailMessage(**{**fields, **overrides})
+
+
+def make_bot(message_id=77, error=None) -> MagicMock:
+    bot = MagicMock(configured=True)
+    bot.send_message.return_value = message_id
+    if error is not None:
+        bot.send_message.side_effect = error
+    return bot
+
+
+def telegram_down() -> TelegramApiError:
+    return TelegramApiError("Telegram sendMessage failed: ConnectionError (status n/a)")
 
 
 class FormatUrgentAlertTests(unittest.TestCase):
@@ -59,43 +72,58 @@ class SafeSendTests(unittest.TestCase):
             gateway.send_urgent_alert(make_email(), TriageResult("high", "personnel", 0.9), "s")
 
     def test_one_delivering_channel_is_enough(self):
-        gateway = AlertGateway(telegram_bot_token="t", telegram_chat_id="1", discord_webhook_url=VALID_DISCORD_URL)
+        gateway = AlertGateway(
+            telegram=make_bot(error=telegram_down()), discord_webhook_url=VALID_DISCORD_URL
+        )
 
-        def post(url, **kwargs):
-            if "telegram" in url:
-                raise requests.ConnectionError("down")
-            return MagicMock()
+        with patch("src.gateways.alerts.requests.post"), self.assertLogs("src.gateways.alerts"):
+            self.assertIsNone(gateway.send_urgent_alert(make_email(), HIGH, "s"))
 
-        with patch("src.gateways.alerts.requests.post", side_effect=post), self.assertLogs("src.gateways.alerts"):
+    def test_discord_failure_log_never_contains_the_webhook_token(self):
+        gateway = AlertGateway(discord_webhook_url=VALID_DISCORD_URL)
+        error = requests.ConnectionError(f"Max retries exceeded with url: {VALID_DISCORD_URL}")
+        with (
+            patch("src.gateways.alerts.requests.post", side_effect=error),
+            self.assertLogs("src.gateways.alerts", level="WARNING") as logs,
+            self.assertRaises(AlertDeliveryError),
+        ):
             gateway.send_urgent_alert(make_email(), HIGH, "s")
+
+        self.assertNotIn("abc-DEF_1", "\n".join(logs.output))
+        self.assertIn("ConnectionError", logs.output[0])
+
+    def test_unconfigured_bot_is_not_a_channel(self):
+        bot = make_bot()
+        bot.configured = False
+
+        self.assertIsNone(AlertGateway(telegram=bot).send_urgent_alert(make_email(), HIGH, "s"))
+        bot.send_message.assert_not_called()
 
     def test_no_configured_channel_is_not_a_failure(self):
         AlertGateway().send_urgent_alert(make_email(), HIGH, "s")
 
     def test_alert_skipped_by_open_breakers_is_reported_as_undelivered(self):
-        gateway = AlertGateway(telegram_bot_token="t", telegram_chat_id="1")
-        with patch("src.gateways.alerts.requests.post", side_effect=requests.ConnectionError("down")), self.assertLogs(
-            "src.gateways.alerts"
-        ):
+        bot = make_bot(error=telegram_down())
+        gateway = AlertGateway(telegram=bot)
+        with self.assertLogs("src.gateways.alerts"):
             for i in range(5):
                 with self.assertRaises(AlertDeliveryError):
                     gateway.send_urgent_alert(make_email(sender=f"p{i}@x.io"), HIGH, "s")
-        with patch("src.gateways.alerts.requests.post") as post, self.assertRaises(AlertDeliveryError):
+        bot.send_message.reset_mock()
+        with self.assertRaises(AlertDeliveryError):
             gateway.send_urgent_alert(make_email(sender="p9@x.io"), HIGH, "s")
-        post.assert_not_called()
+        bot.send_message.assert_not_called()
 
     def test_failed_alert_does_not_poison_the_dedup_window(self):
-        gateway = AlertGateway(telegram_bot_token="t", telegram_chat_id="1")
+        bot = make_bot(error=telegram_down())
+        gateway = AlertGateway(telegram=bot)
         email = make_email()
-        with patch("src.gateways.alerts.requests.post", side_effect=requests.ConnectionError("down")), self.assertLogs(
-            "src.gateways.alerts"
-        ), self.assertRaises(AlertDeliveryError):
+        with self.assertLogs("src.gateways.alerts"), self.assertRaises(AlertDeliveryError):
             gateway.send_urgent_alert(email, HIGH, "s")
 
-        with patch("src.gateways.alerts.requests.post") as post:
-            gateway.send_urgent_alert(email, HIGH, "s")
-
-        self.assertEqual(post.call_count, 1)
+        bot.send_message.side_effect = None
+        self.assertEqual(gateway.send_urgent_alert(email, HIGH, "s"), 77)
+        self.assertEqual(bot.send_message.call_count, 2)
 
     def test_discord_content_is_truncated_to_its_2000_character_limit(self):
         gateway = AlertGateway(discord_webhook_url=VALID_DISCORD_URL)
@@ -146,44 +174,83 @@ class DedupTests(unittest.TestCase):
         self.assertNotEqual(dedup_key(base), dedup_key(make_email(sender="other@github.com")))
 
     def test_repeated_automated_alert_is_sent_once(self):
-        gateway = AlertGateway(telegram_bot_token="t", telegram_chat_id="1")
-        with patch("src.gateways.alerts.requests.post") as post:
-            gateway.send_urgent_alert(make_email(subject="Run failed (53fc758)"), HIGH, "s")
-            gateway.send_urgent_alert(make_email(subject="Run failed (acc1a3a)"), HIGH, "s")
+        bot = make_bot()
+        gateway = AlertGateway(telegram=bot)
+        gateway.send_urgent_alert(make_email(subject="Run failed (53fc758)"), HIGH, "s")
+        second = gateway.send_urgent_alert(make_email(subject="Run failed (acc1a3a)"), HIGH, "s")
 
-        self.assertEqual(post.call_count, 1)
+        self.assertIsNone(second)
+        self.assertEqual(bot.send_message.call_count, 1)
 
     def test_human_mail_is_never_deduplicated(self):
-        gateway = AlertGateway(telegram_bot_token="t", telegram_chat_id="1")
+        bot = make_bot()
+        gateway = AlertGateway(telegram=bot)
         email = make_email(sender="celine@outlook.com", subject="Rencontre demain")
-        with patch("src.gateways.alerts.requests.post") as post:
-            gateway.send_urgent_alert(email, HIGH, "s")
-            gateway.send_urgent_alert(email, HIGH, "s")
+        gateway.send_urgent_alert(email, HIGH, "s")
+        gateway.send_urgent_alert(email, HIGH, "s")
 
-        self.assertEqual(post.call_count, 2)
+        self.assertEqual(bot.send_message.call_count, 2)
 
 
 class CircuitBreakerIntegrationTests(unittest.TestCase):
     def test_channel_pauses_after_repeated_failures_without_affecting_the_other(self):
-        gateway = AlertGateway(telegram_bot_token="t", telegram_chat_id="1", discord_webhook_url=VALID_DISCORD_URL)
-        telegram_ok = MagicMock()
+        bot = make_bot()
+        gateway = AlertGateway(telegram=bot, discord_webhook_url=VALID_DISCORD_URL)
 
-        def post(url, **kwargs):
-            if "discord" in url:
-                raise requests.ConnectionError("down")
-            return telegram_ok
-
-        with patch("src.gateways.alerts.requests.post", side_effect=post) as mock_post, self.assertLogs(
-            "src.gateways.alerts", level="WARNING"
-        ) as logs:
+        with patch(
+            "src.gateways.alerts.requests.post", side_effect=requests.ConnectionError("down")
+        ) as discord_post, self.assertLogs("src.gateways.alerts", level="WARNING") as logs:
             for i in range(8):
                 gateway.send_urgent_alert(make_email(sender=f"p{i}@x.io", subject=f"s{i}"), HIGH, "s")
 
-        discord_calls = [c for c in mock_post.call_args_list if "discord" in c.args[0]]
-        telegram_calls = [c for c in mock_post.call_args_list if "telegram" in c.args[0]]
-        self.assertEqual(len(discord_calls), 5)
-        self.assertEqual(len(telegram_calls), 8)
+        self.assertEqual(discord_post.call_count, 5)
+        self.assertEqual(bot.send_message.call_count, 8)
         self.assertEqual(sum("pausing" in line for line in logs.output), 1)
+
+
+class TelegramAlertTests(unittest.TestCase):
+    def test_returns_the_telegram_message_id(self):
+        gateway = AlertGateway(telegram=make_bot(message_id=321))
+
+        self.assertEqual(gateway.send_urgent_alert(make_email(), HIGH, "s"), 321)
+
+    def test_feedback_buttons_carry_the_gmail_id(self):
+        bot = make_bot()
+        AlertGateway(telegram=bot, feedback_buttons=True).send_urgent_alert(
+            make_email(id="18c2f0a1b2c3d4e5"), HIGH, "s"
+        )
+
+        self.assertEqual(
+            bot.send_message.call_args.kwargs["buttons"],
+            [
+                [
+                    ("Valider", "fb:v:18c2f0a1b2c3d4e5"),
+                    ("Faux-Urgent", "fb:u:18c2f0a1b2c3d4e5"),
+                    ("Faux-Spam", "fb:s:18c2f0a1b2c3d4e5"),
+                ]
+            ],
+        )
+
+    def test_no_buttons_without_the_flag(self):
+        bot = make_bot()
+        AlertGateway(telegram=bot).send_urgent_alert(make_email(), HIGH, "s")
+
+        self.assertIsNone(bot.send_message.call_args.kwargs["buttons"])
+
+    def test_oversized_id_sends_the_alert_without_buttons(self):
+        bot = make_bot()
+        AlertGateway(telegram=bot, feedback_buttons=True).send_urgent_alert(
+            make_email(id="x" * 80), HIGH, "s"
+        )
+
+        bot.send_message.assert_called_once()
+        self.assertIsNone(bot.send_message.call_args.kwargs["buttons"])
+
+    def test_check_telegram_reports_the_bot_username(self):
+        bot = make_bot()
+        bot.get_me.return_value = {"username": "mybot"}
+
+        self.assertEqual(AlertGateway(telegram=bot).check_telegram(), "bot @mybot reachable")
 
 
 if __name__ == "__main__":

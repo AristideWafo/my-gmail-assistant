@@ -1,4 +1,21 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def parse_user_ids(raw: str) -> frozenset[int]:
+    ids = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            user_id = int(part)
+        except ValueError:
+            raise ValueError(f"not an integer Telegram user id: {part!r}") from None
+        if user_id <= 0:
+            raise ValueError(f"Telegram user ids are positive, got {user_id}")
+        ids.add(user_id)
+    return frozenset(ids)
 
 
 class Settings(BaseSettings):
@@ -25,6 +42,22 @@ class Settings(BaseSettings):
     fetch_query: str = ""
     sync_history: bool = False
     gmail_user_id: str = "me"
+    db_path: str = "data/assistant.db"
+    # Only one process may long-poll a bot token; a second poller gets HTTP 409 from Telegram.
+    telegram_inbound_enabled: bool = False
+    # Comma-separated; mandatory for inbound in group chats, where anyone could press buttons.
+    telegram_allowed_user_ids: str = ""
+    jev_few_shot_enabled: bool = False
+
+    @field_validator("telegram_allowed_user_ids")
+    @classmethod
+    def _validate_user_ids(cls, value: str) -> str:
+        parse_user_ids(value)
+        return value
+
+    @property
+    def allowed_user_ids(self) -> frozenset[int]:
+        return parse_user_ids(self.telegram_allowed_user_ids)
 
     @property
     def poll_stale_after_seconds(self) -> int:

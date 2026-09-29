@@ -6,6 +6,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - DB_PATH=/data/assistant.db
+    volumes:
+      - assistant-data:/data
     ports:
       - "8000:8000"
     healthcheck:
@@ -58,5 +62,6 @@ services:
           cpus: "0.5"
 
 volumes:
+  assistant-data:
   prometheus-data:
   grafana-data:
