@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 
 MIN_VERDICTS = 100
 MIN_CORRECTIONS = 20
+NOT_CONCLUSIVE = (
+    f"NOT CONCLUSIVE: fewer than {MIN_VERDICTS} cases including {MIN_CORRECTIONS} "
+    "corrections; differences between variants may be chance."
+)
 
 
 @dataclass
@@ -98,11 +102,7 @@ def format_report(
         for row in table
     ]
     if not is_conclusive(cases):
-        warning = (
-            f"NOT CONCLUSIVE: fewer than {MIN_VERDICTS} cases including {MIN_CORRECTIONS} "
-            "corrections; differences between variants may be chance."
-        )
-        lines += ["", warning]
+        lines += ["", NOT_CONCLUSIVE]
     return "\n".join(lines)
 
 

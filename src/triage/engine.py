@@ -81,7 +81,7 @@ class JevClassifier:
             logger.warning("Few-shot examples unavailable (%s), classifying without them", exc)
             return []
 
-    def _build_request(self, email: EmailMessage) -> dict:
+    def build_request(self, email: EmailMessage) -> dict:
         request = {
             "model": JEV_MODEL,
             "state": {
@@ -115,7 +115,7 @@ class JevClassifier:
         return request
 
     @classmethod
-    def _parse_answers(cls, data: dict) -> TriageResult:
+    def parse_answers(cls, data: dict) -> TriageResult:
         answers = data["answers"]
         urgency, category = answers["urgency"], answers["category"]
         return TriageResult(
@@ -123,11 +123,11 @@ class JevClassifier:
             category=cls._normalize_category(category.get("choice")),
             confidence=min(float(urgency.get("confidence", 0.0)), float(category.get("confidence", 0.0))),
             source="jev",
-            needs_reply=cls._parse_needs_reply(answers.get("needs_reply")),
+            needs_reply=cls.parse_probability(answers.get("needs_reply")),
         )
 
     @staticmethod
-    def _parse_needs_reply(answer: object) -> float | None:
+    def parse_probability(answer: object) -> float | None:
         # Optional on purpose: a missing or odd answer must not fail the whole classification
         # and send the mail to the heuristic fallback.
         probability = answer.get("noul") if isinstance(answer, dict) else None
@@ -146,16 +146,19 @@ class JevClassifier:
             return
         Metrics.mark_llm_usage("triage", *tokens, cost_usd=None)
 
-    def classify(self, email: EmailMessage) -> TriageResult:
+    def ask(self, request: dict) -> dict:
         response = requests.post(
             self.api_url,
-            json=self._build_request(email),
+            json=request,
             headers={"Authorization": f"Bearer {self.api_key}"},
             timeout=self.timeout,
         )
         response.raise_for_status()
-        data = response.json()
-        result = self._parse_answers(data)
+        return response.json()
+
+    def classify(self, email: EmailMessage) -> TriageResult:
+        data = self.ask(self.build_request(email))
+        result = self.parse_answers(data)
         self._record_usage(data)
         return result
 

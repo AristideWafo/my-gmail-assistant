@@ -187,19 +187,19 @@ Les 5 erreurs du flow actuel sur ce corpus viennent des règles de routage, pas 
 
 ### L1 — Banc d'essai intégré au dépôt
 
-- ⬜ Corpus de test versionné (`src/evaluation/corpus.toml`) : les 50 mails de la première série, chacun avec ses routes acceptables, `needs_reply` attendu et faits métier attendus. Mails inventés uniquement, aucun mail réel dans le dépôt
-- ⬜ Notion de variante dans `src/evaluation` : un nom, une transformation de la requête JEV (état, questions) et une fonction de routage. La variante `current` réutilise `JevClassifier` et `route_for` tels quels
-- ⬜ `python -m src.evaluation lab --source corpus|rated --variants ... --repeats N` :
+- ✅ Corpus de test versionné (`src/evaluation/corpus.toml`) : les 50 mails de la première série, chacun avec ses routes acceptables, `needs_reply` attendu et faits métier attendus. Mails inventés uniquement, aucun mail réel dans le dépôt
+- ✅ Notion de variante dans `src/evaluation` : un nom, une transformation de la requête JEV (état, questions) et une fonction de routage. La variante `current` réutilise `JevClassifier` et `route_for` tels quels
+- ✅ `python -m src.evaluation lab --source corpus|rated --variants ... --repeats N` :
   - `corpus` : compare aux routes acceptables du corpus ;
   - `rated` : rejoue les vrais mails notés (`rated_decisions` + `fetch_message`) et compare aux contraintes déjà définies pour chaque verdict (`EXPECTATIONS`)
-- ⬜ Rapport par variante : décisions correctes, routes qui changent entre deux appels, tokens et latence (médiane, p95), liste des mails mal routés. Pour chaque question oui/non : ratés et faux positifs quand la vérité est connue, sinon taux de oui et liste à contrôler à la main
-- ⬜ Garde de coût : nombre d'appels affiché avant exécution, plafond `--max-calls`
-- ⬜ Même avertissement « non concluant » que le banc existant sous 100 verdicts dont 20 corrections
+- ✅ Rapport par variante : décisions correctes, routes qui changent entre deux appels, tokens et latence (médiane, p95), liste des mails mal routés. Pour chaque question oui/non : ratés et faux positifs quand la vérité est connue, sinon taux de oui et liste à contrôler à la main
+- ✅ Garde de coût : nombre d'appels affiché avant exécution, plafond `--max-calls`
+- ✅ Même avertissement « non concluant » que le banc existant sous 100 verdicts dont 20 corrections
 
 **Validation de L1** (condition d'entrée de L2, L3 et L4)
-- Sur le corpus, la variante `current` retrouve les chiffres de la première série (45/50, aucun changement de route entre appels)
-- Exécuté sur le VPS avec `--source rated` ; nombre de cas, taux par variante et coût notés ici
-- Décision écrite ici pour chacun des points L2, L3, L4 : lancé, reporté ou abandonné, chiffres à l'appui
+- ✅ Sur le corpus, la variante `current` retrouve les chiffres de la première série : 45/50 sur 3 passes, aucun changement de route, 936 tokens par mail, latence médiane 0,26 s (`direct-action` 47/50, `signals` 45/50 pour 1 377 tokens)
+- ⬜ Exécuté sur le VPS avec `docker compose exec assistant python -m src.evaluation lab --source rated` ; nombre de cas, taux par variante et coût notés ici
+- ⬜ Décision écrite ici pour chacun des points L2, L3, L4 : lancé, reporté ou abandonné, chiffres à l'appui
 
 ### L2 — Questions métier (en attente de L1)
 
@@ -395,5 +395,5 @@ Le code de S1, de la Phase 0 et de la Phase 1 est écrit. Ce qui reste dépend d
 4. À 100 verdicts dont 20 corrections : `python -m src.evaluation run`, puis décider du few-shot et du repli Gemini, chiffres notés ici
 5. `python -m src.evaluation candidates` pour écrire les premières règles et la liste VIP
 6. Activer `NEEDS_REPLY_ENABLED`, puis contrôler pendant une semaine les brouillons créés et le label `Assistant/A_repondre` ; ajuster `NEEDS_REPLY_THRESHOLD` d'après les probabilités stockées
-7. L1 (banc d'essai des questions JEV), puis décision sur L2, L3 et L4 d'après ses résultats sur les vrais mails
+7. Sur le VPS : `docker compose exec assistant python -m src.evaluation lab --source rated`, noter les chiffres dans la Phase 1bis, puis décider de L2, L3 et L4
 8. S2 avant le reste de la Phase 2
