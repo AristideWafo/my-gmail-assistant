@@ -89,7 +89,7 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 - ✅ Couverture mesurée en CI (`pytest --cov`) : 98,2 % à ce jour, plancher à 98 % (`fail_under`), à relever quand la couverture monte, jamais à baisser
 - ✅ Dependabot (`.github/dependabot.yml`) : Python chaque semaine, GitHub Actions et image de base chaque mois. **À surveiller** : la première salve proposera des sauts importants (SDK Gemini, FastAPI, LangGraph), à fusionner un par un
 - ✅ `@app.on_event` remplacé par `lifespan` : un démarrage qui échoue libère ce qui était ouvert. Version de l'app lue dans `pyproject.toml` (`src/version.py`), exposée par l'API et écrite dans le journal au démarrage
-- ⬜ Runbook des pannes connues : token Gmail révoqué, 409 Telegram (double poller), quota Gemini, JEV indisponible, base corrompue
+- ✅ Runbook (`RUNBOOK.md`) : token Gmail révoqué, Gmail injoignable, 409 Telegram, JEV indisponible, quota ou délai Gemini, budget LLM atteint, mails en échec, base plus récente que le code, base corrompue, silence total. Chaque entrée part du signe visible (message Telegram, ligne de journal)
 
 ### S3 — Règle de passage entre phases (continu)
 
@@ -461,7 +461,7 @@ Lots :
 
 ## Risques ouverts
 
-- **Sauvegarde SQLite toujours absente.** La base va porter les threads, les items et les actions en attente : sa perte coûtera bien plus qu'aujourd'hui. Traité en S1, avant toute migration
+- **Sauvegarde hors de l'hôte absente.** La sauvegarde quotidienne existe (S1) mais reste sur le même disque que la base, qui va porter les threads, les items et les actions en attente. La copie vers une autre machine reste à planifier sur le VPS
 - Les questions JEV s'accumulent (`needs_reply`, `asks_for_meeting`, `has_deadline`, `contains_commitment`, `has_payment_due`) : le coût et la latence sont mesurés et faibles (Phase 1bis), le risque restant est la qualité. Chacune doit avoir son filtre de catégorie et son propre retour utilisateur pour être évaluée
 - Les chiffres de la Phase 1bis viennent de mails écrits pour le test : aucune décision de routage ne doit en découler avant le rejeu sur les vrais mails (L1)
 - Un seul poller par token Telegram : n'activer `TELEGRAM_INBOUND_ENABLED` que sur une instance
@@ -476,14 +476,26 @@ Lots :
 
 ## Prochaine étape
 
-Le code de S1, de la Phase 0 et de la Phase 1 est écrit. Ce qui reste dépend du déploiement et des données :
+Le code de S1, de la Phase 0, de la Phase 1, de la Phase 1bis (L1, L3 à L5) et de S2 est écrit. Ce qui reste se fait sur le VPS, puis dépend des données.
 
-1. Déployer, puis vérifier sur le VPS : sauvegarde et restauration, alerte de panne, `/help`, `/review`, `/stats`
-2. `python -m src.evaluation check-examples` avec la vraie clé JEV
-3. Utiliser `/review` jusqu'à 30 verdicts hors alertes (critère de sortie de la Phase 0)
-4. À 100 verdicts dont 20 corrections : `python -m src.evaluation run`, puis décider du few-shot et du repli Gemini, chiffres notés ici
-5. `python -m src.evaluation candidates` pour écrire les premières règles et la liste VIP
-6. Activer `NEEDS_REPLY_ENABLED`, puis contrôler pendant une semaine les brouillons créés et le label `Assistant/A_repondre` ; ajuster `NEEDS_REPLY_THRESHOLD` d'après les probabilités stockées
-7. L5 est codé : passer `ATTENTION_MODE=shadow`, lire `python -m src.evaluation attention` après quelques jours, puis `on` avec `ATTENTION_LIST_HOUR`. Ensuite L3 (troncature, avec la source `recent`) et L4 (règles d'archivage mesurées sur l'historique)
-8. Continuer `/review` (43 verdicts à ce jour), puis relancer `lab --source rated` à 100 verdicts dont 20 corrections
-9. S2 avant le reste de la Phase 2
+**Au déploiement** (dans cet ordre) :
+
+1. `.env` : `VERSION` (version publiée), `TIMEZONE=Europe/Paris`, `GRAFANA_ADMIN_PASSWORD`. Grafana et Prometheus ne répondent plus que sur `127.0.0.1` : tunnel SSH, ou `BIND_ADDRESS` derrière un pare-feu
+2. `docker compose pull && docker compose up -d`, puis lire la première ligne du journal (`Starting my-gmail-assistant <version>`) et le rapport de démarrage sur Telegram
+3. La base passe au schéma 6 ; l'état précédent reste dans `assistant.db.pre-v6`. Les « Urgent raté » déjà donnés deviennent « À voir »
+4. `ATTENTION_MODE=shadow` et `NEEDS_REPLY_ENABLED=true`
+
+**Après quelques jours** :
+
+5. `python -m src.evaluation attention` : combien de mails par jour seraient mis en avant, et pour quelle raison. Cible : 3 au plus. Si le volume convient : `ATTENTION_MODE=on` et `ATTENTION_LIST_HOUR`
+6. `python -m src.evaluation lab --source rated` : relire les 37 mails avec les verdicts convertis
+7. `python -m src.evaluation lab --source recent` (L3) et `python -m src.evaluation routing-rules` (L4), résultats à noter ici avant toute adoption
+8. Contrôler les brouillons créés et le label `Assistant/A_repondre` ; ajuster `NEEDS_REPLY_THRESHOLD` d'après les probabilités stockées
+9. `python -m src.evaluation candidates` pour écrire les premières règles et la liste VIP
+
+**Critères encore ouverts** :
+
+10. S1 : copie des sauvegardes hors de l'hôte, restauration exécutée une fois
+11. S2 : retour arrière exécuté une fois (durée notée), exposition réseau vérifiée depuis une autre machine, chaque panne simulée vue sur Telegram en moins de 15 minutes
+12. Phase 0 : 30 verdicts hors alertes. Phase 1 : à 100 verdicts dont 20 corrections, `python -m src.evaluation run`, puis décision sur le few-shot et le repli Gemini
+13. Ensuite seulement : le reste de la Phase 2 (table `threads`, `/pending`, relances)

@@ -190,6 +190,8 @@ To add an implementation:
 
 ## Health and watchdog
 
+When something goes wrong, [RUNBOOK.md](RUNBOOK.md) lists the known failures by the sign you see first, with the check and the fix.
+
 `/healthz` returns 503 when the polling task has stopped or shows no activity for `max(5 x POLL_INTERVAL_SECONDS, 600)` seconds. With `WATCHDOG_ENABLED=true` (default) an in-process watchdog then exits the process so Docker's `restart: unless-stopped` brings it back; a Docker healthcheck alone only marks the container unhealthy.
 
 A failing mail fetch (revoked refresh token, Gmail outage, exhausted rate-limit retries) does not trip the watchdog: restarting would not fix it. Instead, once fetching has failed for `POLL_FAILURE_ALERT_MINUTES` (default `10`, `0` disables), the assistant sends one message to the chat naming the error type and HTTP status, and a second one with the outage duration when fetching works again. The message is retried every cycle until delivered. `RefreshError` means the Gmail refresh token is no longer valid: generate a new one (see above) and restart. Failed cycles are counted in `poll_failures_total`.
@@ -212,7 +214,7 @@ The dashboards showed these failures; nobody was told. At each polling cycle the
 
 ## Startup connection checks
 
-At startup the app probes every configured connection (Gmail, Gemini, JEV, Telegram, Discord) with read-only calls and logs one line per service (`OK`, `FAILED` or `SKIPPED` when not configured). No message is sent; secrets never appear in the logs. `STARTUP_CHECKS` controls the behavior:
+At startup the app probes every configured connection (Gmail, Gemini, JEV, Telegram, Discord) with read-only calls, logs one line per service (`OK`, `FAILED` or `SKIPPED` when not configured) and sends the same report to the chat. Secrets never appear in the logs or in the report. `STARTUP_CHECKS` controls the behavior:
 
 - `warn` (default): log results and start anyway.
 - `strict`: refuse to start if any configured connection fails.
