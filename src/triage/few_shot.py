@@ -19,6 +19,7 @@ _VERDICT_CORRECTIONS: dict[str, tuple[str, str | None]] = {
     "missed_urgent": ("high", None),
 }
 # "wrong_archive" is left out: the verdict does not say what the category should have been.
+# "missed_important" too: the mail was not urgent, so neither answer is to be corrected.
 EXAMPLE_VERDICTS = tuple(_VERDICT_CORRECTIONS)
 
 

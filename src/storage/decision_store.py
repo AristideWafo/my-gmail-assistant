@@ -265,7 +265,8 @@ class SqliteDecisionStore:
             row = self._conn.execute(
                 "SELECT COUNT(*) AS total, "
                 "SUM(d.route = 'reject') AS archived, "
-                "SUM(f.verdict = 'wrong_archive') AS wanted_back "
+                "SUM(f.verdict IN ('wrong_archive', 'missed_urgent', 'missed_important')) "
+                "AS wanted_back "
                 "FROM decisions d LEFT JOIN feedback f ON f.message_id = d.message_id "
                 "WHERE d.sender = ? COLLATE NOCASE AND d.created_at >= ?",
                 (sender, self._cutoff(max_age)),

@@ -40,6 +40,7 @@ FEEDBACK_ACKS = {
     "false_spam": "Noté : spam",
     "missed_urgent": "Noté : urgent raté",
     "wrong_archive": "Noté : à garder",
+    "missed_important": "Noté : à mettre en avant",
 }
 FEEDBACK_ORIGIN = {FEEDBACK: "alert", REVIEW: "review"}
 UNKNOWN_MAIL = "Mail inconnu"

@@ -44,6 +44,13 @@ MIGRATIONS: tuple[str, ...] = (
     """,
     # NULL means the question was not asked, which a default of 0 would report as "no".
     "ALTER TABLE decisions ADD COLUMN needs_reply REAL;",
+    # Until this version /review had one button, "Urgent raté", for every mail that deserved
+    # more than a label. Its user meant "put it forward", not "ring": kept as missed_urgent,
+    # those verdicts would go on teaching the classifier to alert on such mails.
+    """
+    UPDATE feedback SET verdict = 'missed_important'
+    WHERE verdict = 'missed_urgent' AND origin = 'review';
+    """,
 )
 LATEST_VERSION = len(MIGRATIONS)
 
