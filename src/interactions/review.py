@@ -17,7 +17,7 @@ CANDIDATE_POOL = 200
 EXCERPT_CHARS = 200
 USAGE = f"Usage : /review [n], avec n entre 1 et {MAX_SAMPLE}."
 NOTHING_TO_REVIEW = "Rien à vérifier : aucun mail non noté sur les 7 derniers jours."
-ROUTE_LABELS = {"reject": "archivé", "label": "étiqueté"}
+ROUTE_LABELS = {"llm": "alerté", "label": "étiqueté", "reject": "archivé"}
 
 
 def parse_sample_size(args: str) -> int | None:

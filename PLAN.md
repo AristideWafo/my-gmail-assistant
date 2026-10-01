@@ -121,13 +121,13 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 - ✅ Verdicts `missed_urgent` (aurait dû alerter) et `wrong_archive` (archivé à tort) ; colonne `feedback.origin` (`alert` / `review`)
 - ✅ `/review [n]` (`src/interactions/review.py`) : échantillon stratifié sur 7 jours, jamais déjà noté, hors décisions de règle. Priorité à la route `reject`, puis aux `label` proches du seuil de confiance. `n` = 5 par défaut, 10 max
 - ✅ Boutons selon la route : `label` → `[OK] [Urgent raté] [Spam]` ; `reject` → `[OK] [À garder] [Urgent raté]`
-- ⬜ `/stats` : précision par route et par source, lue dans SQLite ; `feedback_total{verdict, route}`
+- ✅ `/stats` (`src/interactions/stats.py`) : précision et types d'erreur par route et par source, volume de décisions par source sur 30 jours, lus dans SQLite ; `feedback_total{verdict, route}` et panneau Grafana par route
 - ✅ `missed_urgent` ajouté à `_VERDICT_CORRECTIONS` (`high`, catégorie inchangée). `wrong_archive` est mesuré mais pas injecté en few-shot : la bonne catégorie n'est pas connue
 
 **DoD**
 - `/review` et `/stats` documentés dans le README
 - Un verdict posé via `/review` est stocké au même format que ceux des alertes et distingué par `origin`
-- Au moins 30 verdicts hors alertes en base, avec le taux de `missed_urgent` et de `wrong_archive` par route
+- Au moins 30 verdicts hors alertes en base, avec le taux de `missed_urgent` et de `wrong_archive` par route — **reste à faire** : dépend de l'usage réel de `/review` une fois déployé
 - Les tests du flux de feedback et de réponse existants passent sans modification de leurs assertions
 
 ---

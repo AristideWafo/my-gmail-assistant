@@ -23,6 +23,7 @@ from src.interactions.callbacks import (
 )
 from src.interactions.commands import CommandRouter
 from src.interactions.review import ReviewCommand
+from src.interactions.stats import StatsCommand
 from src.interactions.unsubscribe import offer_key
 from src.observability.metrics import Metrics
 from src.ports import ChatInbox, DecisionStore, MailProvider, Unsubscriber
@@ -68,6 +69,9 @@ class InteractionHandler:
         self.commands = CommandRouter(chat)
         self.commands.register(
             "review", "mails non alertés à vérifier, ex. /review 5", ReviewCommand(store, chat).run
+        )
+        self.commands.register(
+            "stats", "précision du tri d'après tes verdicts", StatsCommand(store, chat).run
         )
 
     def dispatch(self, event: ChatEvent) -> None:

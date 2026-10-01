@@ -80,6 +80,14 @@ class Correction:
 
 
 @dataclass(frozen=True)
+class FeedbackTally:
+    route: str
+    source: str
+    verdict: str
+    count: int
+
+
+@dataclass(frozen=True)
 class CallbackEvent:
     callback_id: str
     message_id: int
