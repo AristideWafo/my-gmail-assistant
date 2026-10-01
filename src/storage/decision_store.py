@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import threading
@@ -34,7 +35,7 @@ PRUNABLE_STATE_PREFIXES = (
 
 _DECISION_COLUMNS = (
     "message_id, thread_id, sender, subject, excerpt, urgency, category, confidence, route, "
-    "created_at, chat_message_id, message_id_header, source, needs_reply"
+    "created_at, chat_message_id, message_id_header, source, needs_reply, signals"
 )
 _DECISION_FIELDS = tuple(name.strip() for name in _DECISION_COLUMNS.split(","))
 _PREFIXED_DECISION_COLUMNS = ", ".join(f"d.{name}" for name in _DECISION_FIELDS)
@@ -63,14 +64,14 @@ class SqliteDecisionStore:
         with self._lock, self._conn:
             self._conn.execute(
                 f"INSERT INTO decisions ({_DECISION_COLUMNS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?) "
                 "ON CONFLICT(message_id) DO UPDATE SET "
                 "thread_id = excluded.thread_id, sender = excluded.sender, "
                 "subject = excluded.subject, excerpt = excluded.excerpt, "
                 "urgency = excluded.urgency, category = excluded.category, "
                 "confidence = excluded.confidence, route = excluded.route, "
                 "message_id_header = excluded.message_id_header, source = excluded.source, "
-                "needs_reply = excluded.needs_reply",
+                "needs_reply = excluded.needs_reply, signals = excluded.signals",
                 (
                     email.id,
                     email.thread_id,
@@ -85,6 +86,7 @@ class SqliteDecisionStore:
                     getattr(email, "message_id_header", "") or "",
                     triage.source,
                     triage.needs_reply,
+                    json.dumps(triage.signals, sort_keys=True) if triage.signals else None,
                 ),
             )
 
@@ -166,7 +168,16 @@ class SqliteDecisionStore:
                 "ORDER BY created_at DESC, rowid DESC LIMIT ?",
                 (self._cutoff(max_age), limit),
             ).fetchall()
-        return [DecisionRecord(**dict(row)) for row in rows]
+        return [_to_record(row) for row in rows]
+
+    def decisions_since(self, max_age: timedelta) -> list[DecisionRecord]:
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {_DECISION_COLUMNS} FROM decisions WHERE created_at >= ? "
+                "ORDER BY created_at, rowid",
+                (self._cutoff(max_age),),
+            ).fetchall()
+        return [_to_record(row) for row in rows]
 
     def feedback_counts(self) -> dict[str, int]:
         with self._lock:
@@ -235,7 +246,7 @@ class SqliteDecisionStore:
             ).fetchall()
         return [
             RatedDecision(
-                record=DecisionRecord(**{name: row[name] for name in _DECISION_FIELDS}),
+                record=_to_record(row),
                 verdict=row["verdict"],
                 rated_at=row["rated_at"],
             )
@@ -321,13 +332,28 @@ class SqliteDecisionStore:
                 f"ORDER BY {order_by} LIMIT 1",
                 (value,),
             ).fetchone()
-        return None if row is None else DecisionRecord(**dict(row))
+        return None if row is None else _to_record(row)
 
     def _now(self) -> str:
         return self._clock().isoformat()
 
     def _cutoff(self, age: timedelta) -> str:
         return (self._clock() - age).isoformat()
+
+
+def _to_record(row: sqlite3.Row) -> DecisionRecord:
+    fields = {name: row[name] for name in _DECISION_FIELDS}
+    fields["signals"] = _decode_signals(fields["signals"])
+    return DecisionRecord(**fields)
+
+
+def _decode_signals(raw: str | None) -> dict[str, float]:
+    # Diagnostic data: an unreadable value must not make the whole decision unreadable.
+    try:
+        decoded = json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
 
 
 def _integrity_verdict(conn: sqlite3.Connection) -> str:

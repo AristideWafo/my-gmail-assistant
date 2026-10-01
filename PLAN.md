@@ -308,7 +308,12 @@ Lots :
 
 - ✅ Verdict `missed_important` et bouton `[À voir]` dans `/review`, distinct de `[Urgent raté]`. Les verdicts « Urgent raté » déjà donnés par `/review` sont convertis (migration 4, état précédent gardé dans `assistant.db.pre-v4`) : ils cessent d'être envoyés à JEV comme « urgence correcte : haute ». Lecture du banc après conversion : `missed_important` exclut seulement l'archivage
 - ✅ Brouillon de réponse indépendant de l'urgence : avec `NEEDS_REPLY_ENABLED`, un mail urgent reçoit un brouillon et le label `Assistant/A_repondre` dès qu'une réponse est attendue, quelle que soit sa catégorie. La règle par catégorie reste en complément, pour ne pas perdre le brouillon d'un mail décidé sans la question (règle, VIP, repli) ou juste sous le seuil. Le brouillon ne décide jamais à ta place : ni acceptation, ni refus, ni date, ni montant
-- ⬜ Questions de mise en avant en mode observation, mesurées au banc
+- ✅ Questions de mise en avant en mode observation (`ATTENTION_MODE=shadow`) : `personal_event`, `service_change`, `personal_deadline`, plus `needs_reply`. Réponses stockées dans `decisions.signals` (JSON, le stockage commun prévu en L2), comptées dans `attention_signals_total`, sans aucun effet. Lecture : `python -m src.evaluation attention`
+  - Garde par catégorie (spam, newsletter, promotion, alerte emploi), pas de garde sur l'expéditeur : les avis de coupure et les messages relayés par une plateforme viennent d'adresses automatiques
+  - Mesure sur la vraie API, corpus porté à 68 mails (18 ajoutés : 9 à mettre en avant, 9 sosies à écarter) : 34 mails à mettre en avant, 34 retrouvés, 1 mis en avant à tort (un « pour information » sur un planning). `personal_event` : aucun raté, aucun faux positif. `personal_deadline` répond oui aux promotions et aux arnaques, écartées par la garde de catégorie
+  - Coût : 526 tokens de plus par mail pour les quatre questions (942 → 1 468), latence inchangée
+  - Deux mails du corpus à mettre en avant sont aujourd'hui archivés (billet d'un événement, avis de travaux) par la règle « notification d'urgence basse » : la mise en avant devra les sortir de l'archivage
+  - **Limite** : questions et mails de test ont le même auteur. Seul le mode observation sur les vrais mails dit le volume réel ; cible : 3 mails par jour au plus
 - ⬜ Mise en avant : label `Assistant/A_voir`, mail sorti de l'archivage
 - ⬜ Liste quotidienne silencieuse sur Telegram, commande à la demande, boutons de verdict
 

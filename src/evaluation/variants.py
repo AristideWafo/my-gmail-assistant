@@ -2,8 +2,9 @@ import copy
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from src.triage.attention import ATTENTION_QUESTIONS
 from src.triage.engine import NEEDS_REPLY_QUESTION, JevClassifier
-from src.workflow import route_for
+from src.workflow import attention_reasons, route_for
 
 Answers = dict[str, dict]
 
@@ -57,6 +58,8 @@ SIGNAL_QUESTIONS = {
         "No promise of a future action by the sender",
     ),
 }
+# Every yes/no question a test mail may state the truth for.
+KNOWN_QUESTIONS = {**SIGNAL_QUESTIONS, **ATTENTION_QUESTIONS}
 
 
 @dataclass(frozen=True)
@@ -67,6 +70,8 @@ class Variant:
     prepare: Callable[[dict], dict]
     route: Callable[[Answers, float], str]
     signals: tuple[str, ...] = ()
+    # Whether production would put the mail forward on these answers, at the given threshold.
+    put_forward: Callable[[Answers, float], bool] | None = None
 
 
 def _unchanged(request: dict) -> dict:
@@ -91,6 +96,19 @@ def _add_signals(request: dict) -> dict:
     return {**request, "questions": questions}
 
 
+def _add_attention(request: dict) -> dict:
+    questions = {
+        **request["questions"],
+        "needs_reply": NEEDS_REPLY_QUESTION,
+        **copy.deepcopy(ATTENTION_QUESTIONS),
+    }
+    return {**request, "questions": questions}
+
+
+def _put_forward(answers: Answers, threshold: float) -> bool:
+    return bool(attention_reasons(JevClassifier.parse_answers({"answers": answers}), threshold))
+
+
 VARIANTS = {
     variant.name: variant
     for variant in (
@@ -112,6 +130,14 @@ VARIANTS = {
             _add_signals,
             _current_route,
             signals=tuple(SIGNAL_QUESTIONS),
+        ),
+        Variant(
+            "attention",
+            "current questions plus reply expected and the three attention questions",
+            _add_attention,
+            _current_route,
+            signals=("needs_reply", *ATTENTION_QUESTIONS),
+            put_forward=_put_forward,
         ),
     )
 }

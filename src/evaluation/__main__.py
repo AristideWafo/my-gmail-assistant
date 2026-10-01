@@ -5,6 +5,7 @@ from datetime import timedelta
 from src.bootstrap import MAIL_PROVIDERS, STORES, BuildContext
 from src.config import Settings
 from src.domain import EmailMessage
+from src.evaluation.attention import format_attention_report
 from src.evaluation.corpus import LabCase, cases_from_rated, load_corpus
 from src.evaluation.dataset import build_dataset
 from src.evaluation.lab import format_lab_report, planned_calls, run_variant
@@ -168,6 +169,16 @@ def candidates(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def attention(args: argparse.Namespace, settings: Settings) -> int:
+    store = STORES[settings.store_backend](settings)
+    try:
+        records = store.decisions_since(timedelta(days=args.days))
+    finally:
+        store.close()
+    print(format_attention_report(records, settings.attention_threshold))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m src.evaluation", description="Offline evaluation of the triage on rated mails"
@@ -218,6 +229,13 @@ def main(argv: list[str] | None = None) -> int:
         help="refuse to run beyond this many JEV calls",
     )
     lab_parser.set_defaults(handler=lab)
+
+    attention_parser = commands.add_parser(
+        "attention",
+        help="what the attention questions would put forward, from the stored answers (no call)",
+    )
+    attention_parser.add_argument("--days", type=int, default=14)
+    attention_parser.set_defaults(handler=attention)
 
     args = parser.parse_args(argv)
     return args.handler(args, Settings())

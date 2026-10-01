@@ -30,7 +30,7 @@ from src.interactions.unsubscribe import UnsubscribeProposer
 from src.maintenance import BackupRotation
 from src.observability import Metrics
 from src.triage.rules import load_ruleset
-from src.workflow import EmailWorkflow
+from src.workflow import EmailWorkflow, attention_reasons
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("gmail-assistant")
@@ -117,16 +117,21 @@ class ApplicationContext:
         elif route == "llm":
             self._handle_urgent(email, triage, result)
 
+        if self.settings.attention_mode != "off":
+            for signal in attention_reasons(triage, self.settings.attention_threshold):
+                Metrics.mark_attention(signal)
         Metrics.mark_processed(triage.urgency, triage.category)
         Metrics.mark_route(route, triage.urgency, triage.confidence, triage.source)
         Metrics.triage_latency.observe(perf_counter() - started)
         logger.info(
-            "Processed email %s with urgency=%s category=%s confidence=%.2f needs_reply=%s",
+            "Processed email %s with urgency=%s category=%s confidence=%.2f needs_reply=%s "
+            "signals=%s",
             email.id,
             triage.urgency,
             triage.category,
             triage.confidence,
             "n/a" if triage.needs_reply is None else f"{triage.needs_reply:.2f}",
+            " ".join(f"{name}:{value:.2f}" for name, value in triage.signals.items()) or "n/a",
         )
 
     def _handle_urgent(self, email, triage, result) -> None:

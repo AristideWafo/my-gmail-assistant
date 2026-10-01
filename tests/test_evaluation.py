@@ -325,6 +325,36 @@ class CommandLineTests(unittest.TestCase):
         )
         self.assertEqual(list(_variants(configured, examples, {"jev"})), ["jev"])
 
+    def test_attention_says_how_to_start_when_nothing_was_asked(self):
+        self.seed()
+
+        code, output = self.run_cli("attention")
+
+        self.assertEqual(code, 0)
+        self.assertIn("ATTENTION_MODE=shadow", output)
+
+    def test_attention_reads_the_stored_answers_without_any_call(self):
+        store = SqliteDecisionStore(self.db_path)
+        for message_id, category, route, signals in (
+            ("cut", "notification_systeme", "reject", {"service_change": 0.99}),
+            ("promo", "promotion", "reject", {"personal_deadline": 0.9}),
+            ("alerted", "personnel", "llm", {"personal_event": 0.9}),
+            ("plain", "personnel", "label", {"personal_event": 0.1}),
+        ):
+            triage = TriageResult("low", category, 0.9, "jev", 0.1, signals)
+            store.record_decision(email(message_id, subject=f"about {message_id}"), triage, route)
+        store.close()
+
+        code, output = self.run_cli("attention", "--days", "7")
+
+        self.assertEqual(code, 0)
+        self.assertIn("Mails asked the attention questions: 4 over 1 day(s)", output)
+        self.assertIn("Would be put forward at 0.5: 1 (1.0 per day), of which 1 are archived", output)
+        self.assertIn("Also yes on 1 mail(s) already alerted", output)
+        self.assertIn("By reason: service_change 1", output)
+        self.assertIn("example.com «about cut» [service_change; reject]", output)
+        self.assertNotIn("about promo", output)
+
     def test_candidates_reports_when_there_are_none(self):
         self.seed()
 

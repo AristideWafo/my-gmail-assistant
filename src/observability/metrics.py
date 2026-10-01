@@ -46,6 +46,11 @@ class Metrics:
     reply_drafts = Counter(
         "reply_drafts_total", "Mails flagged as awaiting a reply, with or without a draft", ["status"]
     )
+    attention_signals = Counter(
+        "attention_signals_total",
+        "Mails a question gave a reason to put forward, after the category gate",
+        ["signal"],
+    )
     chat_commands = Counter(
         "chat_commands_total", "Chat commands received", ["command", "status"]
     )
@@ -133,6 +138,10 @@ class Metrics:
     @classmethod
     def mark_reply_draft(cls, status: str) -> None:
         cls.reply_drafts.labels(status=status).inc()
+
+    @classmethod
+    def mark_attention(cls, signal: str) -> None:
+        cls.attention_signals.labels(signal=signal).inc()
 
     @classmethod
     def mark_chat_command(cls, command: str, status: str) -> None:

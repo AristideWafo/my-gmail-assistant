@@ -75,7 +75,9 @@ def _jev(ctx: BuildContext) -> EmailClassifier:
             s.jev_api_url,
             s.jev_api_key,
             examples_provider=examples_provider,
-            ask_needs_reply=s.needs_reply_enabled,
+            # A person waiting for an answer is one of the reasons to put a mail forward.
+            ask_needs_reply=s.needs_reply_enabled or s.attention_mode != "off",
+            ask_attention=s.attention_mode != "off",
         ),
         HeuristicClassifier(),
         recoverable=JEV_RECOVERABLE_ERRORS,

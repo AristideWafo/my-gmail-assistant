@@ -126,6 +126,23 @@ An urgent mail is drafted when a reply is expected **or**, as before, when it is
 - If Gemini is unavailable the mail is still labeled `Assistant/A_repondre`, without a draft.
 - The probability is stored with each decision and logged, to tune the threshold. Outcomes: `reply_drafts_total{status}` (`drafted`, `no_draft`). JEV token usage: `llm_tokens_total{kind="triage"}`.
 
+## Mails to put forward: observation mode
+
+Some mails are neither urgent nor ordinary: an event you are registered for, a planned outage of something you use, something to do before a date, a person waiting for an answer. With `ATTENTION_MODE=shadow` (default `off`), the JEV call that classifies a mail also asks three yes/no questions, and whether a reply is expected:
+
+| Question | Says yes to | Says no to |
+| --- | --- | --- |
+| `personal_event` | an event, meeting or appointment you are invited to by name, registered for or reminded of | advertised webinars, courses and meetups, a newsletter agenda |
+| `service_change` | a dated outage, maintenance, migration or removal of a service you use | terms updates needing no action, product news |
+| `personal_deadline` | something you must provide, pay, renew or confirm before a date | sales offers ending soon, enrolment deadlines of advertised things |
+
+In this mode the answers are **stored and counted, nothing else changes**: no label, no message, no change of route. It exists to measure, on your real mail, how many mails the questions would put forward before they are allowed to do it.
+
+- A mail classified as spam, newsletter, promotion or job alert is never counted, whatever the answers. Automated senders are counted: outage notices come from them, and so do messages a platform relays for a person.
+- `ATTENTION_THRESHOLD` (default `0.5`) is the probability from which an answer counts as yes.
+- Read the result with `docker compose exec assistant python -m src.evaluation attention [--days 14]`: number of mails per day that would be put forward, reasons, and the list. No JEV call is made. Counted live in `attention_signals_total{signal}`.
+- Cost, measured on the test mails: 526 more tokens per mail for the four questions (942 to 1468), latency unchanged (0.25 s to 0.26 s).
+
 ## Choosing / adding implementations
 
 The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interactions/`) only talks to the protocols in `src/ports`. `src/bootstrap.py` builds the concrete adapters from these selectors:
@@ -210,8 +227,9 @@ The stale `-wal` and `-shm` files belong to the replaced database and must go wi
 
 - `run` reloads each rated mail from Gmail, routes it through the rules and each variant (`heuristic`, `jev`, and `jev+few-shot` when JEV is configured), and prints the share of cases whose route agrees with your verdict, overall and per verdict, with the number of classifier calls. Corrections given before the split only serve as few-shot examples and are never scored, so the few-shot variant is not graded on its own examples; the split defaults to the middle correction and can be set with `--split <ISO timestamp>`. `--limit N` keeps the N most recent verdicts, `--variants a,b` runs a subset. Each JEV variant costs one call per case. Below 100 cases including 20 corrections the output is marked `NOT CONCLUSIVE`.
 - `check-examples` makes a single live JEV call carrying `state.examples` and reports whether the API accepts it. Run it before turning `JEV_FEW_SHOT_ENABLED` on.
+- `attention [--days N]` reads the answers stored in observation mode (see [Mails to put forward](#mails-to-put-forward-observation-mode)); no JEV call.
 - `candidates [--min-count N]` lists senders JEV has classified the same way at least N times over 90 days without any correction from you: candidates for a deterministic rule.
-- `lab` compares **question variants** on live JEV calls, to check an idea in minutes before changing the triage. `--source corpus` (default) uses the 50 invented mails of `src/evaluation/corpus.toml`, each with its acceptable routes and expected yes/no answers; `--source rated` replays the real mails you gave a verdict on, leaving out those a rule decides. Variants: `current` (what production sends), `direct-action` (one alert / keep / archive question instead of urgency), `signals` (current plus candidate yes/no questions: reply expected, meeting, deadline, payment due, commitment). The report gives, per variant, the correct routes per run, the mails whose route changed between runs (`--repeats N`), tokens per mail, median and p95 latency, and the misrouted mails; yes/no answers are compared with the truth on the corpus and only listed on real mails. The number of JEV calls is printed first and the run is refused beyond `--max-calls` (default 500); `--limit` and `--variants` reduce it. Nothing is written to the store or to Gmail.
+- `lab` compares **question variants** on live JEV calls, to check an idea in minutes before changing the triage. `--source corpus` (default) uses the 68 invented mails of `src/evaluation/corpus.toml`, each with its acceptable routes and expected yes/no answers; `--source rated` replays the real mails you gave a verdict on, leaving out those a rule decides. Variants: `current` (what production sends), `direct-action` (one alert / keep / archive question instead of urgency), `signals` (current plus candidate yes/no questions: reply expected, meeting, deadline, payment due, commitment), `attention` (current plus what `ATTENTION_MODE=shadow` asks; also reports which mails would be put forward). The report gives, per variant, the correct routes per run, the mails whose route changed between runs (`--repeats N`), tokens per mail, median and p95 latency, and the misrouted mails; yes/no answers are compared with the truth on the corpus and only listed on real mails, except that a mail you marked [À voir] is known to deserve being put forward. The number of JEV calls is printed first and the run is refused beyond `--max-calls` (default 500); `--limit` and `--variants` reduce it. Nothing is written to the store or to Gmail.
 
 A verdict is read as a constraint on the route: `valid` expects the same route, `false_urgent` anything but an alert, `false_spam` an archive, `missed_urgent` an alert, `wrong_archive` and `missed_important` anything but an archive.
 

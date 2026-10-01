@@ -6,6 +6,7 @@ import requests
 
 from src.domain import EmailMessage, TriageResult
 from src.observability.metrics import Metrics
+from src.triage.attention import ATTENTION_QUESTIONS
 from src.triage.few_shot import FEW_SHOT_INSTRUCTION
 from src.triage.taxonomy import CATEGORIES, URGENCIES
 
@@ -47,12 +48,14 @@ class JevClassifier:
         timeout: int = 10,
         examples_provider: Callable[[], list[dict[str, str]]] | None = None,
         ask_needs_reply: bool = False,
+        ask_attention: bool = False,
     ) -> None:
         self.api_url = api_url
         self.api_key = api_key
         self.timeout = timeout
         self.examples_provider = examples_provider
         self.ask_needs_reply = ask_needs_reply
+        self.ask_attention = ask_attention
 
     @property
     def is_configured(self) -> bool:
@@ -112,6 +115,8 @@ class JevClassifier:
                 question["instructions"] = f"{question['instructions']} {FEW_SHOT_INSTRUCTION}"
         if self.ask_needs_reply:
             request["questions"]["needs_reply"] = NEEDS_REPLY_QUESTION
+        if self.ask_attention:
+            request["questions"].update(ATTENTION_QUESTIONS)
         return request
 
     @classmethod
@@ -124,6 +129,11 @@ class JevClassifier:
             confidence=min(float(urgency.get("confidence", 0.0)), float(category.get("confidence", 0.0))),
             source="jev",
             needs_reply=cls.parse_probability(answers.get("needs_reply")),
+            signals={
+                name: probability
+                for name in ATTENTION_QUESTIONS
+                if (probability := cls.parse_probability(answers.get(name))) is not None
+            },
         )
 
     @staticmethod

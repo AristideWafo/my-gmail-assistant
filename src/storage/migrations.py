@@ -51,6 +51,8 @@ MIGRATIONS: tuple[str, ...] = (
     UPDATE feedback SET verdict = 'missed_important'
     WHERE verdict = 'missed_urgent' AND origin = 'review';
     """,
+    # JSON object, question name to probability; NULL when no attention question was answered.
+    "ALTER TABLE decisions ADD COLUMN signals TEXT;",
 )
 LATEST_VERSION = len(MIGRATIONS)
 

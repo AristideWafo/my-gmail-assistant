@@ -9,6 +9,7 @@ import requests
 from src.domain import EmailMessage
 from src.observability.metrics import Metrics
 from src.ports import EmailClassifier
+from src.triage.attention import ATTENTION_QUESTIONS
 from src.triage.engine import (
     CATEGORIES,
     NEEDS_REPLY_QUESTION,
@@ -271,13 +272,14 @@ class NeedsReplyTests(unittest.TestCase):
         )
 
     @staticmethod
-    def _response(needs_reply=None, usage=None):
+    def _response(needs_reply=None, usage=None, extra=None):
         answers = {
             "urgency": {"type": "choice", "choice": "medium", "confidence": 0.9},
             "category": {"type": "choice", "choice": "personnel", "confidence": 0.8},
         }
         if needs_reply is not None:
             answers["needs_reply"] = needs_reply
+        answers.update(extra or {})
         payload = {"answers": answers}
         if usage is not None:
             payload["usage"] = usage
@@ -333,6 +335,44 @@ class NeedsReplyTests(unittest.TestCase):
         self.assertIn(FEW_SHOT_INSTRUCTION, request["questions"]["urgency"]["instructions"])
         self.assertIn(FEW_SHOT_INSTRUCTION, request["questions"]["category"]["instructions"])
         self.assertEqual(request["questions"]["needs_reply"], NEEDS_REPLY_QUESTION)
+
+    def test_attention_questions_are_only_asked_when_enabled(self):
+        _, disabled = self._classify(self._response())
+        _, enabled = self._classify(self._response(), ask_attention=True)
+
+        self.assertEqual(set(disabled["questions"]), {"urgency", "category"})
+        self.assertEqual(
+            set(enabled["questions"]), {"urgency", "category", *ATTENTION_QUESTIONS}
+        )
+        self.assertTrue(all(q["type"] == "noul" for q in ATTENTION_QUESTIONS.values()))
+
+    def test_attention_answers_are_kept_by_name_without_touching_the_routing(self):
+        response = self._response(
+            extra={
+                "personal_event": {"type": "noul", "noul": 0.97},
+                "service_change": {"type": "noul", "noul": 0.02},
+                "personal_deadline": {"noul": "yes"},
+                "something_else": {"type": "noul", "noul": 0.9},
+            }
+        )
+
+        result, _ = self._classify(response, ask_attention=True)
+
+        self.assertEqual(result.signals, {"personal_event": 0.97, "service_change": 0.02})
+        self.assertEqual((result.urgency, result.confidence), ("medium", 0.8))
+
+    def test_no_attention_answer_leaves_no_signal(self):
+        result, _ = self._classify(self._response())
+
+        self.assertEqual(result.signals, {})
+
+    def test_few_shot_instruction_stays_off_the_attention_questions(self):
+        _, request = self._classify(
+            self._response(), ask_attention=True, examples_provider=lambda: [{"subject": "x"}]
+        )
+
+        for name, question in ATTENTION_QUESTIONS.items():
+            self.assertEqual(request["questions"][name], question)
 
     def test_reported_token_usage_is_counted(self):
         prompt = Metrics.llm_tokens.labels(kind="triage", token_type="prompt")

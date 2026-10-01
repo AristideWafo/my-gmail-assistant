@@ -123,6 +123,17 @@ class NeedsReplyWiringTests(unittest.TestCase):
         self.assertTrue(build(needs_reply_enabled=True).classifier.primary.ask_needs_reply)
 
 
+class AttentionWiringTests(unittest.TestCase):
+    def test_questions_are_off_by_default(self):
+        self.assertFalse(build().classifier.primary.ask_attention)
+
+    def test_shadow_mode_asks_the_attention_questions_and_whether_a_reply_is_expected(self):
+        classifier = build(attention_mode="shadow").classifier.primary
+
+        self.assertTrue(classifier.ask_attention)
+        self.assertTrue(classifier.ask_needs_reply)
+
+
 class ConnectionProbesTests(unittest.TestCase):
     def test_unconfigured_defaults_are_all_skipped_under_todays_names(self):
         probes = connection_probes(build(jev_api_key="", gemini_api_key="", google_client_id=""))
