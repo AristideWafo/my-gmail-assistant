@@ -1,6 +1,29 @@
 # CHANGELOG
 
 
+## v0.11.0 (2026-10-01)
+
+### Features
+
+- **evaluation**: Add a lab to compare JEV question variants
+  ([#56](https://github.com/AristideWafo/my-gmail-assistant/pull/56),
+  [`3dce6b7`](https://github.com/AristideWafo/my-gmail-assistant/commit/3dce6b77602a1dc828105353a43baf3eb1dce3cf))
+
+Checking an idea about the questions or the routing meant waiting for weeks of verdicts. `python -m
+  src.evaluation lab` sends live JEV calls for each variant and reports correct routes per run,
+  routes that change between runs, tokens, latency and the misrouted mails.
+
+It runs on a versioned corpus of 50 invented mails with their acceptable routes and expected yes/no
+  answers, or on the real rated mails, where a verdict is the constraint and mails decided by a rule
+  are left out. The number of calls is printed first and capped by --max-calls.
+
+Variants shipped: the production request, a direct alert/keep/archive question, and the production
+  request plus candidate yes/no questions. JevClassifier exposes ask, build_request, parse_answers
+  and parse_probability so the lab sends exactly what production sends.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+
 ## v0.10.0 (2026-10-01)
 
 ### Documentation
