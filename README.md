@@ -88,6 +88,7 @@ Also configure:
 
 - `GEMINI_API_KEY`
 - `GEMINI_MAX_RPM` (default `12`, keep below your Gemini tier's requests-per-minute quota; one request per urgent mail)
+- `GEMINI_TIMEOUT_SECONDS` (default `30`): a Gemini call that takes longer is abandoned, not retried, and counted in `llm_errors_total{reason="timeout"}`. The alert then goes out without a summary and a reply draft is skipped, as when Gemini is down
 - `USER_DISPLAY_NAME` (name used to sign drafted replies; without it drafts have no signature)
 - `JEV_API_URL` (default `https://api.typesafe.ai/v1/systemone`)
 - `JEV_API_KEY` (TypeSafe key from https://console.typesafe.ai/; without it the heuristic fallback is used)

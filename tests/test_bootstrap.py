@@ -117,6 +117,14 @@ class FewShotWiringTests(unittest.TestCase):
         self.assertEqual(examples[0]["correct_urgency"], "medium")
 
 
+class GeminiWiringTests(unittest.TestCase):
+    def test_deadline_comes_from_the_settings(self):
+        self.assertEqual(build().analyzer._request_options, {"timeout": 30})
+        self.assertEqual(
+            build(gemini_timeout_seconds=8).analyzer._request_options, {"timeout": 8}
+        )
+
+
 class NeedsReplyWiringTests(unittest.TestCase):
     def test_question_is_off_by_default_and_follows_the_flag(self):
         self.assertFalse(build().classifier.primary.ask_needs_reply)

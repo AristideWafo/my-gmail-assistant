@@ -78,8 +78,8 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 
 ### S2 — Avant la Phase 2
 
-- ⬜ `sync_history_once` sans garde par mail : un seul mail en erreur interrompt le démarrage. Reprendre la garde de `poll_once`
-- ⬜ Délais d'attente explicites sur les appels Gemini (à vérifier : aucun n'apparaît dans `src/llm/gemini.py`). Un appel bloqué gèle le tri jusqu'au watchdog
+- ✅ `sync_history_once` reprend la garde de `poll_once` : un mail en erreur est compté et sauté, et un historique illisible n'empêche plus le démarrage
+- ✅ Délai d'attente sur chaque appel Gemini (`GEMINI_TIMEOUT_SECONDS`, 30 s) : un appel bloqué est abandonné sans nouvel essai, compté dans `llm_errors_total{reason="timeout"}`, et le mail suit le chemin dégradé existant (alerte sans résumé, pas de brouillon)
 - ⬜ Alertes sur les métriques existantes, envoyées sur Telegram : taux de `jev_fallback_total`, `emails_skipped_total`, listener Telegram muet, `llm_errors_total`. Aujourd'hui les tableaux existent mais personne n'est prévenu
 - ⬜ Plafond de dépense LLM quotidien (`llm_cost_usd_total`) avec alerte au dépassement ; nécessaire avant d'ajouter des appels en Phases 2 à 6
 - ⬜ Exposition réseau : les ports 8000, 9090 et 3000 sont publiés sur toutes les interfaces, Prometheus et `/metrics` sans authentification, Grafana en `admin`/`admin` si `GRAFANA_ADMIN_PASSWORD` est absent. Lier à `127.0.0.1` ou confirmer le pare-feu du VPS
