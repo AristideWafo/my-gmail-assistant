@@ -1,6 +1,183 @@
 # CHANGELOG
 
 
+## v0.8.0 (2026-10-01)
+
+### Documentation
+
+- Add business features and a stabilisation track to the plan
+  ([#38](https://github.com/AristideWafo/my-gmail-assistant/pull/38),
+  [`32ea9b5`](https://github.com/AristideWafo/my-gmail-assistant/commit/32ea9b52ead9fc3e15b85fc3bb0d4157fe1f7609))
+
+Spread the business features over the phases that already build what they need (incident grouping,
+  collective reply tracking, commitment tracking, renewals, quick capture), and add a stabilisation
+  section: S1 (backup and silent-outage alert) blocks Phase 0, S2 hardens the app before Phase 2, S3
+  is the gate applied between phases.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- Add new scope
+  ([`a3bab33`](https://github.com/AristideWafo/my-gmail-assistant/commit/a3bab33ce48ed9a7fe8432f68045500476b781b8))
+
+### Features
+
+- **alerts**: Fold repeated automated alerts into the first one
+  ([#47](https://github.com/AristideWafo/my-gmail-assistant/pull/47),
+  [`54cc50a`](https://github.com/AristideWafo/my-gmail-assistant/commit/54cc50a26d506cb319287b3c98d872d5de4c42da))
+
+Repeated CI failures were already deduplicated for 30 minutes, but silently: the first alert stayed
+  as it was, so nothing showed whether the failure happened once or kept happening.
+
+A repeat now updates the first alert in place with the number of occurrences, the elapsed time and
+  the latest subject, without a new notification. The feedback buttons are sent again with the edit,
+  since Telegram drops the keyboard of an edited message otherwise.
+
+Grouping stays keyed on the sender and the normalised subject, which keeps the workflow name:
+  another workflow of the same repository, such as a production deploy, still alerts at once. A
+  failed update is logged and counted, never raised, as the first alert already reached the user.
+
+AlertChannel gains update(); Telegram implements it with editMessageText, Discord webhooks cannot
+  edit and are never asked to.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- **health**: Tell the user when mail fetching keeps failing
+  ([#40](https://github.com/AristideWafo/my-gmail-assistant/pull/40),
+  [`cc60b95`](https://github.com/AristideWafo/my-gmail-assistant/commit/cc60b95686e123c19ffb6818dcaf6a17ba9aec3f))
+
+poll_once deliberately keeps the heartbeat alive when fetch_unread fails, so a Gmail outage does not
+  restart-loop the container. The side effect is that a revoked refresh token stops all triage with
+  no signal at all.
+
+OutageNotifier now sends one chat message once fetching has failed for POLL_FAILURE_ALERT_MINUTES
+  (default 10, 0 disables) and a second one, with the outage duration, when it works again. An
+  undelivered message is retried every cycle, and the recovery is announced even if the outage
+  message never got through, since the chat is often down for the same reason the mail is. The
+  message carries the error type and HTTP status only, reusing the secret-free description of the
+  startup checks.
+
+Also stop reporting an exhausted 429 backoff as an empty inbox: _execute_with_backoff returned None,
+  which became [] and was counted as a successful poll. It now re-raises on the last attempt.
+
+AlertGateway.send_text returns whether a channel delivered the message. Failed cycles are counted in
+  poll_failures_total.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- **storage**: Back up the decision store daily with rotation
+  ([#39](https://github.com/AristideWafo/my-gmail-assistant/pull/39),
+  [`e659248`](https://github.com/AristideWafo/my-gmail-assistant/commit/e65924836df12184a0a66411932d46de26cb0ddb))
+
+The store now holds state whose loss is costly (verdicts, alert dedup) and the next phases add
+  schema migrations on top of it, so a restorable copy has to exist first.
+
+With BACKUP_DIR set, the app copies the database at startup and once a day to
+  assistant-YYYY-MM-DD.db using SQLite's online backup, keeps the BACKUP_KEEP most recent files and
+  only promotes a copy that passes PRAGMA integrity_check, so a failed run never replaces the last
+  good one. Backups run before the prune so the copy still holds what is about to be deleted.
+  docker-compose mounts a dedicated assistant-backups volume.
+
+Outcomes are exposed as backup_last_success_timestamp_seconds and backup_failures_total. The README
+  documents the restore procedure.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- **storage**: Version the schema and record which stage made each decision
+  ([#41](https://github.com/AristideWafo/my-gmail-assistant/pull/41),
+  [`5029c66`](https://github.com/AristideWafo/my-gmail-assistant/commit/5029c6637a11aa1c5844f88c2638341547a5c9d8))
+
+The store only ran CREATE TABLE IF NOT EXISTS, so no column could ever be added to an existing
+  database, and every next phase needs new tables.
+
+Migrations are now an append-only list applied according to PRAGMA user_version, one transaction per
+  step with the version bump inside it. Before upgrading a database that already holds data, the
+  previous state is saved next to it as assistant.db.pre-v<N>. A database written by a newer build
+  is refused instead of being opened.
+
+Version 2 adds decisions.source and feedback.origin. TriageResult carries the source ("rule", "jev",
+  "heuristic"), which the review sampling and the confidence metrics need to tell classifier
+  decisions from rule decisions.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- **triage**: Add an offline evaluation harness over rated mails
+  ([#45](https://github.com/AristideWafo/my-gmail-assistant/pull/45),
+  [`e25296e`](https://github.com/AristideWafo/my-gmail-assistant/commit/e25296e84125a3b8b90a45c353964b73727ca455))
+
+Comparing one week with few-shot to one week without proves nothing at a personal mail volume: a
+  handful of alerts per week, and a different mix of mails each time.
+
+python -m src.evaluation run replays the mails the user gave a verdict on through the rules and each
+  classifier variant (heuristic, jev, jev+few-shot) and prints how often the resulting route agrees
+  with the verdict, overall and per verdict, with the number of classifier calls. Every variant sees
+  the same cases.
+
+Corrections given before the split are only used as few-shot examples and are never scored,
+  otherwise the few-shot variant would be graded on its own examples. Below 100 cases including 20
+  corrections the output is flagged as not conclusive.
+
+Also: check-examples makes one live JEV call carrying state.examples, the verification that was
+  still missing before enabling few-shot, and candidates lists senders JEV always classifies the
+  same way.
+
+Supporting changes: MailProvider.fetch_message (the store only keeps a 300-character excerpt),
+  route_for extracted from the workflow so the harness routes exactly as production does, and two
+  store queries.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- **triage**: Load rules and VIP senders from a file
+  ([#46](https://github.com/AristideWafo/my-gmail-assistant/pull/46),
+  [`2a33bac`](https://github.com/AristideWafo/my-gmail-assistant/commit/2a33bac1d20f313f5a11d125c609f55b70548cdf))
+
+The deterministic rules were three hard-coded sender patterns, so every other repetitive sender went
+  through a JEV call, and nothing could force an alert for a sender that matters regardless of the
+  classifier.
+
+TRIAGE_RULES_PATH points at a TOML file read at startup:
+
+- [[rules]] entries match on the sender and, optionally, the subject, and are checked before the
+  built-in rules. A subject pattern lets a rule cover one repository's CI noise without hiding a
+  production failure. - vip lists exact addresses whose mail always alerts. A VIP is honoured only
+  when Gmail's own Authentication-Results header reports dmarc=pass: the From address alone is
+  trivially forged. The header is the topmost one carrying Gmail's id; the previous header parsing
+  kept the last occurrence, which a sender controls.
+
+An invalid file stops startup naming the offending rule. The evaluation harness uses the same rule
+  set as production.
+
+The taxonomy moves out of the JEV adapter so rules can validate against it. triage_confidence gains
+  a source label and the Grafana confidence panel now follows JEV decisions only, instead of mixing
+  in rules (always 1.0) and the heuristic (fixed values).
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- **triage**: Offer to unsubscribe from senders whose mail is always archived
+  ([#48](https://github.com/AristideWafo/my-gmail-assistant/pull/48),
+  [`a61bbda`](https://github.com/AristideWafo/my-gmail-assistant/commit/a61bbdaf840b2097469484c65a1d56d99c6534fc))
+
+Some senders are archived every single time. Each of their mails still costs a classification, and
+  the user never asked to be rid of them.
+
+With UNSUBSCRIBE_PROPOSALS_ENABLED (off by default), once a sender has had UNSUBSCRIBE_MIN_ARCHIVED
+  mails archived over 30 days and none kept or marked as wrongly archived, the assistant offers once
+  to unsubscribe, with [Se desabonner] [Garder] buttons.
+
+Nothing is sent without the button, pressed on the very message that made the offer, and at most
+  once: the request is claimed before it is sent, like the draft send. The link stays in the store
+  and never travels in the callback data.
+
+Only RFC 8058 one-click is supported: List-Unsubscribe-Post present, an https link, and a mail that
+  passes DMARC, since the sender writes these headers. Because the sender also chooses where the
+  request goes, the HTTP adapter refuses a host that does not resolve only to public addresses,
+  connects to the address it checked rather than resolving again, and does not follow redirects.
+  Errors never include the link, which usually holds the subscriber's token.
+
+The request goes through a new Unsubscriber port, selected by UNSUBSCRIBER.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+
 ## v0.7.0 (2026-09-29)
 
 ### Documentation
