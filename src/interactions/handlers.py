@@ -1,6 +1,13 @@
 import logging
 
-from src.domain import Button, CallbackEvent, ChatEvent, DecisionRecord, ReplyEvent
+from src.domain import (
+    Button,
+    CallbackEvent,
+    ChatEvent,
+    CommandEvent,
+    DecisionRecord,
+    ReplyEvent,
+)
 from src.formatting import truncate
 from src.interactions.callbacks import (
     CANCEL,
@@ -10,6 +17,7 @@ from src.interactions.callbacks import (
     draft_buttons,
     parse_callback,
 )
+from src.interactions.commands import CommandRouter
 from src.observability.metrics import Metrics
 from src.ports import ChatInbox, DecisionStore, MailProvider
 
@@ -37,12 +45,25 @@ class InteractionHandler:
         self._store = store
         self._chat = chat
         self._mail = mail
+        self.commands = CommandRouter(chat)
 
     def dispatch(self, event: ChatEvent) -> None:
         if isinstance(event, CallbackEvent):
             self._on_callback(event)
         elif isinstance(event, ReplyEvent):
             self._on_reply(event)
+        elif isinstance(event, CommandEvent):
+            self._on_command(event)
+
+    def _on_command(self, event: CommandEvent) -> None:
+        command_key = f"cmd:{event.message_id}"
+        if self._store.get_state(command_key) is not None:
+            Metrics.mark_chat_command(self.commands.label(event.name), "duplicate")
+            return
+        # Claimed before running: a redelivered update must not replay a command that already
+        # sent half of its messages.
+        self._store.set_state(command_key, event.name)
+        self.commands.dispatch(event)
 
     def _on_callback(self, event: CallbackEvent) -> None:
         callback = parse_callback(event.data)
