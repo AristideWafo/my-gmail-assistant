@@ -33,13 +33,18 @@ class Metrics:
         "jev_fallback_total",
         "Times the JEV API was unreachable and the heuristic fallback was used",
     )
-    feedback = Counter("feedback_total", "User verdicts on urgent alerts", ["verdict"])
+    feedback = Counter(
+        "feedback_total", "User verdicts on triage decisions", ["verdict", "route"]
+    )
     chat_replies = Counter(
         "chat_replies_total", "Outcomes of Telegram replies turned into Gmail drafts", ["status"]
     )
 
     unsubscribes = Counter(
         "unsubscribes_total", "Unsubscribe proposals and their outcomes", ["status"]
+    )
+    chat_commands = Counter(
+        "chat_commands_total", "Chat commands received", ["command", "status"]
     )
     poll_failures = Counter("poll_failures_total", "Polling cycles whose mail fetch failed")
     backup_last_success = Gauge(
@@ -104,8 +109,8 @@ class Metrics:
         cls.emails_skipped.inc()
 
     @classmethod
-    def mark_feedback(cls, verdict: str) -> None:
-        cls.feedback.labels(verdict=verdict).inc()
+    def mark_feedback(cls, verdict: str, route: str) -> None:
+        cls.feedback.labels(verdict=verdict, route=route).inc()
 
     @classmethod
     def mark_chat_reply(cls, status: str) -> None:
@@ -121,6 +126,10 @@ class Metrics:
     @classmethod
     def mark_unsubscribe(cls, status: str) -> None:
         cls.unsubscribes.labels(status=status).inc()
+
+    @classmethod
+    def mark_chat_command(cls, command: str, status: str) -> None:
+        cls.chat_commands.labels(command=command, status=status).inc()
 
     @classmethod
     def mark_poll_failure(cls) -> None:

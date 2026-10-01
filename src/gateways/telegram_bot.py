@@ -1,9 +1,10 @@
 import logging
+import re
 from typing import Any
 
 import requests
 
-from src.domain import Button, CallbackEvent, ChatEvent, ReplyEvent
+from src.domain import Button, CallbackEvent, ChatEvent, CommandEvent, ReplyEvent
 from src.interactions.callbacks import is_valid_callback_data
 from src.observability.metrics import Metrics
 from src.ports import ChannelDeliveryError
@@ -17,6 +18,9 @@ POLL_HTTP_TIMEOUT_MARGIN_SECONDS = 10
 FOREIGN_CHAT = "foreign_chat"
 UNAUTHORIZED_USER = "unauthorized_user"
 MALFORMED = "malformed"
+
+# "/name", optionally "/name@bot" as Telegram writes it in groups, then free-form arguments.
+_COMMAND_RE = re.compile(r"^/([A-Za-z0-9_]{1,32})(?:@\w+)?(?:\s+(.*))?$", re.DOTALL)
 
 
 class TelegramApiError(requests.RequestException):
@@ -130,7 +134,7 @@ class TelegramBot:
         if "callback_query" in update:
             return self._parse_callback(update["callback_query"])
         if "message" in update:
-            return self._parse_reply(update["message"])
+            return self._parse_message(update["message"])
         return _reject(MALFORMED)
 
     def _parse_callback(self, query: Any) -> CallbackEvent | None:
@@ -146,7 +150,7 @@ class TelegramBot:
             return _reject(MALFORMED)
         return CallbackEvent(callback_id=callback_id, message_id=message["message_id"], data=data)
 
-    def _parse_reply(self, message: Any) -> ReplyEvent | None:
+    def _parse_message(self, message: Any) -> ReplyEvent | CommandEvent | None:
         if not isinstance(message, dict):
             return _reject(MALFORMED)
         # sender_chat marks a post made as the group or a channel (anonymous admin): "from" is
@@ -154,16 +158,27 @@ class TelegramBot:
         sender = None if "sender_chat" in message else message.get("from")
         if not self._is_authorized(message, sender):
             return None
-        replied = message.get("reply_to_message")
         text = message.get("text")
-        if not isinstance(replied, dict) or not isinstance(text, str) or not text:
+        if not isinstance(text, str) or not text or not _is_int(message.get("message_id")):
             return None
-        if not (_is_int(message.get("message_id")) and _is_int(replied.get("message_id"))):
+        replied = message.get("reply_to_message")
+        # A reply is always mail text, even when it starts with a slash: it must never be
+        # swallowed as a command.
+        if isinstance(replied, dict):
+            if not _is_int(replied.get("message_id")):
+                return None
+            return ReplyEvent(
+                message_id=message["message_id"],
+                reply_to_message_id=replied["message_id"],
+                text=text,
+            )
+        command = _COMMAND_RE.match(text)
+        if command is None:
             return None
-        return ReplyEvent(
+        return CommandEvent(
             message_id=message["message_id"],
-            reply_to_message_id=replied["message_id"],
-            text=text,
+            name=command.group(1).lower(),
+            args=(command.group(2) or "").strip(),
         )
 
     def _is_authorized(self, message: Any, sender: Any) -> bool:

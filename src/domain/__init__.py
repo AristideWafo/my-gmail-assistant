@@ -1,11 +1,14 @@
 from .models import (
+    FEEDBACK_ORIGINS,
     VERDICTS,
     Button,
     CallbackEvent,
     ChatEvent,
+    CommandEvent,
     Correction,
     DecisionRecord,
     EmailMessage,
+    FeedbackTally,
     LLMAnalysis,
     RatedDecision,
     ReplyEvent,
@@ -14,13 +17,16 @@ from .models import (
 )
 
 __all__ = [
+    "FEEDBACK_ORIGINS",
     "VERDICTS",
     "Button",
     "CallbackEvent",
     "ChatEvent",
+    "CommandEvent",
     "Correction",
     "DecisionRecord",
     "EmailMessage",
+    "FeedbackTally",
     "LLMAnalysis",
     "RatedDecision",
     "ReplyEvent",

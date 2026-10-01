@@ -25,6 +25,9 @@ def make_email(message_id="m1", body="body text", snippet="snippet", **overrides
     return email
 
 
+NO_FEEDBACK = dict.fromkeys(VERDICTS, 0)
+
+
 def make_triage(urgency="high", category="alerte_technique", confidence=0.9):
     return TriageResult(urgency=urgency, category=category, confidence=confidence)
 
@@ -110,9 +113,7 @@ class DecisionStoreTests(unittest.TestCase):
         self.assertTrue(self.store.record_feedback("m1", "false_urgent"))
         self.assertTrue(self.store.record_feedback("m1", "valid"))
 
-        self.assertEqual(
-            self.store.feedback_counts(), {"valid": 1, "false_urgent": 0, "false_spam": 0}
-        )
+        self.assertEqual(self.store.feedback_counts(), {**NO_FEEDBACK, "valid": 1})
         self.assertEqual(self.store.recent_corrections(10), [])
 
     def test_feedback_counts_has_every_verdict(self):
@@ -121,7 +122,7 @@ class DecisionStoreTests(unittest.TestCase):
             self.store.record_feedback(message_id, verdict)
 
         self.assertEqual(
-            self.store.feedback_counts(), {"valid": 1, "false_urgent": 0, "false_spam": 2}
+            self.store.feedback_counts(), {**NO_FEEDBACK, "valid": 1, "false_spam": 2}
         )
 
     def test_recent_corrections_excludes_valid_newest_first_and_limited(self):
@@ -161,6 +162,54 @@ class DecisionStoreTests(unittest.TestCase):
             ("subject a", "false_spam"),
             ("subject b", "false_urgent"),
         ])
+
+    def test_recent_corrections_can_be_limited_to_some_verdicts(self):
+        for message_id, verdict in [
+            ("a", "missed_urgent"),
+            ("b", "wrong_archive"),
+            ("c", "wrong_archive"),
+        ]:
+            self.store.record_decision(make_email(message_id), make_triage(), "label")
+            self.store.record_feedback(message_id, verdict, origin="review")
+
+        usable = self.store.recent_corrections(1, ("false_urgent", "missed_urgent"))
+
+        self.assertEqual([c.verdict for c in usable], ["missed_urgent"])
+        self.assertEqual(len(self.store.recent_corrections(10)), 3)
+
+    def test_feedback_origin_is_stored_and_validated(self):
+        self.store.record_decision(make_email(), make_triage(), "label")
+
+        self.store.record_feedback("m1", "valid")
+        self.assertEqual(self._origin(), "alert")
+        self.store.record_feedback("m1", "missed_urgent", origin="review")
+        self.assertEqual(self._origin(), "review")
+        with self.assertRaises(ValueError):
+            self.store.record_feedback("m1", "valid", origin="elsewhere")
+
+    def _origin(self) -> str:
+        return self.store._conn.execute("SELECT origin FROM feedback").fetchone()[0]
+
+    def test_review_candidates_are_recent_unrated_silent_classifier_decisions(self):
+        def decide(message_id, route, source="jev"):
+            triage = TriageResult("low", "newsletter", 0.8, source)
+            self.store.record_decision(make_email(message_id), triage, route)
+
+        self.now = datetime(2025, 12, 20, tzinfo=UTC)
+        decide("old", "label")
+        self.now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        decide("alerted", "llm")
+        decide("ruled", "reject", source="rule")
+        decide("rated", "label")
+        self.store.record_feedback("rated", "valid")
+        decide("archived", "reject")
+        decide("labeled", "label", source="heuristic")
+
+        candidates = self.store.review_candidates(timedelta(days=7), 10)
+
+        self.assertEqual([c.message_id for c in candidates], ["labeled", "archived"])
+        self.assertEqual(len(self.store.review_candidates(timedelta(days=7), 1)), 1)
+        self.assertEqual(self.store.review_candidates(timedelta(days=7), 0), [])
 
     def test_recent_corrections_non_positive_limit_returns_empty(self):
         self.store.record_decision(make_email(), make_triage(), "alert")

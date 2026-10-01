@@ -1,18 +1,29 @@
 import json
 import logging
 
-from src.domain import Button, CallbackEvent, ChatEvent, DecisionRecord, ReplyEvent
+from src.domain import (
+    Button,
+    CallbackEvent,
+    ChatEvent,
+    CommandEvent,
+    DecisionRecord,
+    ReplyEvent,
+)
 from src.formatting import truncate
 from src.interactions.callbacks import (
     CANCEL,
     FEEDBACK,
     KEEP,
+    REVIEW,
     SEND,
     UNSUBSCRIBE,
     Callback,
     draft_buttons,
     parse_callback,
 )
+from src.interactions.commands import CommandRouter
+from src.interactions.review import ReviewCommand
+from src.interactions.stats import StatsCommand
 from src.interactions.unsubscribe import offer_key
 from src.observability.metrics import Metrics
 from src.ports import ChatInbox, DecisionStore, MailProvider, Unsubscriber
@@ -24,10 +35,13 @@ REPLY_HINT = "Réponds directement à une alerte pour créer un brouillon."
 DRAFT_FAILED = "Impossible de créer le brouillon Gmail, réessaie plus tard."
 NO_BUTTONS_HINT = "Envoie-le depuis Gmail."
 FEEDBACK_ACKS = {
-    "valid": "Merci, alerte validée",
+    "valid": "Merci, validé",
     "false_urgent": "Noté : faux urgent",
     "false_spam": "Noté : spam",
+    "missed_urgent": "Noté : urgent raté",
+    "wrong_archive": "Noté : à garder",
 }
+FEEDBACK_ORIGIN = {FEEDBACK: "alert", REVIEW: "review"}
 UNKNOWN_MAIL = "Mail inconnu"
 UNKNOWN_ACTION = "Action non reconnue"
 ALREADY_SENT = "Déjà envoyé"
@@ -52,12 +66,31 @@ class InteractionHandler:
         self._chat = chat
         self._mail = mail
         self._unsubscriber = unsubscriber
+        self.commands = CommandRouter(chat)
+        self.commands.register(
+            "review", "mails non alertés à vérifier, ex. /review 5", ReviewCommand(store, chat).run
+        )
+        self.commands.register(
+            "stats", "précision du tri d'après tes verdicts", StatsCommand(store, chat).run
+        )
 
     def dispatch(self, event: ChatEvent) -> None:
         if isinstance(event, CallbackEvent):
             self._on_callback(event)
         elif isinstance(event, ReplyEvent):
             self._on_reply(event)
+        elif isinstance(event, CommandEvent):
+            self._on_command(event)
+
+    def _on_command(self, event: CommandEvent) -> None:
+        command_key = f"cmd:{event.message_id}"
+        if self._store.get_state(command_key) is not None:
+            Metrics.mark_chat_command(self.commands.label(event.name), "duplicate")
+            return
+        # Claimed before running: a redelivered update must not replay a command that already
+        # sent half of its messages.
+        self._store.set_state(command_key, event.name)
+        self.commands.dispatch(event)
 
     def _on_callback(self, event: CallbackEvent) -> None:
         callback = parse_callback(event.data)
@@ -67,6 +100,7 @@ class InteractionHandler:
             return
         handlers = {
             FEEDBACK: self._on_feedback,
+            REVIEW: self._on_feedback,
             SEND: self._on_send,
             CANCEL: self._on_cancel,
             UNSUBSCRIBE: self._on_unsubscribe,
@@ -75,10 +109,14 @@ class InteractionHandler:
         handlers[callback.action](event, callback)
 
     def _on_feedback(self, event: CallbackEvent, callback: Callback) -> None:
-        if not self._store.record_feedback(callback.target, callback.verdict):
+        record = self._store.get(callback.target)
+        origin = FEEDBACK_ORIGIN[callback.action]
+        if record is None or not self._store.record_feedback(
+            callback.target, callback.verdict, origin
+        ):
             self._answer(event, UNKNOWN_MAIL)
             return
-        Metrics.mark_feedback(callback.verdict)
+        Metrics.mark_feedback(callback.verdict, record.route)
         self._answer(event, FEEDBACK_ACKS[callback.verdict])
         self._clear(event.message_id)
 

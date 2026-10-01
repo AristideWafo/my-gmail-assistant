@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
-VERDICTS = ("valid", "false_urgent", "false_spam")
+VERDICTS = ("valid", "false_urgent", "false_spam", "missed_urgent", "wrong_archive")
+FEEDBACK_ORIGINS = ("alert", "review")
 
 
 @dataclass
@@ -79,6 +80,14 @@ class Correction:
 
 
 @dataclass(frozen=True)
+class FeedbackTally:
+    route: str
+    source: str
+    verdict: str
+    count: int
+
+
+@dataclass(frozen=True)
 class CallbackEvent:
     callback_id: str
     message_id: int
@@ -92,5 +101,12 @@ class ReplyEvent:
     text: str
 
 
+@dataclass(frozen=True)
+class CommandEvent:
+    message_id: int
+    name: str
+    args: str = ""
+
+
 Button = tuple[str, str]
-ChatEvent = CallbackEvent | ReplyEvent
+ChatEvent = CallbackEvent | ReplyEvent | CommandEvent

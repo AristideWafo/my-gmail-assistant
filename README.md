@@ -154,7 +154,10 @@ With `TELEGRAM_INBOUND_ENABLED=true` (and `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID
 
 - Each urgent alert carries **[Valider] / [Faux-Urgent] / [Faux-Spam]**. Verdicts are stored in SQLite and counted in `feedback_total{verdict}` to measure routing precision.
 - **Replying** to an alert in Telegram creates a Gmail reply draft in the original thread and shows a preview with **[Envoyer] / [Annuler]**. Nothing is sent until you press [Envoyer] on that preview (buttons forged for another draft or pressed elsewhere are refused); each draft is sent at most once. If the send call fails its outcome is uncertain: check Gmail's Sent folder before sending the draft by hand. Outcomes are counted in `chat_replies_total{status}`.
-- `JEV_FEW_SHOT_ENABLED=true` additionally sends your latest Faux-Urgent/Faux-Spam corrections to JEV as examples. Only the sender's domain and the subject (truncated to 100 characters) are sent, never the body, but a subject is still attacker-chosen text replayed into every later classification. Off by default until verified against the live API.
+- **`/review [n]`** (default 5, at most 10) sends mails from the last 7 days that were archived or labeled without an alert and that you have not rated yet, half archived ones and half the labeled ones the classifier was least sure about, one per sender. Decisions made by a deterministic rule are left out. An archived mail carries **[OK] / [À garder] / [Urgent raté]**, a labeled one **[OK] / [Urgent raté] / [Spam]**. These verdicts (`missed_urgent`, `wrong_archive`) are stored like the alert ones, tagged `origin=review`, and `feedback_total` is labelled by `verdict` and `route`.
+- **`/stats`** answers with the share of correct decisions and the kinds of mistakes, per decision (alerted, labeled, archived) and per source (`jev`, `rule`, `heuristic`), computed from every stored verdict, plus the number of decisions per source over 30 days. It reads SQLite, so it survives restarts, unlike the Prometheus counters.
+- **Commands**: a message starting with `/` that is not a reply to an alert is a command; `/help` lists them. A redelivered command runs once. Counted in `chat_commands_total{command,status}`.
+- `JEV_FEW_SHOT_ENABLED=true` additionally sends your latest Faux-Urgent, Faux-Spam and Urgent raté corrections to JEV as examples. Only the sender's domain and the subject (truncated to 100 characters) are sent, never the body, but a subject is still attacker-chosen text replayed into every later classification. Off by default until verified against the live API.
 
 Only one process may poll a given bot token: Telegram returns 409 to a second poller, so enable the flag on a single instance.
 
@@ -210,7 +213,7 @@ Useful endpoints:
 - Assistant health: `http://localhost:8000/healthz`
 - Metrics: `http://localhost:8000/metrics`
 - Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000` — pre-provisioned with the Prometheus datasource and a "Gmail Assistant" dashboard (processed emails, triage latency, JEV fallback rate, LLM tokens and cost, alert feedback, Telegram replies and Telegram listener health). Login `admin` / `GRAFANA_ADMIN_PASSWORD` (defaults to `admin` if unset — set it in `.env`).
+- Grafana: `http://localhost:3000` — pre-provisioned with the Prometheus datasource and a "Gmail Assistant" dashboard (processed emails, triage latency, JEV fallback rate, LLM tokens and cost, feedback by route and verdict, Telegram replies and Telegram listener health). Login `admin` / `GRAFANA_ADMIN_PASSWORD` (defaults to `admin` if unset — set it in `.env`).
 
 ## CI/CD
 

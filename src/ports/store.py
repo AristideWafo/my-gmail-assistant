@@ -5,6 +5,7 @@ from src.domain import (
     Correction,
     DecisionRecord,
     EmailMessage,
+    FeedbackTally,
     RatedDecision,
     RuleCandidate,
     TriageResult,
@@ -21,11 +22,23 @@ class DecisionStore(Protocol):
 
     def find_by_chat_message(self, chat_message_id: int) -> DecisionRecord | None: ...
 
-    def record_feedback(self, message_id: str, verdict: str) -> bool: ...
+    def record_feedback(self, message_id: str, verdict: str, origin: str = "alert") -> bool: ...
 
-    def recent_corrections(self, limit: int) -> list[Correction]: ...
+    def recent_corrections(
+        self, limit: int, verdicts: tuple[str, ...] | None = None
+    ) -> list[Correction]:
+        """Newest first; `verdicts` restricts them, None means every verdict but "valid"."""
+        ...
+
+    def review_candidates(self, max_age: timedelta, limit: int) -> list[DecisionRecord]:
+        """Recent unrated decisions the classifier made without alerting, newest first."""
+        ...
 
     def feedback_counts(self) -> dict[str, int]: ...
+
+    def feedback_breakdown(self) -> list[FeedbackTally]: ...
+
+    def decision_counts_by_source(self, max_age: timedelta) -> dict[str, int]: ...
 
     def mark_alerted(self, message_id: str) -> None: ...
 
