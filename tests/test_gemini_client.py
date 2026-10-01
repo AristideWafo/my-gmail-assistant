@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from google.api_core.exceptions import ResourceExhausted
 
 from src.domain import EmailMessage
-from src.llm.gemini import GeminiClient
+from src.llm.gemini import NO_COMMITMENT_RULE, GeminiClient
 from src.llm.rate_limit import RateLimiter
 from src.observability.metrics import Metrics
 
@@ -110,6 +110,15 @@ class GeminiAnalyzeTests(unittest.TestCase):
         self.assertIn("aucun objet", prompt)
         self.assertIn("entre crochets", prompt)
         self.assertIn('la signature "Aristide"', prompt)
+
+    def test_draft_prompt_forbids_deciding_for_its_author(self):
+        client = make_client()
+
+        with_draft = client._build_prompt(make_email(), want_draft=True, want_entities=False)
+        without = client._build_prompt(make_email(), want_draft=False, want_entities=False)
+
+        self.assertIn(NO_COMMITMENT_RULE, with_draft)
+        self.assertNotIn(NO_COMMITMENT_RULE, without)
 
     def test_prompt_only_asks_for_requested_keys(self):
         prompt = make_client()._build_prompt(make_email(), want_draft=False, want_entities=False)

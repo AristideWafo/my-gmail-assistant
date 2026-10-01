@@ -63,7 +63,7 @@ class EmailWorkflow:
         self.analyzer = analyzer
         self.low_confidence_threshold = low_confidence_threshold
         self.rules = rules or RuleSet()
-        # None turns reply drafts off for mails that are not urgent.
+        # None leaves drafts to the category rule of urgent mails, as before the reply question.
         self.needs_reply_threshold = needs_reply_threshold
         self.graph = self._build_graph()
 
@@ -99,7 +99,12 @@ class EmailWorkflow:
     def _llm_node(self, state: TriageState) -> dict[str, Any]:
         email = state["email"]
         triage = state["triage"]
-        want_draft = triage.category in DRAFTABLE_CATEGORIES and not is_automated_sender(email.sender)
+        reply_expected = expects_reply(email, triage, self.needs_reply_threshold)
+        # The category rule stays next to the model's answer: a mail decided without the reply
+        # question (rule, VIP, fallback) or just under the threshold keeps the draft it always had.
+        want_draft = reply_expected or (
+            triage.category in DRAFTABLE_CATEGORIES and not is_automated_sender(email.sender)
+        )
         want_entities = triage.category == "offre_emploi"
         try:
             analysis = self.analyzer.analyze(email, want_draft, want_entities)
@@ -111,6 +116,8 @@ class EmailWorkflow:
 
         summary = analysis.summary or f"{truncate(email.snippet, FALLBACK_SNIPPET_LIMIT)}\n{SUMMARY_UNAVAILABLE}"
         result: dict[str, Any] = {"summary": summary, "route": "llm"}
+        if reply_expected:
+            result["reply_expected"] = True
         if analysis.draft:
             result["draft"] = analysis.draft
         if analysis.entities:

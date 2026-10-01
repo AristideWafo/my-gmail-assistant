@@ -105,6 +105,46 @@ class UrgentHandlingTests(unittest.TestCase):
         ctx.mail.label_message.assert_not_called()
         self.assertFalse(ctx.store.was_alerted("m1"))
 
+    def test_urgent_mail_expecting_a_reply_also_gets_the_reply_label(self):
+        ctx = make_context("llm", {"draft": "Bonjour", "reply_expected": True})
+        calls = MagicMock()
+        calls.attach_mock(ctx.alerts.send_urgent_alert, "alert")
+        calls.attach_mock(ctx.mail.create_draft, "draft")
+        calls.attach_mock(ctx.mail.label_message, "label")
+
+        ctx.process_email(make_email())
+
+        self.assertEqual([c[0] for c in calls.mock_calls], ["alert", "draft", "label", "label"])
+        self.assertEqual(
+            ctx.mail.label_message.mock_calls, [call("m1", REPLY_EXPECTED_LABEL), call("m1", "urgent")]
+        )
+
+    def test_reply_label_failure_on_an_urgent_mail_still_commits_the_urgent_label(self):
+        ctx = make_context("llm", {"reply_expected": True})
+        ctx.mail.label_message.side_effect = [RuntimeError("boom"), None]
+
+        with self.assertLogs("gmail-assistant", level="ERROR"):
+            ctx.process_email(make_email())
+
+        self.assertEqual(ctx.mail.label_message.mock_calls[-1], call("m1", "urgent"))
+
+    def test_urgent_mail_drafted_on_its_category_alone_keeps_a_single_label(self):
+        ctx = make_context("llm", {"draft": "Bonjour"})
+
+        ctx.process_email(make_email())
+
+        ctx.mail.label_message.assert_called_once_with("m1", "urgent")
+
+    def test_urgent_reply_outcome_is_counted(self):
+        for extra, status in (({"draft": "Bonjour"}, "drafted"), ({}, "no_draft")):
+            with self.subTest(status=status):
+                counter = Metrics.reply_drafts.labels(status=status)
+                before = counter._value.get()
+
+                make_context("llm", {"reply_expected": True, **extra}).process_email(make_email())
+
+                self.assertEqual(counter._value.get(), before + 1)
+
     def test_non_urgent_routes_never_alert(self):
         for route in ("label", "reject"):
             with self.subTest(route=route):

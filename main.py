@@ -144,6 +144,9 @@ class ApplicationContext:
             )
         if result.get("draft"):
             self._create_reply_draft(email, result["draft"])
+        if result.get("reply_expected"):
+            Metrics.mark_reply_draft("drafted" if result.get("draft") else "no_draft")
+            self._label_reply_expected(email)
         self.mail.label_message(email.id, "urgent")
 
     def _flag_reply_expected(self, email, draft: str) -> None:
@@ -158,6 +161,9 @@ class ApplicationContext:
             Metrics.mark_reply_draft("drafted")
         else:
             Metrics.mark_reply_draft("no_draft")
+        self._label_reply_expected(email)
+
+    def _label_reply_expected(self, email) -> None:
         self._best_effort(
             lambda: self.mail.label_message(email.id, REPLY_EXPECTED_LABEL),
             "label as awaiting a reply",
