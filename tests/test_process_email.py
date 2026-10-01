@@ -122,18 +122,19 @@ class UrgentHandlingTests(unittest.TestCase):
 
         ctx.process_email(make_email())
 
-        self.assertEqual([c[0] for c in calls.mock_calls], ["alert", "draft", "label", "label"])
-        self.assertEqual(
-            ctx.mail.label_message.mock_calls, [call("m1", REPLY_EXPECTED_LABEL), call("m1", "urgent")]
-        )
+        self.assertEqual([c[0] for c in calls.mock_calls], ["alert", "draft", "label"])
+        ctx.mail.label_message.assert_called_once_with("m1", REPLY_EXPECTED_LABEL, "urgent")
 
-    def test_reply_label_failure_on_an_urgent_mail_still_commits_the_urgent_label(self):
-        ctx = make_context("llm", {"reply_expected": True})
+    def test_urgent_labeling_failure_leaves_the_mail_for_a_retry_that_only_relabels(self):
+        ctx = make_context("llm", {"reply_expected": True, "draft": "Bonjour"})
         ctx.mail.label_message.side_effect = [RuntimeError("boom"), None]
 
-        with self.assertLogs("gmail-assistant", level="ERROR"):
+        with self.assertRaises(RuntimeError):
             ctx.process_email(make_email())
+        ctx.process_email(make_email())
 
+        ctx.alerts.send_urgent_alert.assert_called_once()
+        ctx.mail.create_draft.assert_called_once()
         self.assertEqual(ctx.mail.label_message.mock_calls[-1], call("m1", "urgent"))
 
     def test_urgent_mail_drafted_on_its_category_alone_keeps_a_single_label(self):
@@ -162,7 +163,7 @@ class UrgentHandlingTests(unittest.TestCase):
 
 
 class ReplyExpectedTests(unittest.TestCase):
-    def test_draft_then_reply_label_then_category_label(self):
+    def test_draft_then_both_labels_in_the_single_call_that_commits(self):
         ctx = make_context("label", {"reply_expected": True, "draft": "Bonjour"})
         calls = MagicMock()
         calls.attach_mock(ctx.mail.create_draft, "draft")
@@ -174,8 +175,7 @@ class ReplyExpectedTests(unittest.TestCase):
             calls.mock_calls,
             [
                 call.draft("t1", "a@b.com", "Hi", "Bonjour", in_reply_to="<abc@mail.example>"),
-                call.label("m1", REPLY_EXPECTED_LABEL),
-                call.label("m1", "personnel"),
+                call.label("m1", REPLY_EXPECTED_LABEL, "personnel"),
             ],
         )
         ctx.alerts.send_urgent_alert.assert_not_called()
@@ -186,20 +186,16 @@ class ReplyExpectedTests(unittest.TestCase):
         ctx.process_email(make_email())
 
         ctx.mail.create_draft.assert_not_called()
-        self.assertEqual(
-            ctx.mail.label_message.mock_calls,
-            [call("m1", REPLY_EXPECTED_LABEL), call("m1", "personnel")],
-        )
+        ctx.mail.label_message.assert_called_once_with("m1", REPLY_EXPECTED_LABEL, "personnel")
 
-    def test_draft_or_reply_label_failure_still_commits_the_category_label(self):
+    def test_draft_failure_still_labels_the_mail(self):
         ctx = make_context("label", {"reply_expected": True, "draft": "Bonjour"})
         ctx.mail.create_draft.side_effect = RuntimeError("boom")
-        ctx.mail.label_message.side_effect = [RuntimeError("boom"), None]
 
         with self.assertLogs("gmail-assistant", level="ERROR"):
             ctx.process_email(make_email())
 
-        self.assertEqual(ctx.mail.label_message.mock_calls[-1], call("m1", "personnel"))
+        ctx.mail.label_message.assert_called_once_with("m1", REPLY_EXPECTED_LABEL, "personnel")
 
     def test_outcome_is_counted(self):
         for extra, status in (({"draft": "Bonjour"}, "drafted"), ({}, "no_draft")):
@@ -211,16 +207,18 @@ class ReplyExpectedTests(unittest.TestCase):
 
                 self.assertEqual(counter._value.get(), before + 1)
 
-    def test_retry_after_a_failed_category_label_does_not_draft_twice(self):
+    def test_retry_after_a_failed_labeling_does_not_draft_twice(self):
         ctx = make_context("label", {"reply_expected": True, "draft": "Bonjour"})
-        ctx.mail.label_message.side_effect = [None, RuntimeError("boom"), None, None]
+        ctx.mail.label_message.side_effect = [RuntimeError("boom"), None]
 
         with self.assertRaises(RuntimeError):
             ctx.process_email(make_email())
         ctx.process_email(make_email())
 
         ctx.mail.create_draft.assert_called_once()
-        self.assertEqual(ctx.mail.label_message.mock_calls[-1], call("m1", "personnel"))
+        self.assertEqual(
+            ctx.mail.label_message.mock_calls[-1], call("m1", REPLY_EXPECTED_LABEL, "personnel")
+        )
 
     def test_plain_label_route_is_unchanged(self):
         ctx = make_context("label")
@@ -242,37 +240,34 @@ class ReplyExpectedTests(unittest.TestCase):
 
 
 class PutForwardTests(unittest.TestCase):
-    def test_label_worth_seeing_comes_before_the_category_label_that_commits(self):
+    def test_label_worth_seeing_goes_with_the_category_label_in_one_call(self):
         ctx = make_context("label", {"attention": ("service_change",)})
 
         ctx.process_email(make_email())
 
-        self.assertEqual(
-            ctx.mail.label_message.mock_calls, [call("m1", PUT_FORWARD_LABEL), call("m1", "personnel")]
-        )
+        ctx.mail.label_message.assert_called_once_with("m1", PUT_FORWARD_LABEL, "personnel")
         ctx.alerts.send_urgent_alert.assert_not_called()
         ctx.mail.archive_message.assert_not_called()
         self.assertTrue(ctx.store.get("m1").put_forward)
 
-    def test_a_failed_label_still_commits_the_category_label(self):
+    def test_a_failed_labeling_leaves_the_mail_unhandled_for_the_next_cycle(self):
         ctx = make_context("label", {"attention": ("service_change",)})
-        ctx.mail.label_message.side_effect = [RuntimeError("boom"), None]
+        ctx.mail.label_message.side_effect = RuntimeError("boom")
 
-        with self.assertLogs("gmail-assistant", level="ERROR"):
+        with self.assertRaises(RuntimeError):
             ctx.process_email(make_email())
 
-        self.assertEqual(ctx.mail.label_message.mock_calls[-1], call("m1", "personnel"))
+        ctx.mail.label_message.assert_called_once()
 
-    def test_reply_label_then_worth_seeing_label_then_category_label(self):
+    def test_reply_label_worth_seeing_label_and_category_label_in_one_call(self):
         ctx = make_context(
             "label", {"attention": ("needs_reply",), "reply_expected": True, "draft": "Bonjour"}
         )
 
         ctx.process_email(make_email())
 
-        self.assertEqual(
-            ctx.mail.label_message.mock_calls,
-            [call("m1", REPLY_EXPECTED_LABEL), call("m1", PUT_FORWARD_LABEL), call("m1", "personnel")],
+        ctx.mail.label_message.assert_called_once_with(
+            "m1", REPLY_EXPECTED_LABEL, PUT_FORWARD_LABEL, "personnel"
         )
 
     def test_put_forward_mails_are_counted(self):

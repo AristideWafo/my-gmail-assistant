@@ -67,6 +67,37 @@ class GmailClientActionsTests(unittest.TestCase):
             body={"addLabelIds": ["label-existing"], "removeLabelIds": ["UNREAD"]},
         )
 
+    def test_label_message_adds_every_label_and_marks_read_in_a_single_change(self):
+        client, service = make_client_with_service()
+        service.users().labels().list().execute.return_value = {
+            "labels": [
+                {"name": "Assistant/A_voir", "id": "label-see"},
+                {"name": "Assistant/Personnel", "id": "label-cat"},
+            ]
+        }
+        service.users().messages().modify.reset_mock()
+
+        client.label_message("msg-1", "a_voir", "personnel")
+
+        service.users().messages().modify.assert_called_once_with(
+            userId="me",
+            id="msg-1",
+            body={"addLabelIds": ["label-see", "label-cat"], "removeLabelIds": ["UNREAD"]},
+        )
+
+    def test_a_label_that_cannot_be_created_leaves_the_mail_untouched(self):
+        client, service = make_client_with_service()
+        service.users().labels().list().execute.return_value = {
+            "labels": [{"name": "Assistant/Personnel", "id": "label-cat"}]
+        }
+        service.users().labels().create().execute.side_effect = RuntimeError("quota")
+        service.users().messages().modify.reset_mock()
+
+        with self.assertRaises(RuntimeError):
+            client.label_message("msg-1", "a_voir", "personnel")
+
+        service.users().messages().modify.assert_not_called()
+
     def create_and_parse_draft(self, subject="Subject", body="Body text", **kwargs):
         client, service = make_client_with_service()
         service.users().drafts().create().execute.return_value = {"id": "draft-1"}

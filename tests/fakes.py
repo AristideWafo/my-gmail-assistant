@@ -30,8 +30,8 @@ class FakeMail:
     def archive_message(self, message_id: str) -> None:
         self.archived.append(message_id)
 
-    def label_message(self, message_id: str, label_name: str) -> None:
-        self.labels.append((message_id, label_name))
+    def label_message(self, message_id: str, *label_names: str) -> None:
+        self.labels.extend((message_id, name) for name in label_names)
 
     def create_draft(
         self, thread_id: str, to: str, subject: str, body: str, in_reply_to: str = ""

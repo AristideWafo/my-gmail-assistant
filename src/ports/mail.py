@@ -24,7 +24,13 @@ class MailProvider(Protocol):
 
     def archive_message(self, message_id: str) -> None: ...
 
-    def label_message(self, message_id: str, label_name: str) -> None: ...
+    def label_message(self, message_id: str, *label_names: str) -> None:
+        """Adds every label and marks the mail as handled, in a single change.
+
+        One call per mail: handling it is what stops it from being fetched again, so labels
+        added in separate calls would leave a mail half-labeled and never retried.
+        """
+        ...
 
     def create_draft(
         self, thread_id: str, to: str, subject: str, body: str, in_reply_to: str = ""
