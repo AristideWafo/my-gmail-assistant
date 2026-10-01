@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
-VERDICTS = ("valid", "false_urgent", "false_spam")
+VERDICTS = ("valid", "false_urgent", "false_spam", "missed_urgent", "wrong_archive")
+FEEDBACK_ORIGINS = ("alert", "review")
 
 
 @dataclass
@@ -76,6 +77,14 @@ class Correction:
     predicted_urgency: str
     predicted_category: str
     verdict: str
+
+
+@dataclass(frozen=True)
+class FeedbackTally:
+    route: str
+    source: str
+    verdict: str
+    count: int
 
 
 @dataclass(frozen=True)

@@ -1,4 +1,5 @@
 from .models import (
+    FEEDBACK_ORIGINS,
     VERDICTS,
     Button,
     CallbackEvent,
@@ -7,6 +8,7 @@ from .models import (
     Correction,
     DecisionRecord,
     EmailMessage,
+    FeedbackTally,
     LLMAnalysis,
     RatedDecision,
     ReplyEvent,
@@ -15,6 +17,7 @@ from .models import (
 )
 
 __all__ = [
+    "FEEDBACK_ORIGINS",
     "VERDICTS",
     "Button",
     "CallbackEvent",
@@ -23,6 +26,7 @@ __all__ = [
     "Correction",
     "DecisionRecord",
     "EmailMessage",
+    "FeedbackTally",
     "LLMAnalysis",
     "RatedDecision",
     "ReplyEvent",

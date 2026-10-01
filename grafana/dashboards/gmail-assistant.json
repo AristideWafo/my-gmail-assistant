@@ -241,7 +241,7 @@
     },
     {
       "id": 12,
-      "title": "Alert feedback (verdicts over the range, by verdict)",
+      "title": "Feedback (verdicts over the range, by route/verdict)",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -255,8 +255,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (verdict) (increase(feedback_total[$__range]))",
-          "legendFormat": "{{verdict}}"
+          "expr": "sum by (route, verdict) (increase(feedback_total[$__range]))",
+          "legendFormat": "{{route}} · {{verdict}}"
         }
       ]
     },
