@@ -18,6 +18,13 @@ JOB_ENTITY_FIELDS = ("poste", "entreprise", "stack", "salaire", "prochaine_etape
 MAX_RETRIES = 2
 MAX_RETRY_DELAY_SECONDS = 60.0
 DEFAULT_RETRY_DELAY_SECONDS = 20.0
+# The draft is written before its author has read the mail: it must not decide for him.
+NO_COMMITMENT_RULE = (
+    "Ne décide jamais à la place de l'auteur de la réponse : n'accepte ni ne refuse une invitation, "
+    "une offre ou un rendez-vous, ne promets ni date, ni montant, ni livrable, et n'invente aucun "
+    "fait. Quand la réponse dépend d'une décision ou d'une information que l'e-mail reçu ne "
+    "contient pas, rédige une réponse d'attente : accuse réception et annonce un retour prochain."
+)
 _RETRY_DELAY_RE = re.compile(r"retry in (\d+(?:\.\d+)?)s", re.IGNORECASE)
 
 # $/1M tokens (input, output), verified on ai.google.dev/gemini-api/docs/pricing.
@@ -111,7 +118,8 @@ class GeminiClient:
                 '- "draft": corps de la réponse à envoyer, dans la langue de l\'e-mail reçu. Uniquement le texte du '
                 'message: aucune introduction du type "Voici une proposition", aucun objet, aucun commentaire, '
                 "aucun markdown, aucun texte à compléter entre crochets. Commence par la salutation, termine par "
-                f"une formule de politesse courte {signature}. Court et concret."
+                f"une formule de politesse courte {signature}. Court et concret. "
+                f"{NO_COMMITMENT_RULE}"
             )
         if want_entities:
             fields = ", ".join(JOB_ENTITY_FIELDS)

@@ -307,7 +307,7 @@ Conception soumise à une relecture critique avant le code. Ce qui en est retenu
 Lots :
 
 - ✅ Verdict `missed_important` et bouton `[À voir]` dans `/review`, distinct de `[Urgent raté]`. Les verdicts « Urgent raté » déjà donnés par `/review` sont convertis (migration 4, état précédent gardé dans `assistant.db.pre-v4`) : ils cessent d'être envoyés à JEV comme « urgence correcte : haute ». Lecture du banc après conversion : `missed_important` exclut seulement l'archivage
-- ⬜ Brouillon de réponse indépendant de l'urgence
+- ✅ Brouillon de réponse indépendant de l'urgence : avec `NEEDS_REPLY_ENABLED`, un mail urgent reçoit un brouillon et le label `Assistant/A_repondre` dès qu'une réponse est attendue, quelle que soit sa catégorie. La règle par catégorie reste en complément, pour ne pas perdre le brouillon d'un mail décidé sans la question (règle, VIP, repli) ou juste sous le seuil. Le brouillon ne décide jamais à ta place : ni acceptation, ni refus, ni date, ni montant
 - ⬜ Questions de mise en avant en mode observation, mesurées au banc
 - ⬜ Mise en avant : label `Assistant/A_voir`, mail sorti de l'archivage
 - ⬜ Liste quotidienne silencieuse sur Telegram, commande à la demande, boutons de verdict
