@@ -88,7 +88,11 @@ def _jev(ctx: BuildContext) -> EmailClassifier:
 def _gemini(ctx: BuildContext) -> EmailAnalyzer:
     s = ctx.settings
     return GeminiClient(
-        s.gemini_api_key, s.gemini_model, max_rpm=s.gemini_max_rpm, user_name=s.user_display_name
+        s.gemini_api_key,
+        s.gemini_model,
+        max_rpm=s.gemini_max_rpm,
+        user_name=s.user_display_name,
+        timeout_seconds=s.gemini_timeout_seconds,
     )
 
 

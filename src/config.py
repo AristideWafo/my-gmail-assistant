@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-1.5-flash"
     gemini_max_rpm: int = 12
+    gemini_timeout_seconds: float = Field(default=30, gt=0)
     user_display_name: str = ""
     jev_api_url: str = "https://api.typesafe.ai/v1/systemone"
     jev_api_key: str = ""
