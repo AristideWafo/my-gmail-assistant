@@ -171,6 +171,16 @@ docker compose start assistant
 
 The stale `-wal` and `-shm` files belong to the replaced database and must go with it. Mails processed after the restored copy was taken lose their verdicts and alert dedup, so an unread urgent mail from that window can be alerted again.
 
+## Offline evaluation
+
+`python -m src.evaluation` replays the mails you gave a verdict on, to compare classifier variants on the same set instead of comparing one week with the next. In Docker: `docker compose exec assistant python -m src.evaluation run`.
+
+- `run` reloads each rated mail from Gmail, routes it through the rules and each variant (`heuristic`, `jev`, and `jev+few-shot` when JEV is configured), and prints the share of cases whose route agrees with your verdict, overall and per verdict, with the number of classifier calls. Corrections given before the split only serve as few-shot examples and are never scored, so the few-shot variant is not graded on its own examples; the split defaults to the middle correction and can be set with `--split <ISO timestamp>`. `--limit N` keeps the N most recent verdicts, `--variants a,b` runs a subset. Each JEV variant costs one call per case. Below 100 cases including 20 corrections the output is marked `NOT CONCLUSIVE`.
+- `check-examples` makes a single live JEV call carrying `state.examples` and reports whether the API accepts it. Run it before turning `JEV_FEW_SHOT_ENABLED` on.
+- `candidates [--min-count N]` lists senders JEV has classified the same way at least N times over 90 days without any correction from you: candidates for a deterministic rule.
+
+A verdict is read as a constraint on the route: `valid` expects the same route, `false_urgent` anything but an alert, `false_spam` an archive, `missed_urgent` an alert, `wrong_archive` anything but an archive.
+
 ## Docker deployment
 
 Build and run the assistant, Prometheus, and Grafana:

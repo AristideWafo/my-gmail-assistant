@@ -50,6 +50,21 @@ class DecisionRecord:
 
 
 @dataclass(frozen=True)
+class RatedDecision:
+    record: DecisionRecord
+    verdict: str
+    rated_at: str
+
+
+@dataclass(frozen=True)
+class RuleCandidate:
+    sender: str
+    urgency: str
+    category: str
+    count: int
+
+
+@dataclass(frozen=True)
 class Correction:
     sender: str
     subject: str

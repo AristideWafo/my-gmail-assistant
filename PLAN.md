@@ -138,10 +138,11 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 
 **Coût** : moyen, étalé dans le temps.
 
-- ⬜ Vérifier en direct que JEV accepte `state.examples` (un appel avec une vraie clé)
-- ⬜ `MailProvider.fetch_message(id)` : le store ne garde que 300 caractères d'extrait, le rejeu a besoin du mail complet
-- ⬜ Banc d'évaluation hors ligne (`python -m src.triage.eval`) : rejoue les mails notés sur plusieurs variantes de classifieur, sort la matrice de confusion par urgence et par route, et le nombre d'appels
-- ⬜ Séparation temporelle obligatoire : exemples few-shot tirés des corrections antérieures à une date T, évaluation sur les verdicts postérieurs. Sans cela le few-shot est évalué sur ses propres exemples
+- 🟡 Vérifier en direct que JEV accepte `state.examples` : la commande existe (`python -m src.evaluation check-examples`), reste à l'exécuter avec la vraie clé sur le VPS
+- ✅ `MailProvider.fetch_message(id)` : le store ne garde que 300 caractères d'extrait, le rejeu a besoin du mail complet
+- ✅ Banc d'évaluation hors ligne (`python -m src.evaluation run`) : rejoue les mails notés sur les variantes `heuristic`, `jev`, `jev+few-shot`, sort le taux d'accord avec les verdicts (global et par verdict) et le nombre d'appels. Sous 100 cas dont 20 corrections, le résultat est marqué non concluant
+- ✅ `check-examples` (un appel JEV réel avec `state.examples`) et `candidates` (expéditeurs toujours classés pareil : candidats à une règle)
+- ✅ Séparation temporelle obligatoire : exemples few-shot tirés des corrections antérieures à une date T, évaluation sur les verdicts postérieurs. Sans cela le few-shot est évalué sur ses propres exemples
 - ⬜ Activation de `JEV_FEW_SHOT_ENABLED` si le banc montre un gain
 - ⬜ Règles en fichier de config (`TRIAGE_RULES_PATH`) : expéditeur **et** objet, urgence et catégorie par règle. Candidats tirés du store : expéditeurs à fort volume toujours classés pareil
 - ⬜ Liste VIP par adresse exacte, forçant `high`. Appliquée seulement si l'en-tête `Authentication-Results` indique `dmarc=pass` : le champ `From` est falsifiable

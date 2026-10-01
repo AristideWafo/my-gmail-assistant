@@ -28,6 +28,19 @@ SUMMARY_UNAVAILABLE = "(résumé indisponible)"
 FALLBACK_SNIPPET_LIMIT = 300
 
 
+def route_for(triage: TriageResult, low_confidence_threshold: float) -> str:
+    confident = triage.confidence >= low_confidence_threshold
+    # Low confidence must never trigger an alert or an archive: an uncertain mail stays visible, labeled.
+    if triage.category in NON_ALERTABLE_CATEGORIES:
+        archivable = triage.urgency != "high" and confident and triage.category not in KEEP_VISIBLE_CATEGORIES
+        return "reject" if archivable else "label"
+    if triage.urgency == "high":
+        return "llm"
+    if triage.urgency == "low" and triage.category == "notification_systeme" and confident:
+        return "reject"
+    return "label"
+
+
 class EmailWorkflow:
     def __init__(
         self,
@@ -99,14 +112,4 @@ class EmailWorkflow:
         return {"route": "label"}
 
     def _route_after_triage(self, state: TriageState) -> str:
-        triage = state["triage"]
-        confident = triage.confidence >= self.low_confidence_threshold
-        # Low confidence must never trigger an alert or an archive: an uncertain mail stays visible, labeled.
-        if triage.category in NON_ALERTABLE_CATEGORIES:
-            archivable = triage.urgency != "high" and confident and triage.category not in KEEP_VISIBLE_CATEGORIES
-            return "reject" if archivable else "label"
-        if triage.urgency == "high":
-            return "llm"
-        if triage.urgency == "low" and triage.category == "notification_systeme" and confident:
-            return "reject"
-        return "label"
+        return route_for(state["triage"], self.low_confidence_threshold)

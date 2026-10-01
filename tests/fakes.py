@@ -21,6 +21,9 @@ class FakeMail:
     def fetch_history(self) -> list[EmailMessage]:
         return []
 
+    def fetch_message(self, message_id: str) -> EmailMessage | None:
+        return next((email for email in self.unread if email.id == message_id), None)
+
     def archive_message(self, message_id: str) -> None:
         self.archived.append(message_id)
 

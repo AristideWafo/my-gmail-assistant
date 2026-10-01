@@ -4,7 +4,15 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
-from src.domain import VERDICTS, Correction, DecisionRecord, EmailMessage, TriageResult
+from src.domain import (
+    VERDICTS,
+    Correction,
+    DecisionRecord,
+    EmailMessage,
+    RatedDecision,
+    RuleCandidate,
+    TriageResult,
+)
 from src.errors import BackupError
 from src.storage.migrations import LATEST_VERSION, migrate, needs_safety_copy
 
@@ -19,6 +27,8 @@ _DECISION_COLUMNS = (
     "message_id, thread_id, sender, subject, excerpt, urgency, category, confidence, route, "
     "created_at, chat_message_id, message_id_header, source"
 )
+_DECISION_FIELDS = tuple(name.strip() for name in _DECISION_COLUMNS.split(","))
+_PREFIXED_DECISION_COLUMNS = ", ".join(f"d.{name}" for name in _DECISION_FIELDS)
 
 
 class SqliteDecisionStore:
@@ -165,6 +175,39 @@ class SqliteDecisionStore:
                 "value = excluded.value, updated_at = excluded.updated_at",
                 (key, value, self._now()),
             )
+
+    def rated_decisions(self) -> list[RatedDecision]:
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {_PREFIXED_DECISION_COLUMNS}, f.verdict, f.created_at AS rated_at "
+                "FROM feedback f JOIN decisions d ON d.message_id = f.message_id ORDER BY f.id"
+            ).fetchall()
+        return [
+            RatedDecision(
+                record=DecisionRecord(**{name: row[name] for name in _DECISION_FIELDS}),
+                verdict=row["verdict"],
+                rated_at=row["rated_at"],
+            )
+            for row in rows
+        ]
+
+    def rule_candidates(self, min_count: int, max_age: timedelta) -> list[RuleCandidate]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT sender, MIN(urgency) AS urgency, MIN(category) AS category, "
+                "COUNT(*) AS n FROM decisions "
+                "WHERE source = 'jev' AND created_at >= ? AND sender NOT IN ("
+                "  SELECT d.sender FROM feedback f JOIN decisions d "
+                "  ON d.message_id = f.message_id WHERE f.verdict != 'valid') "
+                "GROUP BY sender "
+                "HAVING n >= ? AND COUNT(DISTINCT urgency || '/' || category) = 1 "
+                "ORDER BY n DESC, sender",
+                (self._cutoff(max_age), min_count),
+            ).fetchall()
+        return [
+            RuleCandidate(row["sender"], row["urgency"], row["category"], row["n"])
+            for row in rows
+        ]
 
     def prune(self, older_than: timedelta) -> int:
         """Deletes expired dedup state and unrated decisions; feedback and other state are kept."""
