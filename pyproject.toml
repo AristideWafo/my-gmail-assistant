@@ -31,6 +31,6 @@ source = ["src", "main"]
 
 [tool.coverage.report]
 # A floor, not a target: raise it when coverage rises, never lower it to make a change pass.
-fail_under = 97
+fail_under = 98
 show_missing = true
 skip_covered = true
