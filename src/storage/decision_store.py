@@ -21,7 +21,7 @@ EXCERPT_CHARS = 300
 _MEMORY = ":memory:"
 _DIR_MODE = 0o700
 _FILE_MODE = 0o600
-PRUNABLE_STATE_PREFIXES = ("reply:", "draft_sent:", "bot_draft:")
+PRUNABLE_STATE_PREFIXES = ("reply:", "draft_sent:", "bot_draft:", "unsub:", "unsub_done:")
 
 _DECISION_COLUMNS = (
     "message_id, thread_id, sender, subject, excerpt, urgency, category, confidence, route, "
@@ -208,6 +208,20 @@ class SqliteDecisionStore:
             RuleCandidate(row["sender"], row["urgency"], row["category"], row["n"])
             for row in rows
         ]
+
+    def archived_streak(self, sender: str, max_age: timedelta) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS total, "
+                "SUM(d.route = 'reject') AS archived, "
+                "SUM(f.verdict = 'wrong_archive') AS wanted_back "
+                "FROM decisions d LEFT JOIN feedback f ON f.message_id = d.message_id "
+                "WHERE d.sender = ? COLLATE NOCASE AND d.created_at >= ?",
+                (sender, self._cutoff(max_age)),
+            ).fetchone()
+        if not row["total"] or row["archived"] != row["total"] or row["wanted_back"]:
+            return 0
+        return row["archived"]
 
     def prune(self, older_than: timedelta) -> int:
         """Deletes expired dedup state and unrated decisions; feedback and other state are kept."""

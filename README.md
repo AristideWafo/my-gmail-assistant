@@ -106,6 +106,12 @@ Deterministic rules run before the classifier: a matching mail costs no JEV call
 
 The file is read at startup and an invalid one stops the app with the offending rule. `python -m src.evaluation candidates` suggests senders worth a rule. Each decision records its `source` (`vip`, `rule`, `jev`, `heuristic`), which also labels the `triage_confidence` histogram so the JEV confidence can be followed on its own.
 
+## Unsubscribe proposals
+
+With `UNSUBSCRIBE_PROPOSALS_ENABLED=true` (off by default; needs `TELEGRAM_INBOUND_ENABLED`), the assistant offers, once per sender, to unsubscribe from a sender when at least `UNSUBSCRIBE_MIN_ARCHIVED` (default `5`) of its mails were archived over 30 days and none was kept or marked as wrongly archived. The message carries **[Se désabonner] / [Garder]**; nothing is sent until you press the button on that message, and at most once.
+
+Only the one-click mechanism of RFC 8058 is used: the mail must carry `List-Unsubscribe-Post: List-Unsubscribe=One-Click` and an `https` link, and pass DMARC, since these headers are written by the sender. The request is a single `POST` to that link, which stays on the server and never travels in the button. Because the link is chosen by the sender, the request is refused unless the host resolves only to public addresses, the connection goes to the address that was checked, and redirects are not followed. `mailto:` unsubscribe links are not handled: use Gmail for those. Outcomes: `unsubscribes_total{status}` (`offered`, `done`, `failed`, `kept`, `rejected`, `duplicate`).
+
 ## Choosing / adding implementations
 
 The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interactions/`) only talks to the protocols in `src/ports`. `src/bootstrap.py` builds the concrete adapters from these selectors:
@@ -118,13 +124,14 @@ The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interacti
 | `ALERT_CHANNELS` | `telegram,discord` | comma-separated list of `telegram`, `discord`; every listed channel receives alerts in this order, the first interactive one carries reply buttons; unlisted channels are not built |
 | `CHAT_INBOX` | `telegram` | `telegram`, `none` (no inbound buttons or replies) |
 | `STORE_BACKEND` | `sqlite` | `sqlite` |
+| `UNSUBSCRIBER` | `http` | `http` (RFC 8058 one-click POST), `none` |
 
 An unknown value stops startup with an error listing the valid choices. Startup connection checks are named after the selected implementation (`gmail`, `gemini`, `jev`/`heuristic`, `telegram`, `discord`).
 
 To add an implementation:
 
 1. Implement the matching protocol from `src/ports` in a new adapter module.
-2. Register a factory for it in the matching registry of `src/bootstrap.py` (`MAIL_PROVIDERS`, `CLASSIFIERS`, `ANALYZERS`, `ALERT_CHANNELS`, `CHAT_INBOXES`, `STORES`). Factories receive a `BuildContext` exposing the settings, the store and shared clients.
+2. Register a factory for it in the matching registry of `src/bootstrap.py` (`MAIL_PROVIDERS`, `CLASSIFIERS`, `ANALYZERS`, `ALERT_CHANNELS`, `CHAT_INBOXES`, `STORES`, `UNSUBSCRIBERS`). Factories receive a `BuildContext` exposing the settings, the store and shared clients.
 3. `tests/test_ports_conformance.py` iterates the registries, so the new adapter is checked against its protocol automatically; it also fails if a core module imports an adapter directly.
 
 ## Health and watchdog

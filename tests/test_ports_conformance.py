@@ -11,6 +11,7 @@ from src.ports import (
     EmailAnalyzer,
     EmailClassifier,
     MailProvider,
+    Unsubscriber,
 )
 from tests import fakes
 
@@ -31,6 +32,7 @@ ADAPTER_MODULES = (
     "src.triage.fallback",
     "src.gateways.telegram_bot",
     "src.gateways.discord",
+    "src.gateways.unsubscribe_http",
 )
 # These package __init__ files re-export adapters, so importing from them pulls adapters in.
 ADAPTER_REEXPORTING_PACKAGES = ("src.triage", "src.gateways")
@@ -41,9 +43,10 @@ FACTORY_REGISTRIES = {
     "ANALYZERS": (bootstrap.ANALYZERS, EmailAnalyzer),
     "ALERT_CHANNELS": (bootstrap.ALERT_CHANNELS, AlertChannel),
     "CHAT_INBOXES": (bootstrap.CHAT_INBOXES, ChatInbox),
+    "UNSUBSCRIBERS": (bootstrap.UNSUBSCRIBERS, Unsubscriber),
 }
 # "none" is the one registered way to opt out of a chat inbox.
-OPTIONAL = {("CHAT_INBOXES", "none")}
+OPTIONAL = {("CHAT_INBOXES", "none"), ("UNSUBSCRIBERS", "none")}
 
 
 def is_adapter(module: str) -> bool:

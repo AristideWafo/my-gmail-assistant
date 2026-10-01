@@ -4,6 +4,7 @@ from .classifier import EmailClassifier
 from .llm import EmailAnalyzer
 from .mail import MailProvider
 from .store import DecisionStore
+from .unsubscribe import UnsubscribeError, Unsubscriber
 
 __all__ = [
     "AlertChannel",
@@ -13,4 +14,6 @@ __all__ = [
     "EmailAnalyzer",
     "EmailClassifier",
     "MailProvider",
+    "UnsubscribeError",
+    "Unsubscriber",
 ]

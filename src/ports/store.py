@@ -43,6 +43,10 @@ class DecisionStore(Protocol):
         """Senders the classifier always judged the same way and the user never corrected."""
         ...
 
+    def archived_streak(self, sender: str, max_age: timedelta) -> int:
+        """Mails from `sender` archived over the period, or 0 if any was kept or wanted back."""
+        ...
+
     def prune(self, older_than: timedelta) -> int: ...
 
     def backup(self, destination: str) -> None:

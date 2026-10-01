@@ -6,6 +6,8 @@ from src.domain import Button
 FEEDBACK = "fb"
 SEND = "send"
 CANCEL = "cancel"
+UNSUBSCRIBE = "unsub"
+KEEP = "keep"
 CALLBACK_DATA_MAX_BYTES = 64
 
 VERDICT_CODES = {"v": "valid", "u": "false_urgent", "s": "false_spam"}
@@ -29,6 +31,12 @@ def draft_buttons(draft_id: str) -> list[list[Button]] | None:
     return _single_row([("Envoyer", f"{SEND}:{draft_id}"), ("Annuler", f"{CANCEL}:{draft_id}")])
 
 
+def unsubscribe_buttons(offer_id: str) -> list[list[Button]] | None:
+    return _single_row(
+        [("Se désabonner", f"{UNSUBSCRIBE}:{offer_id}"), ("Garder", f"{KEEP}:{offer_id}")]
+    )
+
+
 def is_valid_callback_data(data: Any) -> bool:
     return isinstance(data, str) and 0 < len(data.encode("utf-8")) <= CALLBACK_DATA_MAX_BYTES
 
@@ -39,7 +47,7 @@ def parse_callback(data: str) -> Callback | None:
         code, _, gmail_id = rest.partition(":")
         verdict = VERDICT_CODES.get(code)
         return Callback(FEEDBACK, gmail_id, verdict) if verdict and gmail_id else None
-    if action in (SEND, CANCEL) and rest:
+    if action in (SEND, CANCEL, UNSUBSCRIBE, KEEP) and rest:
         return Callback(action, rest)
     return None
 

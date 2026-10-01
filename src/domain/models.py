@@ -16,6 +16,8 @@ class EmailMessage:
     message_id_header: str = ""
     # True only when the receiving provider itself vouches for the From address.
     dmarc_pass: bool = False
+    list_unsubscribe: str = ""
+    list_unsubscribe_post: str = ""
 
 
 @dataclass
