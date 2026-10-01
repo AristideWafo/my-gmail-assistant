@@ -1,7 +1,14 @@
 from datetime import timedelta
 from typing import Protocol, runtime_checkable
 
-from src.domain import Correction, DecisionRecord, EmailMessage, TriageResult
+from src.domain import (
+    Correction,
+    DecisionRecord,
+    EmailMessage,
+    RatedDecision,
+    RuleCandidate,
+    TriageResult,
+)
 
 
 @runtime_checkable
@@ -27,6 +34,14 @@ class DecisionStore(Protocol):
     def get_state(self, key: str) -> str | None: ...
 
     def set_state(self, key: str, value: str) -> None: ...
+
+    def rated_decisions(self) -> list[RatedDecision]:
+        """Every decision the user gave a verdict on, oldest verdict first."""
+        ...
+
+    def rule_candidates(self, min_count: int, max_age: timedelta) -> list[RuleCandidate]:
+        """Senders the classifier always judged the same way and the user never corrected."""
+        ...
 
     def prune(self, older_than: timedelta) -> int: ...
 

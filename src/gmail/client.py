@@ -68,6 +68,20 @@ class GmailClient:
             return []
         return self._list_and_parse(query=None, max_results=max_results, max_retries=max_retries)
 
+    def fetch_message(self, message_id: str, max_retries: int = 5) -> EmailMessage | None:
+        if not self._service:
+            return None
+        request = self._service.users().messages().get(
+            userId=self._user_id, id=message_id, format="full"
+        )
+        try:
+            message = self._execute_with_backoff(request.execute, max_retries=max_retries)
+        except HttpError as exc:
+            if getattr(getattr(exc, "resp", None), "status", None) == 404:
+                return None
+            raise
+        return self._parse_message(message)
+
     def _list_and_parse(self, query: str | None, max_results: int, max_retries: int) -> list[EmailMessage]:
         def list_messages():
             list_kwargs: dict[str, Any] = {"userId": self._user_id, "maxResults": max_results}

@@ -7,7 +7,9 @@ from .models import (
     DecisionRecord,
     EmailMessage,
     LLMAnalysis,
+    RatedDecision,
     ReplyEvent,
+    RuleCandidate,
     TriageResult,
 )
 
@@ -20,6 +22,8 @@ __all__ = [
     "DecisionRecord",
     "EmailMessage",
     "LLMAnalysis",
+    "RatedDecision",
     "ReplyEvent",
+    "RuleCandidate",
     "TriageResult",
 ]
