@@ -9,6 +9,7 @@ from src.evaluation.attention import format_attention_report
 from src.evaluation.corpus import LabCase, cases_from_rated, cases_from_recent, load_corpus
 from src.evaluation.dataset import build_dataset
 from src.evaluation.lab import against_baseline, format_lab_report, planned_calls, run_variant
+from src.evaluation.routing_audit import DETERMINISTIC_SOURCES, RULES, audit, format_audit
 from src.evaluation.runner import NOT_CONCLUSIVE, evaluate, format_report, is_conclusive
 from src.evaluation.variants import QUESTION_VARIANTS, TRUNCATION_VARIANTS, VARIANTS
 from src.ports import EmailClassifier
@@ -211,6 +212,19 @@ def attention(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def routing_rules(args: argparse.Namespace, settings: Settings) -> int:
+    store = STORES[settings.store_backend](settings)
+    try:
+        records = store.decisions_since(timedelta(days=args.days))
+        rated = store.rated_decisions()
+    finally:
+        store.close()
+    audits = audit(RULES, records, rated, settings.low_confidence_threshold)
+    decided = sum(1 for record in records if record.source not in DETERMINISTIC_SOURCES)
+    print(format_audit(audits, decided, args.days))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m src.evaluation", description="Offline evaluation of the triage on rated mails"
@@ -282,6 +296,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     attention_parser.add_argument("--days", type=int, default=14)
     attention_parser.set_defaults(handler=attention)
+
+    routing_parser = commands.add_parser(
+        "routing-rules",
+        help="what the archive rule in production and its candidates do to the stored "
+        "decisions, against your verdicts (no call)",
+    )
+    routing_parser.add_argument("--days", type=int, default=90)
+    routing_parser.set_defaults(handler=routing_rules)
 
     args = parser.parse_args(argv)
     return args.handler(args, Settings())
