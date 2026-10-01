@@ -9,7 +9,9 @@ from src.errors import ConfigurationError
 from src.triage.taxonomy import CATEGORIES, URGENCIES
 
 _AUTOMATED_LOCAL_PART_RE = re.compile(
-    r"(no[-_.]?reply|do[-_.]?not[-_.]?reply|notification|newsletter|mailer-daemon|bounce|alerts?$)", re.IGNORECASE
+    r"(no[-_.]?reply|do[-_.]?not[-_.]?reply|ne[-_.]?pas[-_.]?repondre|notification|newsletter"
+    r"|mailer-daemon|bounce|alerts?$)",
+    re.IGNORECASE,
 )
 _RULE_KEYS = {"sender", "subject", "urgency", "category"}
 _FILE_KEYS = {"vip", "rules"}

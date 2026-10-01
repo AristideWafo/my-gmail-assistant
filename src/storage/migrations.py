@@ -53,6 +53,7 @@ MIGRATIONS: tuple[str, ...] = (
     """,
     # JSON object, question name to probability; NULL when no attention question was answered.
     "ALTER TABLE decisions ADD COLUMN signals TEXT;",
+    "ALTER TABLE decisions ADD COLUMN put_forward INTEGER NOT NULL DEFAULT 0;",
 )
 LATEST_VERSION = len(MIGRATIONS)
 

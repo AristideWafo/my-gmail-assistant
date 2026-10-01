@@ -6,12 +6,11 @@ from dataclasses import dataclass, field
 
 from src.evaluation.corpus import LabCase
 from src.evaluation.runner import Tally
-from src.evaluation.variants import Variant
+from src.evaluation.variants import SIGNAL_THRESHOLD, Variant
 from src.triage.engine import JevClassifier
 
 logger = logging.getLogger(__name__)
 
-SIGNAL_THRESHOLD = 0.5
 LISTED_NAMES = 15
 
 

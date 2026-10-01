@@ -60,8 +60,9 @@ class Settings(BaseSettings):
     # Asks JEV whether a mail expects a reply and drafts one, whatever the urgency.
     needs_reply_enabled: bool = False
     needs_reply_threshold: float = Field(default=0.5, ge=0, le=1)
-    # "shadow" asks JEV the attention questions and stores the answers, with no other effect.
-    attention_mode: Literal["off", "shadow"] = "off"
+    # "shadow" asks JEV the attention questions and stores the answers, with no other effect;
+    # "on" also puts forward the mails they say yes to.
+    attention_mode: Literal["off", "shadow", "on"] = "off"
     attention_threshold: float = Field(default=0.5, ge=0, le=1)
     # Offers to unsubscribe from senders whose mail is always archived; needs the chat inbox.
     unsubscribe_proposals_enabled: bool = False
