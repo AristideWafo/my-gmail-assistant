@@ -1,6 +1,68 @@
 # CHANGELOG
 
 
+## v0.9.0 (2026-10-01)
+
+### Features
+
+- **telegram**: Route slash commands from the chat
+  ([#50](https://github.com/AristideWafo/my-gmail-assistant/pull/50),
+  [`184a2cb`](https://github.com/AristideWafo/my-gmail-assistant/commit/184a2cbfb73ecf32bfa9f5db9aa021aaaec52323))
+
+* feat(telegram): route slash commands from the chat
+
+The bot only understood button presses and replies to an alert, so there was no way to ask it for
+  anything.
+
+A message starting with "/" that is not a reply now becomes a CommandEvent ("/name@bot args" as
+  Telegram writes it in groups is accepted). A reply to an alert stays mail text even when it starts
+  with a slash, so a draft can never be swallowed as a command.
+
+CommandRouter maps names to handlers, answers /help and /start with the list, and reports unknown or
+  failing commands without raising into the listener. Updates are delivered at-least-once, so each
+  command is claimed in kv_state before it runs and a redelivery is dropped.
+
+Outcomes are counted in chat_commands_total{command,status}; unknown names share one label value
+  since they are user-typed.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+* feat(feedback): review mails that were archived or labeled without an alert (#51)
+
+* feat(feedback): review mails that were archived or labeled without an alert
+
+Only urgent alerts could be rated, so the costly mistakes (an important mail labeled low or archived
+  silently) were invisible, and "Faux-Urgent" makes no sense on a mail that was never alerted.
+
+/review [n] samples recent unrated decisions the classifier made without alerting: half archived
+  mails in random order, half the labeled ones it was least sure about, one per sender, rule
+  decisions excluded. Buttons depend on what was done with the mail: [OK] [A garder] [Urgent rate]
+  for an archived one, [OK] [Urgent rate] [Spam] for a labeled one.
+
+Two verdicts are added, missed_urgent and wrong_archive. Review verdicts are stored like alert ones,
+  tagged origin=review, and feedback_total is now labelled by verdict and route.
+
+missed_urgent feeds the JEV few-shot examples (urgency high, category kept). wrong_archive does not,
+  as it does not say what the category should have been; recent_corrections can now be limited to
+  the usable verdicts so those rows do not use up example slots.
+
+* feat(feedback): add /stats to read triage precision from the verdicts (#52)
+
+Verdicts were only visible as Prometheus counters, which reset on restart and say nothing about
+  which stage made the decision.
+
+/stats answers from SQLite with the share of correct decisions and the kinds of mistakes, per
+  decision (alerted, labeled, archived) and per source (jev, rule, heuristic), plus the number of
+  decisions per source over 30 days, which is what the Phase 1 rule work needs to show fewer
+  classifier calls.
+
+The Grafana feedback panel now splits by route and verdict.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+---------
+
+
 ## v0.8.0 (2026-10-01)
 
 ### Documentation
