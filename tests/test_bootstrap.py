@@ -117,6 +117,12 @@ class FewShotWiringTests(unittest.TestCase):
         self.assertEqual(examples[0]["correct_urgency"], "medium")
 
 
+class NeedsReplyWiringTests(unittest.TestCase):
+    def test_question_is_off_by_default_and_follows_the_flag(self):
+        self.assertFalse(build().classifier.primary.ask_needs_reply)
+        self.assertTrue(build(needs_reply_enabled=True).classifier.primary.ask_needs_reply)
+
+
 class ConnectionProbesTests(unittest.TestCase):
     def test_unconfigured_defaults_are_all_skipped_under_todays_names(self):
         probes = connection_probes(build(jev_api_key="", gemini_api_key="", google_client_id=""))

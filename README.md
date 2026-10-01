@@ -112,6 +112,17 @@ With `UNSUBSCRIBE_PROPOSALS_ENABLED=true` (off by default; needs `TELEGRAM_INBOU
 
 Only the one-click mechanism of RFC 8058 is used: the mail must carry `List-Unsubscribe-Post: List-Unsubscribe=One-Click` and an `https` link, and pass DMARC, since these headers are written by the sender. The request is a single `POST` to that link, which stays on the server and never travels in the button. Because the link is chosen by the sender, the request is refused unless the host resolves only to public addresses, the connection goes to the address that was checked, and redirects are not followed. `mailto:` unsubscribe links are not handled: use Gmail for those. Outcomes: `unsubscribes_total{status}` (`offered`, `done`, `failed`, `kept`, `rejected`, `duplicate`).
 
+## Reply drafts for mails that are not urgent
+
+With `NEEDS_REPLY_ENABLED=true` (off by default), the JEV call that classifies a mail also asks whether a person expects a written reply. It is one more question in the same request, not a second call; on test mails it added about 15 % of tokens and no measurable latency.
+
+When the answer reaches `NEEDS_REPLY_THRESHOLD` (default `0.5`) on a mail that is labeled rather than alerted, the assistant writes a reply draft in the Gmail thread and adds the label `Assistant/A_repondre`. No Telegram message is sent and nothing is ever sent by mail: the draft waits in Gmail. Urgent mails are unchanged, they already get an alert and a draft.
+
+- Mails from automated senders, and mails classified as spam, newsletter, promotion or job alert, are never drafted, whatever they ask.
+- Mails decided by a rule, the VIP list or the heuristic fallback are not asked the question, so they get no draft.
+- If Gemini is unavailable the mail is still labeled `Assistant/A_repondre`, without a draft.
+- The probability is stored with each decision and logged, to tune the threshold. Outcomes: `reply_drafts_total{status}` (`drafted`, `no_draft`). JEV token usage: `llm_tokens_total{kind="triage"}`.
+
 ## Choosing / adding implementations
 
 The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interactions/`) only talks to the protocols in `src/ports`. `src/bootstrap.py` builds the concrete adapters from these selectors:

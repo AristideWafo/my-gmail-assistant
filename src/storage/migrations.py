@@ -42,6 +42,8 @@ MIGRATIONS: tuple[str, ...] = (
     ALTER TABLE decisions ADD COLUMN source TEXT NOT NULL DEFAULT '';
     ALTER TABLE feedback ADD COLUMN origin TEXT NOT NULL DEFAULT 'alert';
     """,
+    # NULL means the question was not asked, which a default of 0 would report as "no".
+    "ALTER TABLE decisions ADD COLUMN needs_reply REAL;",
 )
 LATEST_VERSION = len(MIGRATIONS)
 

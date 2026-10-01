@@ -3,7 +3,7 @@ import unittest
 from src.domain import EmailMessage, LLMAnalysis, TriageResult
 from src.ports import EmailAnalyzer, EmailClassifier
 from src.triage import HeuristicClassifier
-from src.workflow import EmailWorkflow
+from src.workflow import EmailWorkflow, expects_reply
 
 
 class FixedClassifier:
@@ -190,6 +190,83 @@ class WorkflowTests(unittest.TestCase):
         EmailWorkflow(HeuristicClassifier(), analyzer)._llm_node(state)
 
         self.assertEqual(analyzer.calls, [(False, False)])
+
+
+def reply_email(sender="marc.dupont@gmail.com"):
+    return EmailMessage(id="r1", thread_id="t1", sender=sender, subject="Le livre", snippet="s", body="b")
+
+
+class ExpectsReplyTests(unittest.TestCase):
+    def test_decision_table(self):
+        cases = [
+            ("above threshold", "personnel", 0.9, 0.5, "marc@gmail.com", True),
+            ("at threshold", "personnel", 0.5, 0.5, "marc@gmail.com", True),
+            ("below threshold", "personnel", 0.49, 0.5, "marc@gmail.com", False),
+            ("question not asked", "personnel", None, 0.5, "marc@gmail.com", False),
+            ("feature off", "personnel", 0.9, None, "marc@gmail.com", False),
+            ("administration", "notification_systeme", 0.9, 0.5, "c.roche@dgfip.gouv.fr", True),
+            ("scam asking for a reply", "spam", 0.99, 0.5, "ibrahim@consultant.com", False),
+            ("newsletter bait", "newsletter", 0.93, 0.5, "team@lewagon.com", False),
+            ("promotion bait", "promotion", 0.83, 0.5, "promo@cdiscount.com", False),
+            ("automated sender", "alerte_technique", 0.9, 0.5, "notifications@github.com", False),
+        ]
+        for name, category, needs_reply, threshold, sender, expected in cases:
+            with self.subTest(name):
+                triage = TriageResult("medium", category, 0.9, "jev", needs_reply)
+
+                self.assertEqual(expects_reply(reply_email(sender), triage, threshold), expected)
+
+
+class ReplyDraftTests(unittest.TestCase):
+    def run_workflow(self, triage, analyzer=None, threshold=0.5):
+        self.analyzer = analyzer or FakeAnalyzer()
+        workflow = EmailWorkflow(FixedClassifier(triage), self.analyzer, needs_reply_threshold=threshold)
+        return workflow.run(reply_email())
+
+    def test_non_urgent_mail_expecting_a_reply_gets_a_draft_and_keeps_its_route(self):
+        result = self.run_workflow(TriageResult("low", "personnel", 0.9, "jev", 0.93))
+
+        self.assertEqual(result["route"], "label")
+        self.assertTrue(result["reply_expected"])
+        self.assertEqual(result["draft"], "draft for Le livre")
+        self.assertEqual(self.analyzer.calls, [(True, False)])
+        self.assertNotIn("summary", result)
+
+    def test_analyzer_failure_keeps_the_flag_without_a_draft(self):
+        result = self.run_workflow(
+            TriageResult("low", "personnel", 0.9, "jev", 0.93), analyzer=FailingAnalyzer()
+        )
+
+        self.assertEqual(result["route"], "label")
+        self.assertTrue(result["reply_expected"])
+        self.assertNotIn("draft", result)
+
+    def test_nothing_changes_when_no_reply_is_expected(self):
+        for triage, threshold in (
+            (TriageResult("low", "personnel", 0.9, "jev", 0.1), 0.5),
+            (TriageResult("low", "personnel", 0.9, "jev", 0.93), None),
+            (TriageResult("low", "personnel", 0.9, "heuristic"), 0.5),
+        ):
+            with self.subTest(needs_reply=triage.needs_reply, threshold=threshold):
+                result = self.run_workflow(triage, threshold=threshold)
+
+                self.assertEqual(result["route"], "label")
+                self.assertNotIn("reply_expected", result)
+                self.assertNotIn("draft", result)
+                self.assertEqual(self.analyzer.calls, [])
+
+    def test_archived_mail_is_never_drafted(self):
+        result = self.run_workflow(TriageResult("low", "newsletter", 0.9, "jev", 0.93))
+
+        self.assertEqual(result["route"], "reject")
+        self.assertEqual(self.analyzer.calls, [])
+
+    def test_urgent_mail_keeps_the_alert_path(self):
+        result = self.run_workflow(TriageResult("high", "personnel", 0.9, "jev", 0.93))
+
+        self.assertEqual(result["route"], "llm")
+        self.assertNotIn("reply_expected", result)
+        self.assertEqual(self.analyzer.calls, [(True, False)])
 
 
 if __name__ == "__main__":

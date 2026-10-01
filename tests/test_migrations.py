@@ -144,5 +144,53 @@ class DecisionSourceTests(unittest.TestCase):
         self.assertEqual(self.store.get("m1").source, "")
 
 
+class NeedsReplyColumnTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = os.path.join(tmp.name, "assistant.db")
+
+    def open_store(self):
+        store = SqliteDecisionStore(self.path)
+        self.addCleanup(store.close)
+        return store
+
+    def test_version_2_database_is_upgraded_keeping_its_rows(self):
+        conn = sqlite3.connect(self.path)
+        conn.executescript(MIGRATIONS[0] + MIGRATIONS[1] + "PRAGMA user_version = 2;")
+        conn.execute(
+            "INSERT INTO decisions (message_id, thread_id, sender, subject, excerpt, urgency, "
+            "category, confidence, route, created_at, source) "
+            "VALUES ('m1', 't1', 'a@b.com', 'Hi', 'b', 'low', 'personnel', 0.9, 'label', "
+            "'2026-01-01', 'jev')"
+        )
+        conn.commit()
+        conn.close()
+
+        store = self.open_store()
+
+        self.assertEqual(schema_version(store._conn), LATEST_VERSION)
+        record = store.get("m1")
+        self.assertEqual((record.source, record.route), ("jev", "label"))
+        self.assertIsNone(record.needs_reply)
+        self.assertTrue(os.path.exists(f"{self.path}.pre-v{LATEST_VERSION}"))
+
+    def test_probability_is_stored_and_follows_a_reclassification(self):
+        store = self.open_store()
+
+        store.record_decision(make_email(), TriageResult("low", "personnel", 0.9, "jev", 0.93), "label")
+        self.assertEqual(store.get("m1").needs_reply, 0.93)
+
+        store.record_decision(make_email(), TriageResult("low", "personnel", 0.9, "heuristic"), "label")
+        self.assertIsNone(store.get("m1").needs_reply)
+
+    def test_rated_decisions_carry_the_probability(self):
+        store = self.open_store()
+        store.record_decision(make_email(), TriageResult("low", "personnel", 0.9, "jev", 0.2), "label")
+        store.record_feedback("m1", "valid")
+
+        self.assertEqual(store.rated_decisions()[0].record.needs_reply, 0.2)
+
+
 if __name__ == "__main__":
     unittest.main()

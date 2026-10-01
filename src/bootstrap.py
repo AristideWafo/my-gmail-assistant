@@ -71,7 +71,12 @@ def _jev(ctx: BuildContext) -> EmailClassifier:
         else None
     )
     return FallbackClassifier(
-        JevClassifier(s.jev_api_url, s.jev_api_key, examples_provider=examples_provider),
+        JevClassifier(
+            s.jev_api_url,
+            s.jev_api_key,
+            examples_provider=examples_provider,
+            ask_needs_reply=s.needs_reply_enabled,
+        ),
         HeuristicClassifier(),
         recoverable=JEV_RECOVERABLE_ERRORS,
         on_fallback=Metrics.mark_jev_fallback,

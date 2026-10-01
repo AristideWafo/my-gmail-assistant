@@ -19,6 +19,7 @@ class TriageState(TypedDict, total=False):
     draft: str
     route: str
     entities: dict[str, Any]
+    reply_expected: bool
 
 
 NON_ALERTABLE_CATEGORIES = {"spam", "newsletter", "promotion", "alerte_emploi"}
@@ -41,6 +42,14 @@ def route_for(triage: TriageResult, low_confidence_threshold: float) -> str:
     return "label"
 
 
+def expects_reply(email: EmailMessage, triage: TriageResult, threshold: float | None) -> bool:
+    if threshold is None or triage.needs_reply is None or triage.needs_reply < threshold:
+        return False
+    # Bulk and scam mail asks to be answered too: the category and the sender decide before the
+    # model's opinion on the body does.
+    return triage.category not in NON_ALERTABLE_CATEGORIES and not is_automated_sender(email.sender)
+
+
 class EmailWorkflow:
     def __init__(
         self,
@@ -48,11 +57,14 @@ class EmailWorkflow:
         analyzer: EmailAnalyzer,
         low_confidence_threshold: float = 0.50,
         rules: RuleSet | None = None,
+        needs_reply_threshold: float | None = None,
     ):
         self.classifier = classifier
         self.analyzer = analyzer
         self.low_confidence_threshold = low_confidence_threshold
         self.rules = rules or RuleSet()
+        # None turns reply drafts off for mails that are not urgent.
+        self.needs_reply_threshold = needs_reply_threshold
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -109,9 +121,21 @@ class EmailWorkflow:
     def _reject_node(_: TriageState) -> dict[str, Any]:
         return {"route": "reject"}
 
-    @staticmethod
-    def _label_node(_: TriageState) -> dict[str, Any]:
-        return {"route": "label"}
+    def _label_node(self, state: TriageState) -> dict[str, Any]:
+        email = state["email"]
+        if not expects_reply(email, state["triage"], self.needs_reply_threshold):
+            return {"route": "label"}
+        result: dict[str, Any] = {"route": "label", "reply_expected": True}
+        try:
+            draft = self.analyzer.analyze(email, want_draft=True, want_entities=False).draft
+        except Exception:
+            # The mail is still flagged as awaiting a reply; only the draft is lost.
+            logger.exception("Gemini draft failed for email %s; flagging without draft", email.id)
+            Metrics.mark_llm_error("unavailable")
+            draft = ""
+        if draft:
+            result["draft"] = draft
+        return result
 
     def _route_after_triage(self, state: TriageState) -> str:
         return route_for(state["triage"], self.low_confidence_threshold)

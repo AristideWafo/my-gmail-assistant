@@ -172,7 +172,8 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 
 - ⬜ Table `threads` : interlocuteur, état, dernière entrée, dernière sortie, date de relance, raison de clôture. Les threads ouverts sont exclus de la purge à 90 jours
 - ⬜ `MailProvider` : lecture d'un thread en métadonnées (qui a écrit en dernier, labels) et liste des threads envoyés récents. Indispensable : une réponse faite depuis Gmail doit être vue
-- ⬜ Question JEV `needs_reply` ajoutée à l'appel de classification existant, pour les catégories `personnel` / `mise_en_relation` / `offre_emploi` et les expéditeurs non automatisés. À vérifier : coût par question supplémentaire
+- ✅ Question JEV `needs_reply` ajoutée à l'appel de classification existant (`NEEDS_REPLY_ENABLED`, désactivé par défaut), avancée avant le reste de la phase. Mesuré sur la vraie API avec 34 mails de test : latence inchangée (0,25 s), +15 % de tokens, 13 mails non urgents sur 13 détectés, aucun faux positif après filtrage. Filtre : expéditeur non automatisé et catégorie hors spam / newsletter / promotion / alerte emploi, plus large que les trois catégories prévues (une demande d'une administration passe). Probabilité stockée dans `decisions.needs_reply`
+- ✅ Brouillon silencieux : un mail non urgent qui attend une réponse reçoit un brouillon Gmail et le label `Assistant/A_repondre`, sans notification. **Reste à faire** : vérifier sur les vrais mails (les tests portent sur des mails écrits pour l'occasion) et ajouter un verdict, prévu avec `/pending`
 - ⬜ Dérivation d'état déterministe : dernier message de l'autre + `needs_reply` → `waiting_for_me` ; dernier message de toi → `waiting_for_them` ; sinon clos
 - ⬜ Rafraîchissement à cadence réduite (15 min) et à la demande, pas à chaque cycle de polling
 - ⬜ `/pending` avec boutons `[Fait] [Ignorer] [Relancer]`. `[Ignorer]` sert aussi de verdict sur `needs_reply`
@@ -303,6 +304,7 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 - Les questions JEV s'accumulent (`needs_reply`, `asks_for_meeting`, `has_deadline`, `contains_commitment`, `has_payment_due`) : coût et latence par question à mesurer en Phase 1 avant de les empiler, et chacune doit avoir son propre retour utilisateur pour être évaluée
 - Un seul poller par token Telegram : n'activer `TELEGRAM_INBOUND_ENABLED` que sur une instance
 - Few-shot : un objet reste du texte choisi par l'expéditeur, rejoué dans chaque classification
+- Few-shot : un exemple ne porte que le domaine de l'expéditeur. Constaté avec deux exemples fictifs : une correction sur un expéditeur `gmail.com` a changé l'urgence d'autres mails `gmail.com` sans rapport. À confirmer sur les vraies corrections avec `python -m src.evaluation run`
 - Nouveau consentement OAuth en Phase 4 : l'ancien refresh token ne porte pas le scope Calendar, prévoir la bascule
 - Lecture des threads : un appel Gmail par thread ouvert et par rafraîchissement ; borner le nombre de threads suivis
 - Fatigue de notification : trois digests, briefs et relances s'ajoutent aux alertes. Le plafond de l'invariant 5 doit exister dès la Phase 3
@@ -319,4 +321,5 @@ Le code de S1, de la Phase 0 et de la Phase 1 est écrit. Ce qui reste dépend d
 3. Utiliser `/review` jusqu'à 30 verdicts hors alertes (critère de sortie de la Phase 0)
 4. À 100 verdicts dont 20 corrections : `python -m src.evaluation run`, puis décider du few-shot et du repli Gemini, chiffres notés ici
 5. `python -m src.evaluation candidates` pour écrire les premières règles et la liste VIP
-6. S2 avant la Phase 2
+6. Activer `NEEDS_REPLY_ENABLED`, puis contrôler pendant une semaine les brouillons créés et le label `Assistant/A_repondre` ; ajuster `NEEDS_REPLY_THRESHOLD` d'après les probabilités stockées
+7. S2 avant le reste de la Phase 2
