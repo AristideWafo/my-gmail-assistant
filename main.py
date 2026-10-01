@@ -124,16 +124,14 @@ class ApplicationContext:
                     lambda: self.unsubscribes.consider(email), "propose unsubscribe", email.id
                 )
         elif route == "label":
+            labels = []
             if result.get("reply_expected"):
-                self._flag_reply_expected(email, result.get("draft", ""))
+                self._draft_expected_reply(email, result.get("draft", ""))
+                labels.append(REPLY_EXPECTED_LABEL)
             if put_forward:
                 Metrics.mark_put_forward()
-                self._best_effort(
-                    lambda: self.mail.label_message(email.id, PUT_FORWARD_LABEL),
-                    "label as worth seeing",
-                    email.id,
-                )
-            self.mail.label_message(email.id, triage.category)
+                labels.append(PUT_FORWARD_LABEL)
+            self.mail.label_message(email.id, *labels, triage.category)
         elif route == "llm":
             self._handle_urgent(email, triage, result)
 
@@ -156,8 +154,8 @@ class ApplicationContext:
 
     def _handle_urgent(self, email, triage, result) -> None:
         # Order matters: alert first (never lose it), then persist it as alerted so a retry only
-        # relabels, draft is best-effort, and the label that removes UNREAD is the commit point so
-        # a failure anywhere earlier retries the mail.
+        # relabels, draft is best-effort, and the labeling that removes UNREAD is the commit point
+        # so a failure anywhere earlier retries the mail.
         chat_message_id = self.alerts.send_urgent_alert(email, triage, self._alert_summary(result))
         self.recently_alerted.add(email.id)
         self._best_effort(lambda: self.store.mark_alerted(email.id), "mark alerted", email.id)
@@ -169,31 +167,22 @@ class ApplicationContext:
             )
         if result.get("draft"):
             self._create_reply_draft(email, result["draft"])
+        labels = []
         if result.get("reply_expected"):
             Metrics.mark_reply_draft("drafted" if result.get("draft") else "no_draft")
-            self._label_reply_expected(email)
-        self.mail.label_message(email.id, "urgent")
+            labels.append(REPLY_EXPECTED_LABEL)
+        self.mail.label_message(email.id, *labels, "urgent")
 
-    def _flag_reply_expected(self, email, draft: str) -> None:
-        # Both steps are best-effort: the category label that follows is the commit point, and a
-        # mail must not be retried, and drafted again, because a convenience failed.
+    def _draft_expected_reply(self, email, draft: str) -> None:
         if email.id in self.recently_drafted:
-            # The category label failed last cycle and the mail came back: its draft exists.
-            draft = ""
-        elif draft:
+            # The labeling failed last cycle and the mail came back: its draft already exists.
+            return
+        if draft:
             self._create_reply_draft(email, draft)
             self.recently_drafted.add(email.id)
             Metrics.mark_reply_draft("drafted")
         else:
             Metrics.mark_reply_draft("no_draft")
-        self._label_reply_expected(email)
-
-    def _label_reply_expected(self, email) -> None:
-        self._best_effort(
-            lambda: self.mail.label_message(email.id, REPLY_EXPECTED_LABEL),
-            "label as awaiting a reply",
-            email.id,
-        )
 
     def _create_reply_draft(self, email, draft: str) -> None:
         self._best_effort(
