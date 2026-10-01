@@ -33,7 +33,9 @@ class Metrics:
         "jev_fallback_total",
         "Times the JEV API was unreachable and the heuristic fallback was used",
     )
-    feedback = Counter("feedback_total", "User verdicts on urgent alerts", ["verdict"])
+    feedback = Counter(
+        "feedback_total", "User verdicts on triage decisions", ["verdict", "route"]
+    )
     chat_replies = Counter(
         "chat_replies_total", "Outcomes of Telegram replies turned into Gmail drafts", ["status"]
     )
@@ -102,8 +104,8 @@ class Metrics:
         cls.emails_skipped.inc()
 
     @classmethod
-    def mark_feedback(cls, verdict: str) -> None:
-        cls.feedback.labels(verdict=verdict).inc()
+    def mark_feedback(cls, verdict: str, route: str) -> None:
+        cls.feedback.labels(verdict=verdict, route=route).inc()
 
     @classmethod
     def mark_chat_reply(cls, status: str) -> None:

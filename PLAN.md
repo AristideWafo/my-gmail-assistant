@@ -118,11 +118,11 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 - ✅ Migrations de schéma versionnées (`PRAGMA user_version`, `src/storage/migrations.py`) : une transaction par étape, copie `assistant.db.pre-v<N>` avant toute montée de version d'une base non vide, base plus récente que le code refusée
 - ✅ `CommandEvent` dans `src/domain`, analyse des messages `/commande` dans `src/gateways/telegram_bot.py`, routeur `src/interactions/commands.py` (`/help`, commande inconnue, exécution unique malgré la livraison at-least-once, `chat_commands_total`). Une réponse à une alerte reste toujours du texte de mail, même si elle commence par `/`
 - ✅ Colonne `decisions.source` (`rule` / `jev` / `heuristic`), portée par `TriageResult`
-- ⬜ Verdicts `missed_urgent` (aurait dû alerter) et `wrong_archive` (archivé à tort) ; colonne `feedback.origin` (`alert` / `review`)
-- ⬜ `/review [n]` : échantillon stratifié sur 7 jours, jamais déjà noté, hors décisions de règle. Priorité à la route `reject`, puis aux `label` proches du seuil de confiance. `n` = 5 par défaut, 10 max
-- ⬜ Boutons selon la route : `label` → `[OK] [Urgent raté] [Spam]` ; `reject` → `[OK] [À garder] [Urgent raté]`
+- ✅ Verdicts `missed_urgent` (aurait dû alerter) et `wrong_archive` (archivé à tort) ; colonne `feedback.origin` (`alert` / `review`)
+- ✅ `/review [n]` (`src/interactions/review.py`) : échantillon stratifié sur 7 jours, jamais déjà noté, hors décisions de règle. Priorité à la route `reject`, puis aux `label` proches du seuil de confiance. `n` = 5 par défaut, 10 max
+- ✅ Boutons selon la route : `label` → `[OK] [Urgent raté] [Spam]` ; `reject` → `[OK] [À garder] [Urgent raté]`
 - ⬜ `/stats` : précision par route et par source, lue dans SQLite ; `feedback_total{verdict, route}`
-- ⬜ `missed_urgent` ajouté à `_VERDICT_CORRECTIONS` (`high`, catégorie inchangée). `wrong_archive` est mesuré mais pas injecté en few-shot : la bonne catégorie n'est pas connue
+- ✅ `missed_urgent` ajouté à `_VERDICT_CORRECTIONS` (`high`, catégorie inchangée). `wrong_archive` est mesuré mais pas injecté en few-shot : la bonne catégorie n'est pas connue
 
 **DoD**
 - `/review` et `/stats` documentés dans le README

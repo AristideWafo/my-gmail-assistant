@@ -4,12 +4,25 @@ from typing import Any
 from src.domain import Button
 
 FEEDBACK = "fb"
+REVIEW = "rv"
 SEND = "send"
 CANCEL = "cancel"
 CALLBACK_DATA_MAX_BYTES = 64
 
-VERDICT_CODES = {"v": "valid", "u": "false_urgent", "s": "false_spam"}
+VERDICT_CODES = {
+    "v": "valid",
+    "u": "false_urgent",
+    "s": "false_spam",
+    "m": "missed_urgent",
+    "k": "wrong_archive",
+}
 _FEEDBACK_LABELS = (("v", "Valider"), ("u", "Faux-Urgent"), ("s", "Faux-Spam"))
+# What can be wrong depends on what was done: an archived mail may have deserved to stay, a
+# labeled one may be spam; either may have deserved an alert.
+_REVIEW_LABELS = {
+    "label": (("v", "OK"), ("m", "Urgent raté"), ("s", "Spam")),
+    "reject": (("v", "OK"), ("k", "À garder"), ("m", "Urgent raté")),
+}
 
 
 @dataclass(frozen=True)
@@ -25,6 +38,13 @@ def feedback_buttons(gmail_id: str) -> list[list[Button]] | None:
     )
 
 
+def review_buttons(gmail_id: str, route: str) -> list[list[Button]] | None:
+    labels = _REVIEW_LABELS.get(route)
+    if labels is None:
+        return None
+    return _single_row([(label, f"{REVIEW}:{code}:{gmail_id}") for code, label in labels])
+
+
 def draft_buttons(draft_id: str) -> list[list[Button]] | None:
     return _single_row([("Envoyer", f"{SEND}:{draft_id}"), ("Annuler", f"{CANCEL}:{draft_id}")])
 
@@ -35,10 +55,10 @@ def is_valid_callback_data(data: Any) -> bool:
 
 def parse_callback(data: str) -> Callback | None:
     action, _, rest = data.partition(":")
-    if action == FEEDBACK:
+    if action in (FEEDBACK, REVIEW):
         code, _, gmail_id = rest.partition(":")
         verdict = VERDICT_CODES.get(code)
-        return Callback(FEEDBACK, gmail_id, verdict) if verdict and gmail_id else None
+        return Callback(action, gmail_id, verdict) if verdict and gmail_id else None
     if action in (SEND, CANCEL) and rest:
         return Callback(action, rest)
     return None

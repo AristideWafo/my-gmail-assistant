@@ -4,7 +4,14 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
-from src.domain import VERDICTS, Correction, DecisionRecord, EmailMessage, TriageResult
+from src.domain import (
+    FEEDBACK_ORIGINS,
+    VERDICTS,
+    Correction,
+    DecisionRecord,
+    EmailMessage,
+    TriageResult,
+)
 from src.errors import BackupError
 from src.storage.migrations import LATEST_VERSION, migrate, needs_safety_copy
 
@@ -84,9 +91,11 @@ class SqliteDecisionStore:
             "chat_message_id = ?", chat_message_id, order_by="created_at DESC, rowid DESC"
         )
 
-    def record_feedback(self, message_id: str, verdict: str) -> bool:
+    def record_feedback(self, message_id: str, verdict: str, origin: str = "alert") -> bool:
         if verdict not in VERDICTS:
             raise ValueError(f"unknown verdict {verdict!r}, expected one of {VERDICTS}")
+        if origin not in FEEDBACK_ORIGINS:
+            raise ValueError(f"unknown origin {origin!r}, expected one of {FEEDBACK_ORIGINS}")
         with self._lock, self._conn:
             known = self._conn.execute(
                 "SELECT 1 FROM decisions WHERE message_id = ?", (message_id,)
@@ -96,22 +105,27 @@ class SqliteDecisionStore:
             # REPLACE re-inserts with a fresh AUTOINCREMENT id, so the latest verdict sorts newest
             # even when the clock yields identical timestamps.
             self._conn.execute(
-                "INSERT OR REPLACE INTO feedback (message_id, verdict, created_at) "
-                "VALUES (?, ?, ?)",
-                (message_id, verdict, self._now()),
+                "INSERT OR REPLACE INTO feedback (message_id, verdict, created_at, origin) "
+                "VALUES (?, ?, ?, ?)",
+                (message_id, verdict, self._now(), origin),
             )
         return True
 
-    def recent_corrections(self, limit: int) -> list[Correction]:
+    def recent_corrections(
+        self, limit: int, verdicts: tuple[str, ...] | None = None
+    ) -> list[Correction]:
         # SQLite treats a negative LIMIT as unbounded.
         if limit <= 0:
             return []
+        if verdicts is None:
+            verdicts = tuple(verdict for verdict in VERDICTS if verdict != "valid")
+        placeholders = ", ".join("?" for _ in verdicts)
         with self._lock:
             rows = self._conn.execute(
                 "SELECT d.sender, d.subject, d.excerpt, d.urgency, d.category, f.verdict "
                 "FROM feedback f JOIN decisions d ON d.message_id = f.message_id "
-                "WHERE f.verdict != 'valid' ORDER BY f.id DESC LIMIT ?",
-                (limit,),
+                f"WHERE f.verdict IN ({placeholders}) ORDER BY f.id DESC LIMIT ?",
+                (*verdicts, limit),
             ).fetchall()
         return [
             Correction(
@@ -124,6 +138,21 @@ class SqliteDecisionStore:
             )
             for row in rows
         ]
+
+    def review_candidates(self, max_age: timedelta, limit: int) -> list[DecisionRecord]:
+        if limit <= 0:
+            return []
+        with self._lock:
+            rows = self._conn.execute(
+                # Rule decisions are deterministic and urgent ones already carry feedback
+                # buttons: only what the classifier decided silently is worth a second look.
+                f"SELECT {_DECISION_COLUMNS} FROM decisions "
+                "WHERE created_at >= ? AND route IN ('reject', 'label') AND source != 'rule' "
+                "AND message_id NOT IN (SELECT message_id FROM feedback) "
+                "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (self._cutoff(max_age), limit),
+            ).fetchall()
+        return [DecisionRecord(**dict(row)) for row in rows]
 
     def feedback_counts(self) -> dict[str, int]:
         with self._lock:

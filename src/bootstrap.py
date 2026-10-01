@@ -21,7 +21,7 @@ from src.ports import (
 from src.storage.decision_store import SqliteDecisionStore
 from src.triage.engine import JEV_RECOVERABLE_ERRORS, JevClassifier
 from src.triage.fallback import FallbackClassifier
-from src.triage.few_shot import MAX_EXAMPLES, build_examples
+from src.triage.few_shot import EXAMPLE_VERDICTS, MAX_EXAMPLES, build_examples
 from src.triage.heuristic import HeuristicClassifier
 
 T = TypeVar("T")
@@ -64,7 +64,7 @@ def _jev(ctx: BuildContext) -> EmailClassifier:
     s = ctx.settings
     store = ctx.store
     examples_provider = (
-        (lambda: build_examples(store.recent_corrections(MAX_EXAMPLES)))
+        (lambda: build_examples(store.recent_corrections(MAX_EXAMPLES, EXAMPLE_VERDICTS)))
         if s.jev_few_shot_enabled
         else None
     )

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from src.triage.few_shot import (
     EXAMPLE_SUBJECT_CHARS,
+    EXAMPLE_VERDICTS,
     FEW_SHOT_INSTRUCTION,
     MAX_EXAMPLES,
     build_examples,
@@ -46,6 +47,20 @@ class BuildExamplesTests(unittest.TestCase):
             (example["wrong_urgency"], example["wrong_category"]), ("medium", "promotion")
         )
         self.assertEqual((example["correct_urgency"], example["correct_category"]), ("low", "spam"))
+
+    def test_missed_urgent_raises_urgency_and_keeps_category(self):
+        correction = FakeCorrection(
+            predicted_urgency="low", predicted_category="personnel", verdict="missed_urgent"
+        )
+
+        [example] = build_examples([correction])
+
+        self.assertEqual((example["wrong_urgency"], example["correct_urgency"]), ("low", "high"))
+        self.assertEqual(example["correct_category"], "personnel")
+
+    def test_only_verdicts_that_say_what_was_right_become_examples(self):
+        self.assertEqual(EXAMPLE_VERDICTS, ("false_urgent", "false_spam", "missed_urgent"))
+        self.assertEqual(build_examples([FakeCorrection(verdict="wrong_archive")]), [])
 
     def test_unknown_and_valid_verdicts_are_skipped(self):
         corrections = [FakeCorrection(verdict="valid"), FakeCorrection(verdict="bogus")]
