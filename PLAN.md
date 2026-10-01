@@ -50,11 +50,61 @@ Le scope proposé a été confronté au code. Les écarts retenus :
 ## Dépendances
 
 ```text
-P0 ──► P2 ──► P3 ──► P4 ──► P6
- │             │      │
- │             └──────┴──► P5
- └──► P1   (piste parallèle, rythmée par les données)
+S1 ──► P0 ──► P2 ──► P3 ──► P4 ──► P6
+        │      ▲      │      │
+        │      S2     └──────┴──► P5
+        └──► P1   (piste parallèle, rythmée par les données)
 ```
+
+S1 et S2 sont les deux lots de la stabilisation ci-dessous. S3 est une règle de passage appliquée entre chaque phase.
+
+---
+
+## Stabilisation
+
+**Pourquoi** : les phases suivantes transforment un trieur en assistant sur lequel tu comptes (relances, récaps, agenda). Une panne silencieuse devient alors un vrai coût. Les points ci-dessous viennent d'une lecture du code, pas d'incidents observés.
+
+**Coût** : moyen au total ; S1 est faible.
+
+### S1 — Avant la Phase 0 (bloquant)
+
+La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avant.
+
+- ⬜ Sauvegarde quotidienne de la base (`sqlite3 .backup`) hors du volume, avec rotation
+- ⬜ Restauration testée une fois de bout en bout, procédure écrite dans le README
+- ⬜ Alerte de panne silencieuse : `poll_once` signale la boucle comme vivante même quand `fetch_unread` échoue (voulu, pour éviter un redémarrage en boucle). Un refresh token révoqué arrête donc le tri sans aucun signal. Envoyer un message Telegram quand aucun poll n'a réussi depuis `POLL_FAILURE_ALERT_MINUTES`, puis un second au retour à la normale
+- ⬜ Distinguer « aucun mail » de « échec » : après épuisement des tentatives sur 429, `_execute_with_backoff` renvoie `None`, converti en liste vide et compté comme un poll réussi
+
+### S2 — Avant la Phase 2
+
+- ⬜ `sync_history_once` sans garde par mail : un seul mail en erreur interrompt le démarrage. Reprendre la garde de `poll_once`
+- ⬜ Délais d'attente explicites sur les appels Gemini (à vérifier : aucun n'apparaît dans `src/llm/gemini.py`). Un appel bloqué gèle le tri jusqu'au watchdog
+- ⬜ Alertes sur les métriques existantes, envoyées sur Telegram : taux de `jev_fallback_total`, `emails_skipped_total`, listener Telegram muet, `llm_errors_total`. Aujourd'hui les tableaux existent mais personne n'est prévenu
+- ⬜ Plafond de dépense LLM quotidien (`llm_cost_usd_total`) avec alerte au dépassement ; nécessaire avant d'ajouter des appels en Phases 2 à 6
+- ⬜ Exposition réseau : les ports 8000, 9090 et 3000 sont publiés sur toutes les interfaces, Prometheus et `/metrics` sans authentification, Grafana en `admin`/`admin` si `GRAFANA_ADMIN_PASSWORD` est absent. Lier à `127.0.0.1` ou confirmer le pare-feu du VPS
+- ⬜ Images `prometheus` et `grafana` épinglées à une version au lieu de `latest`
+- ⬜ Déploiement : `docker-compose.yml` construit l'image sur place alors que la release publie une image versionnée sur GHCR. Faire tourner l'image publiée, et écrire la procédure de retour à la version précédente
+- ⬜ Dépendances de développement déclarées (`requirements-dev.txt`) : la CI installe `ruff` et `pytest` à la main, et le venv local n'a pas `pytest`
+- ⬜ Couverture de tests mesurée en CI, avec un seuil qui ne peut que monter
+- ⬜ Mises à jour de dépendances automatisées (Dependabot ou équivalent) ; versions actuelles figées depuis longtemps, dont le SDK Gemini
+- ⬜ `@app.on_event` (déprécié par FastAPI) remplacé par `lifespan` ; version de l'app lue depuis `pyproject.toml` au lieu de `0.1.0` en dur
+- ⬜ Runbook des pannes connues : token Gmail révoqué, 409 Telegram (double poller), quota Gemini, JEV indisponible, base corrompue
+
+### S3 — Règle de passage entre phases (continu)
+
+- Chaque phase arrive derrière un flag désactivé, activé en production après les tests
+- Une phase n'est close qu'après 7 jours d'activation sans régression sur le tri existant
+- Toute nouvelle table arrive avec sa migration, son test de migration et sa règle de rétention
+- Tout nouvel appel externe arrive avec un délai d'attente, une métrique d'erreur et un comportement dégradé défini
+- Toute panne en production ajoute un test qui la reproduit et une ligne au runbook
+
+**DoD**
+- 14 jours consécutifs sans intervention manuelle
+- Chaque panne simulée (token révoqué, JEV coupé, Gemini coupé, listener arrêté) produit un message Telegram en moins de 15 minutes
+- Base restaurée depuis une sauvegarde sur une machine vierge, verdicts présents
+- Retour à la version précédente exécuté une fois, durée notée ici
+- Aucun mail compté dans `emails_skipped_total` sans cause identifiée
+- Prometheus et Grafana inaccessibles depuis l'extérieur du VPS, vérifié depuis une autre machine
 
 ---
 
@@ -96,6 +146,8 @@ P0 ──► P2 ──► P3 ──► P4 ──► P6
 - ⬜ Liste VIP par adresse exacte, forçant `high`. Appliquée seulement si l'en-tête `Authentication-Results` indique `dmarc=pass` : le champ `From` est falsifiable
 - ⬜ Label `source` sur `triage_confidence` et sur le panneau Grafana existant
 - ⬜ Décision documentée sur un repli Gemini pour les classifications à basse confiance, avec un seuil lu sur le banc
+- ⬜ **Regroupement d'incidents** : plusieurs `alerte_technique` sur le même dépôt dans une fenêtre donnée → une seule alerte mise à jour (« 6 échecs depuis 14 h, dernier : deploy prod ») au lieu d'une notification par mail
+- ⬜ **Désabonnement proposé** : expéditeur archivé N fois sans jamais être gardé → bouton `[Se désabonner]` s'appuyant sur l'en-tête `List-Unsubscribe`. Soumis à confirmation comme toute écriture
 
 **Attention** : une règle sur « Run failed » ne doit pas écraser une panne de production, que `URGENCIES` classe `high`. La règle porte donc sur le dépôt, pas sur le seul motif.
 
@@ -105,6 +157,8 @@ P0 ──► P2 ──► P3 ──► P4 ──► P6
 - Baisse mesurée des appels JEV sur les expéditeurs couverts par les règles (`decisions.source`)
 - Un expéditeur VIP testé de bout en bout, plus un test de `From` falsifié refusé
 - Décision repli Gemini écrite dans ce fichier, chiffres à l'appui
+- Une rafale réelle d'échecs CI produit une seule alerte, et une panne de production reste alertée immédiatement
+- Un désabonnement réel exécuté après confirmation ; aucun sans appui sur le bouton
 
 ---
 
@@ -121,8 +175,12 @@ P0 ──► P2 ──► P3 ──► P4 ──► P6
 - ⬜ Rafraîchissement à cadence réduite (15 min) et à la demande, pas à chaque cycle de polling
 - ⬜ `/pending` avec boutons `[Fait] [Ignorer] [Relancer]`. `[Ignorer]` sert aussi de verdict sur `needs_reply`
 - ⬜ Relance : après `FOLLOW_UP_AFTER_DAYS` sans réponse, brouillon Gemini proposé via le flux `[Envoyer]/[Annuler]` existant. Une seule proposition par thread
+- ⬜ **Suivi de réponses collectives** : mail envoyé à plusieurs destinataires (convocation, sondage) → qui a répondu, qui ne l'a pas fait, relance groupée proposée aux seuls silencieux
+- ⬜ **Fiche interlocuteur** (`/contact <nom>`) : dernier échange, threads ouverts, délai de réponse habituel. Calculée depuis `threads`, sans LLM
+- ⬜ **Synthèse de fil** : sur un thread long, résumé en quelques lignes et ce qui est attendu de toi. Un appel LLM, à la demande
 
 **DoD**
+- Un envoi réel à au moins 5 destinataires suivi correctement : liste des répondants exacte, relance adressée aux seuls silencieux
 - Une réponse envoyée depuis Gmail (hors bot) fait sortir le thread de `waiting_for_me` au rafraîchissement suivant
 - Précision et rappel de l'état mesurés sur 30 threads vérifiés à la main, chiffres notés ici
 - Aucune relance envoyée sans appui sur `[Envoyer]` ; jamais deux propositions pour le même thread
@@ -146,8 +204,12 @@ P0 ──► P2 ──► P3 ──► P4 ──► P6
 - ⬜ Contenu assemblé par du code. Un seul appel LLM hebdomadaire, pour la mise en récit de la section métriques ; chaque conseil cite la métrique qui le fonde
 - ⬜ Trois mails à noter (`/review`) joints au récap du soir : le feedback de la Phase 0 se collecte sans effort
 - ⬜ Extraction du planificateur et des jobs hors de `main.py`, qui porte déjà trop de responsabilités
+- ⬜ **Suivi de mes engagements** : dans tes mails envoyés, question JEV `contains_commitment` comme filtre, puis extraction Gemini de la promesse et de sa date (« je te renvoie le doc vendredi ») → item proposé, créé après `[Garder]`. Sans cela le récap ne voit que les obligations nées des mails reçus
+- ⬜ **Factures et renouvellements** : question JEV `has_payment_due` comme filtre, extraction du montant et de la date → item avec rappel `PAYMENT_REMINDER_DAYS` avant, et liste des prélèvements à venir dans le récap hebdo. Limité aux échéances : pas de suivi de dépenses
 
 **DoD**
+- 10 engagements réels pris par mail : taux de détection et taux de faux positifs notés ici
+- Un renouvellement réel annoncé avant sa date
 - Les trois messages partent à heure fixe pendant 7 jours sans intervention, redémarrage compris
 - Un jour sans rien en retard produit un message court, jamais un message vide ni une erreur
 - Un mail déjà alerté n'est pas ré-alerté par le récap : il y est listé
@@ -169,8 +231,12 @@ P0 ──► P2 ──► P3 ──► P4 ──► P6
 - ⬜ Proposition Telegram de créneaux → brouillon de réponse (flux d'envoi existant) ; l'événement est créé seulement après confirmation
 - ⬜ Reprogrammation dans les récaps : un créneau proposé par item en retard ; la confirmation crée un bloc de temps
 - ⬜ v1 : création uniquement. Déplacer un événement existant vient après, avec la même garde
+- ⬜ **Conflit à l'arrivée d'une invitation** : chevauchement signalé avec l'événement en cause et un créneau alternatif
+- ⬜ **Voyages et réservations** : billet ou réservation reçu → événement proposé avec horaires et référence
+- ⬜ **Suivi post-réunion** : événement terminé avec participants externes → brouillon de compte-rendu et items proposés
 
 **DoD**
+- Une invitation en conflit et un billet réel traités de bout en bout
 - Les disponibilités lues correspondent à l'agenda réel sur une semaine vérifiée à la main, fuseau compris
 - Tests de garde : callback forgé, action expirée, double appui, bouton pressé sur un autre message — aucun ne crée d'événement
 - Un cas réel de bout en bout : mail → créneaux proposés → validation → événement créé
@@ -190,6 +256,7 @@ P0 ──► P2 ──► P3 ──► P4 ──► P6
 - ⬜ Outils de lecture : recherche Gmail, threads en attente, agenda, statistiques. Boucle bornée (4 étapes, budget de tokens). C'est le seul endroit du plan où une boucle d'agent se justifie : les sources à consulter dépendent de la question
 - ⬜ Intentions d'écriture (répondre, relancer, créer un événement, marquer fait) → `pending_actions`, jamais exécutées dans la boucle
 - ⬜ Cible ambiguë → question avec boutons, jamais de choix silencieux
+- ⬜ **Capture rapide** : « rappelle-moi d'appeler la banque jeudi » (texte ou voix) → item créé avec échéance, créneau proposé si Calendar est actif
 - ⬜ Voix : `VoiceEvent`, téléchargement (`getFile`, 20 Mo max), transcription par Gemini, transcription renvoyée à l'écran avant toute action, puis même routeur
 - ⬜ Préalable à vérifier : le SDK `google-generativeai` 0.8.3 et le modèle par défaut `gemini-1.5-flash` sont anciens ; confirmer leur support (audio, appel de fonctions) ou migrer avant de construire dessus
 
@@ -230,7 +297,8 @@ P0 ──► P2 ──► P3 ──► P4 ──► P6
 
 ## Risques ouverts
 
-- **Sauvegarde SQLite toujours absente.** La base va porter les threads, les items et les actions en attente : sa perte coûtera bien plus qu'aujourd'hui. À traiter avant la Phase 2
+- **Sauvegarde SQLite toujours absente.** La base va porter les threads, les items et les actions en attente : sa perte coûtera bien plus qu'aujourd'hui. Traité en S1, avant toute migration
+- Les questions JEV s'accumulent (`needs_reply`, `asks_for_meeting`, `has_deadline`, `contains_commitment`, `has_payment_due`) : coût et latence par question à mesurer en Phase 1 avant de les empiler, et chacune doit avoir son propre retour utilisateur pour être évaluée
 - Un seul poller par token Telegram : n'activer `TELEGRAM_INBOUND_ENABLED` que sur une instance
 - Few-shot : un objet reste du texte choisi par l'expéditeur, rejoué dans chaque classification
 - Nouveau consentement OAuth en Phase 4 : l'ancien refresh token ne porte pas le scope Calendar, prévoir la bascule
@@ -242,11 +310,16 @@ P0 ──► P2 ──► P3 ──► P4 ──► P6
 
 ## Prochaine étape
 
-Phase 0, en quatre PR :
+D'abord S1 (deux PR) :
+
+1. Sauvegarde quotidienne + restauration testée et documentée
+2. Alerte de panne silencieuse + distinction « aucun mail » / « échec »
+
+Puis Phase 0 (quatre PR) :
 
 1. Migrations de schéma + colonnes `decisions.source` et `feedback.origin`
 2. `CommandEvent` + routeur de commandes
 3. Verdicts étendus + `/review`
 4. `/stats` + mise à jour README et dashboard
 
-En parallèle, sans code : vérifier `state.examples` contre l'API JEV, et mettre en place la sauvegarde du volume `assistant-data`.
+En parallèle, sans code : vérifier `state.examples` contre l'API JEV. S2 se traite au fil de la Phase 0 et doit être clos avant la Phase 2.
