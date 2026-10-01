@@ -34,7 +34,7 @@ PRUNABLE_STATE_PREFIXES = (
 
 _DECISION_COLUMNS = (
     "message_id, thread_id, sender, subject, excerpt, urgency, category, confidence, route, "
-    "created_at, chat_message_id, message_id_header, source"
+    "created_at, chat_message_id, message_id_header, source, needs_reply"
 )
 _DECISION_FIELDS = tuple(name.strip() for name in _DECISION_COLUMNS.split(","))
 _PREFIXED_DECISION_COLUMNS = ", ".join(f"d.{name}" for name in _DECISION_FIELDS)
@@ -63,13 +63,14 @@ class SqliteDecisionStore:
         with self._lock, self._conn:
             self._conn.execute(
                 f"INSERT INTO decisions ({_DECISION_COLUMNS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?) "
                 "ON CONFLICT(message_id) DO UPDATE SET "
                 "thread_id = excluded.thread_id, sender = excluded.sender, "
                 "subject = excluded.subject, excerpt = excluded.excerpt, "
                 "urgency = excluded.urgency, category = excluded.category, "
                 "confidence = excluded.confidence, route = excluded.route, "
-                "message_id_header = excluded.message_id_header, source = excluded.source",
+                "message_id_header = excluded.message_id_header, source = excluded.source, "
+                "needs_reply = excluded.needs_reply",
                 (
                     email.id,
                     email.thread_id,
@@ -83,6 +84,7 @@ class SqliteDecisionStore:
                     self._now(),
                     getattr(email, "message_id_header", "") or "",
                     triage.source,
+                    triage.needs_reply,
                 ),
             )
 

@@ -41,6 +41,7 @@ LISTENER_JOIN_TIMEOUT_SECONDS = 5
 ALERTED_TTL_SECONDS = 24 * 3600
 RETENTION = timedelta(days=90)
 MAINTENANCE_INTERVAL_SECONDS = 24 * 3600
+REPLY_EXPECTED_LABEL = "a_repondre"
 
 
 class ApplicationContext:
@@ -65,6 +66,7 @@ class ApplicationContext:
             self.components.analyzer,
             settings.low_confidence_threshold,
             load_ruleset(settings.triage_rules_path),
+            settings.needs_reply_threshold if settings.needs_reply_enabled else None,
         )
         self.health = PollHealth(settings.poll_stale_after_seconds)
         self.outage = OutageNotifier(
@@ -75,6 +77,7 @@ class ApplicationContext:
         # Backs up the persisted flag: if both mark_alerted and the label fail, the mail must not
         # be re-alerted every cycle.
         self.recently_alerted = ExpiringSet(ALERTED_TTL_SECONDS)
+        self.recently_drafted = ExpiringSet(ALERTED_TTL_SECONDS)
         self.backups = (
             BackupRotation(self.store, settings.backup_dir, settings.backup_keep)
             if settings.backup_dir
@@ -108,6 +111,8 @@ class ApplicationContext:
                     lambda: self.unsubscribes.consider(email), "propose unsubscribe", email.id
                 )
         elif route == "label":
+            if result.get("reply_expected"):
+                self._flag_reply_expected(email, result.get("draft", ""))
             self.mail.label_message(email.id, triage.category)
         elif route == "llm":
             self._handle_urgent(email, triage, result)
@@ -116,11 +121,12 @@ class ApplicationContext:
         Metrics.mark_route(route, triage.urgency, triage.confidence, triage.source)
         Metrics.triage_latency.observe(perf_counter() - started)
         logger.info(
-            "Processed email %s with urgency=%s category=%s confidence=%.2f",
+            "Processed email %s with urgency=%s category=%s confidence=%.2f needs_reply=%s",
             email.id,
             triage.urgency,
             triage.category,
             triage.confidence,
+            "n/a" if triage.needs_reply is None else f"{triage.needs_reply:.2f}",
         )
 
     def _handle_urgent(self, email, triage, result) -> None:
@@ -137,18 +143,39 @@ class ApplicationContext:
                 email.id,
             )
         if result.get("draft"):
-            self._best_effort(
-                lambda: self.mail.create_draft(
-                    email.thread_id,
-                    email.sender,
-                    email.subject,
-                    result["draft"],
-                    in_reply_to=email.message_id_header,
-                ),
-                "create draft",
-                email.id,
-            )
+            self._create_reply_draft(email, result["draft"])
         self.mail.label_message(email.id, "urgent")
+
+    def _flag_reply_expected(self, email, draft: str) -> None:
+        # Both steps are best-effort: the category label that follows is the commit point, and a
+        # mail must not be retried, and drafted again, because a convenience failed.
+        if email.id in self.recently_drafted:
+            # The category label failed last cycle and the mail came back: its draft exists.
+            draft = ""
+        elif draft:
+            self._create_reply_draft(email, draft)
+            self.recently_drafted.add(email.id)
+            Metrics.mark_reply_draft("drafted")
+        else:
+            Metrics.mark_reply_draft("no_draft")
+        self._best_effort(
+            lambda: self.mail.label_message(email.id, REPLY_EXPECTED_LABEL),
+            "label as awaiting a reply",
+            email.id,
+        )
+
+    def _create_reply_draft(self, email, draft: str) -> None:
+        self._best_effort(
+            lambda: self.mail.create_draft(
+                email.thread_id,
+                email.sender,
+                email.subject,
+                draft,
+                in_reply_to=email.message_id_header,
+            ),
+            "create draft",
+            email.id,
+        )
 
     @staticmethod
     def _best_effort(action: Callable[[], object], description: str, email_id: str) -> None:

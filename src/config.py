@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # Comma-separated; mandatory for inbound in group chats, where anyone could press buttons.
     telegram_allowed_user_ids: str = ""
     jev_few_shot_enabled: bool = False
+    # Asks JEV whether a mail expects a reply and drafts one for those that are not urgent.
+    needs_reply_enabled: bool = False
+    needs_reply_threshold: float = Field(default=0.5, ge=0, le=1)
     # Offers to unsubscribe from senders whose mail is always archived; needs the chat inbox.
     unsubscribe_proposals_enabled: bool = False
     unsubscribe_min_archived: int = Field(default=5, ge=2)

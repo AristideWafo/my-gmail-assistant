@@ -3,9 +3,9 @@ import tempfile
 import threading
 import unittest
 from dataclasses import replace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
-from main import ALERTED_TTL_SECONDS, RETENTION, ApplicationContext
+from main import ALERTED_TTL_SECONDS, REPLY_EXPECTED_LABEL, RETENTION, ApplicationContext
 from src.bootstrap import build_components
 from src.config import Settings
 from src.domain import EmailMessage, TriageResult
@@ -111,6 +111,86 @@ class UrgentHandlingTests(unittest.TestCase):
                 ctx = make_context(route)
                 ctx.process_email(make_email())
                 ctx.alerts.send_urgent_alert.assert_not_called()
+
+
+class ReplyExpectedTests(unittest.TestCase):
+    def test_draft_then_reply_label_then_category_label(self):
+        ctx = make_context("label", {"reply_expected": True, "draft": "Bonjour"})
+        calls = MagicMock()
+        calls.attach_mock(ctx.mail.create_draft, "draft")
+        calls.attach_mock(ctx.mail.label_message, "label")
+
+        ctx.process_email(make_email())
+
+        self.assertEqual(
+            calls.mock_calls,
+            [
+                call.draft("t1", "a@b.com", "Hi", "Bonjour", in_reply_to="<abc@mail.example>"),
+                call.label("m1", REPLY_EXPECTED_LABEL),
+                call.label("m1", "personnel"),
+            ],
+        )
+        ctx.alerts.send_urgent_alert.assert_not_called()
+
+    def test_mail_is_flagged_even_without_a_draft(self):
+        ctx = make_context("label", {"reply_expected": True})
+
+        ctx.process_email(make_email())
+
+        ctx.mail.create_draft.assert_not_called()
+        self.assertEqual(
+            ctx.mail.label_message.mock_calls,
+            [call("m1", REPLY_EXPECTED_LABEL), call("m1", "personnel")],
+        )
+
+    def test_draft_or_reply_label_failure_still_commits_the_category_label(self):
+        ctx = make_context("label", {"reply_expected": True, "draft": "Bonjour"})
+        ctx.mail.create_draft.side_effect = RuntimeError("boom")
+        ctx.mail.label_message.side_effect = [RuntimeError("boom"), None]
+
+        with self.assertLogs("gmail-assistant", level="ERROR"):
+            ctx.process_email(make_email())
+
+        self.assertEqual(ctx.mail.label_message.mock_calls[-1], call("m1", "personnel"))
+
+    def test_outcome_is_counted(self):
+        for extra, status in (({"draft": "Bonjour"}, "drafted"), ({}, "no_draft")):
+            with self.subTest(status=status):
+                counter = Metrics.reply_drafts.labels(status=status)
+                before = counter._value.get()
+
+                make_context("label", {"reply_expected": True, **extra}).process_email(make_email())
+
+                self.assertEqual(counter._value.get(), before + 1)
+
+    def test_retry_after_a_failed_category_label_does_not_draft_twice(self):
+        ctx = make_context("label", {"reply_expected": True, "draft": "Bonjour"})
+        ctx.mail.label_message.side_effect = [None, RuntimeError("boom"), None, None]
+
+        with self.assertRaises(RuntimeError):
+            ctx.process_email(make_email())
+        ctx.process_email(make_email())
+
+        ctx.mail.create_draft.assert_called_once()
+        self.assertEqual(ctx.mail.label_message.mock_calls[-1], call("m1", "personnel"))
+
+    def test_plain_label_route_is_unchanged(self):
+        ctx = make_context("label")
+
+        ctx.process_email(make_email())
+
+        ctx.mail.create_draft.assert_not_called()
+        ctx.mail.label_message.assert_called_once_with("m1", "personnel")
+
+    def test_threshold_reaches_the_workflow_only_when_enabled(self):
+        def threshold(**settings):
+            settings = make_settings(**settings)
+            return ApplicationContext(settings, build_components(settings)).workflow.needs_reply_threshold
+
+        self.assertIsNone(threshold())
+        self.assertIsNone(threshold(needs_reply_threshold=0.7))
+        self.assertEqual(threshold(needs_reply_enabled=True), 0.5)
+        self.assertEqual(threshold(needs_reply_enabled=True, needs_reply_threshold=0.7), 0.7)
 
 
 class DecisionPersistenceTests(unittest.TestCase):

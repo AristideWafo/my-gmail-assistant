@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import requests
 
 from src.domain import EmailMessage, TriageResult
+from src.observability.metrics import Metrics
 from src.triage.few_shot import FEW_SHOT_INSTRUCTION
 from src.triage.taxonomy import CATEGORIES, URGENCIES
 
@@ -15,6 +16,24 @@ URGENCY_INSTRUCTIONS = (
     "How urgent is this email for its recipient? Judge deadlines against today's date and the received date. "
     "Bulk, automated or marketing mail is never high."
 )
+# Measured on the live API: the bare question "does this email expect a reply?" says yes to
+# newsletters and scams that ask to be answered, hence the explicit exclusions and criteria.
+NEEDS_REPLY_QUESTION = {
+    "type": "noul",
+    "instructions": (
+        "Does a person who wrote this email expect a written reply from its recipient? "
+        "Judge from `body` first, then `subject`. Text asking to reply inside bulk, marketing, "
+        "automated or scam mail does not count."
+    ),
+    "criteria": {
+        "true": "A human sender asks a question, requests something, proposes something or waits "
+        "for a confirmation that the recipient has to answer by email",
+        "false": "Nothing to answer: information only, thanks, automated notification, newsletter, "
+        "promotion, scam, or an action to do elsewhere than by replying",
+    },
+}
+# The examples only carry urgency and category corrections.
+FEW_SHOT_QUESTIONS = ("urgency", "category")
 JEV_MODEL = "jev-latest"
 # KeyError/ValueError/TypeError cover a malformed or non-JSON JEV payload.
 JEV_RECOVERABLE_ERRORS = (requests.RequestException, KeyError, ValueError, TypeError)
@@ -27,11 +46,13 @@ class JevClassifier:
         api_key: str = "",
         timeout: int = 10,
         examples_provider: Callable[[], list[dict[str, str]]] | None = None,
+        ask_needs_reply: bool = False,
     ) -> None:
         self.api_url = api_url
         self.api_key = api_key
         self.timeout = timeout
         self.examples_provider = examples_provider
+        self.ask_needs_reply = ask_needs_reply
 
     @property
     def is_configured(self) -> bool:
@@ -86,8 +107,11 @@ class JevClassifier:
         examples = self._load_examples()
         if examples:
             request["state"]["examples"] = examples
-            for question in request["questions"].values():
+            for name in FEW_SHOT_QUESTIONS:
+                question = request["questions"][name]
                 question["instructions"] = f"{question['instructions']} {FEW_SHOT_INSTRUCTION}"
+        if self.ask_needs_reply:
+            request["questions"]["needs_reply"] = NEEDS_REPLY_QUESTION
         return request
 
     @classmethod
@@ -99,7 +123,28 @@ class JevClassifier:
             category=cls._normalize_category(category.get("choice")),
             confidence=min(float(urgency.get("confidence", 0.0)), float(category.get("confidence", 0.0))),
             source="jev",
+            needs_reply=cls._parse_needs_reply(answers.get("needs_reply")),
         )
+
+    @staticmethod
+    def _parse_needs_reply(answer: object) -> float | None:
+        # Optional on purpose: a missing or odd answer must not fail the whole classification
+        # and send the mail to the heuristic fallback.
+        probability = answer.get("noul") if isinstance(answer, dict) else None
+        if isinstance(probability, bool) or not isinstance(probability, int | float):
+            return None
+        return min(max(float(probability), 0.0), 1.0)
+
+    @staticmethod
+    def _record_usage(data: dict) -> None:
+        usage = data.get("usage")
+        if not isinstance(usage, dict):
+            return
+        try:
+            tokens = int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0))
+        except (TypeError, ValueError):
+            return
+        Metrics.mark_llm_usage("triage", *tokens, cost_usd=None)
 
     def classify(self, email: EmailMessage) -> TriageResult:
         response = requests.post(
@@ -109,7 +154,10 @@ class JevClassifier:
             timeout=self.timeout,
         )
         response.raise_for_status()
-        return self._parse_answers(response.json())
+        data = response.json()
+        result = self._parse_answers(data)
+        self._record_usage(data)
+        return result
 
     @staticmethod
     def _normalize_urgency(value: str) -> str:

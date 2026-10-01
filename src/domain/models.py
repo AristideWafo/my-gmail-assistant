@@ -28,6 +28,8 @@ class TriageResult:
     confidence: float
     # Which stage decided: "rule", "jev" or "heuristic".
     source: str = ""
+    # Probability that a person expects a written reply; None when the question was not asked.
+    needs_reply: float | None = None
 
 
 @dataclass
@@ -52,6 +54,7 @@ class DecisionRecord:
     chat_message_id: int | None = None
     message_id_header: str = ""
     source: str = ""
+    needs_reply: float | None = None
 
 
 @dataclass(frozen=True)

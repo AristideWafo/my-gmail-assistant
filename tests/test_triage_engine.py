@@ -9,7 +9,13 @@ import requests
 from src.domain import EmailMessage
 from src.observability.metrics import Metrics
 from src.ports import EmailClassifier
-from src.triage.engine import CATEGORIES, URGENCIES, URGENCY_INSTRUCTIONS, JevClassifier
+from src.triage.engine import (
+    CATEGORIES,
+    NEEDS_REPLY_QUESTION,
+    URGENCIES,
+    URGENCY_INSTRUCTIONS,
+    JevClassifier,
+)
 from src.triage.few_shot import FEW_SHOT_INSTRUCTION
 
 
@@ -256,6 +262,94 @@ class FewShotRequestTests(unittest.TestCase):
         self.assertEqual((result.urgency, result.category), ("low", "newsletter"))
         self.assertEqual(Metrics.jev_fallback._value.get(), before)
         self.assertIn("store unavailable", logs.output[0])
+
+
+class NeedsReplyTests(unittest.TestCase):
+    def setUp(self):
+        self.email = EmailMessage(
+            id="1", thread_id="t1", sender="person@example.com", subject="Hello", snippet="s", body="b"
+        )
+
+    @staticmethod
+    def _response(needs_reply=None, usage=None):
+        answers = {
+            "urgency": {"type": "choice", "choice": "medium", "confidence": 0.9},
+            "category": {"type": "choice", "choice": "personnel", "confidence": 0.8},
+        }
+        if needs_reply is not None:
+            answers["needs_reply"] = needs_reply
+        payload = {"answers": answers}
+        if usage is not None:
+            payload["usage"] = usage
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return payload
+
+        return FakeResponse()
+
+    def _classify(self, response, **options):
+        client = JevClassifier("https://jev.example/triage", api_key="k", **options)
+        with patch("src.triage.engine.requests.post", return_value=response) as post:
+            return client.classify(self.email), post.call_args.kwargs["json"]
+
+    def test_question_is_only_asked_when_enabled(self):
+        _, disabled = self._classify(self._response())
+        _, enabled = self._classify(self._response(), ask_needs_reply=True)
+
+        self.assertEqual(set(disabled["questions"]), {"urgency", "category"})
+        self.assertEqual(enabled["questions"]["needs_reply"], NEEDS_REPLY_QUESTION)
+        self.assertEqual(NEEDS_REPLY_QUESTION["type"], "noul")
+
+    def test_probability_is_read_without_touching_the_routing_confidence(self):
+        result, _ = self._classify(
+            self._response({"type": "noul", "noul": 0.2}), ask_needs_reply=True
+        )
+
+        self.assertEqual(result.needs_reply, 0.2)
+        self.assertEqual(result.confidence, 0.8)
+
+    def test_missing_or_malformed_answer_yields_none_instead_of_failing(self):
+        for answer in (None, {}, {"noul": "yes"}, {"noul": True}, {"noul": None}, "oui", 0.9):
+            with self.subTest(answer=answer):
+                result, _ = self._classify(self._response(answer), ask_needs_reply=True)
+
+                self.assertIsNone(result.needs_reply)
+                self.assertEqual(result.urgency, "medium")
+
+    def test_probability_is_clamped_to_the_unit_interval(self):
+        result, _ = self._classify(self._response({"noul": 1.4}), ask_needs_reply=True)
+
+        self.assertEqual(result.needs_reply, 1.0)
+
+    def test_few_shot_instruction_stays_off_the_needs_reply_question(self):
+        _, request = self._classify(
+            self._response(), ask_needs_reply=True, examples_provider=lambda: [{"subject": "x"}]
+        )
+
+        self.assertIn(FEW_SHOT_INSTRUCTION, request["questions"]["urgency"]["instructions"])
+        self.assertIn(FEW_SHOT_INSTRUCTION, request["questions"]["category"]["instructions"])
+        self.assertEqual(request["questions"]["needs_reply"], NEEDS_REPLY_QUESTION)
+
+    def test_reported_token_usage_is_counted(self):
+        prompt = Metrics.llm_tokens.labels(kind="triage", token_type="prompt")
+        completion = Metrics.llm_tokens.labels(kind="triage", token_type="completion")
+        before = prompt._value.get(), completion._value.get()
+
+        self._classify(self._response(usage={"input_tokens": 920, "output_tokens": 156}))
+
+        self.assertEqual(prompt._value.get() - before[0], 920)
+        self.assertEqual(completion._value.get() - before[1], 156)
+
+    def test_absent_or_odd_usage_is_ignored(self):
+        for usage in (None, "n/a", {"input_tokens": "many"}):
+            with self.subTest(usage=usage):
+                result, _ = self._classify(self._response(usage=usage))
+
+                self.assertEqual(result.urgency, "medium")
 
 
 if __name__ == "__main__":

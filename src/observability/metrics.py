@@ -43,6 +43,9 @@ class Metrics:
     unsubscribes = Counter(
         "unsubscribes_total", "Unsubscribe proposals and their outcomes", ["status"]
     )
+    reply_drafts = Counter(
+        "reply_drafts_total", "Non-urgent mails flagged as awaiting a reply", ["status"]
+    )
     chat_commands = Counter(
         "chat_commands_total", "Chat commands received", ["command", "status"]
     )
@@ -126,6 +129,10 @@ class Metrics:
     @classmethod
     def mark_unsubscribe(cls, status: str) -> None:
         cls.unsubscribes.labels(status=status).inc()
+
+    @classmethod
+    def mark_reply_draft(cls, status: str) -> None:
+        cls.reply_drafts.labels(status=status).inc()
 
     @classmethod
     def mark_chat_command(cls, command: str, status: str) -> None:
