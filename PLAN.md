@@ -86,9 +86,9 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 - ✅ Images épinglées : `prom/prometheus:v3.15.0`, `grafana/grafana:13.2.3`
 - 🟡 Déploiement : `docker-compose.yml` fait tourner l'image publiée (`VERSION` dans `.env`), la construction locale passe par `docker-compose.build.yml`. Procédure de retour arrière écrite dans le README, migration de schéma comprise. **Reste à faire** : l'exécuter une fois sur le VPS et noter la durée
 - ✅ Dépendances de développement déclarées (`requirements-dev.txt`, versions figées), utilisées par la CI et la release
-- ✅ Couverture mesurée en CI (`pytest --cov`) : 97,6 % à ce jour, plancher à 97 % (`fail_under`), à relever quand la couverture monte, jamais à baisser
+- ✅ Couverture mesurée en CI (`pytest --cov`) : 98,2 % à ce jour, plancher à 98 % (`fail_under`), à relever quand la couverture monte, jamais à baisser
 - ✅ Dependabot (`.github/dependabot.yml`) : Python chaque semaine, GitHub Actions et image de base chaque mois. **À surveiller** : la première salve proposera des sauts importants (SDK Gemini, FastAPI, LangGraph), à fusionner un par un
-- ⬜ `@app.on_event` (déprécié par FastAPI) remplacé par `lifespan` ; version de l'app lue depuis `pyproject.toml` au lieu de `0.1.0` en dur
+- ✅ `@app.on_event` remplacé par `lifespan` : un démarrage qui échoue libère ce qui était ouvert. Version de l'app lue dans `pyproject.toml` (`src/version.py`), exposée par l'API et écrite dans le journal au démarrage
 - ⬜ Runbook des pannes connues : token Gmail révoqué, 409 Telegram (double poller), quota Gemini, JEV indisponible, base corrompue
 
 ### S3 — Règle de passage entre phases (continu)
