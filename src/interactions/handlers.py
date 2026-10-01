@@ -14,6 +14,7 @@ from src.interactions.callbacks import (
     CANCEL,
     FEEDBACK,
     KEEP,
+    REVIEW,
     SEND,
     UNSUBSCRIBE,
     Callback,
@@ -21,6 +22,7 @@ from src.interactions.callbacks import (
     parse_callback,
 )
 from src.interactions.commands import CommandRouter
+from src.interactions.review import ReviewCommand
 from src.interactions.unsubscribe import offer_key
 from src.observability.metrics import Metrics
 from src.ports import ChatInbox, DecisionStore, MailProvider, Unsubscriber
@@ -32,10 +34,13 @@ REPLY_HINT = "Réponds directement à une alerte pour créer un brouillon."
 DRAFT_FAILED = "Impossible de créer le brouillon Gmail, réessaie plus tard."
 NO_BUTTONS_HINT = "Envoie-le depuis Gmail."
 FEEDBACK_ACKS = {
-    "valid": "Merci, alerte validée",
+    "valid": "Merci, validé",
     "false_urgent": "Noté : faux urgent",
     "false_spam": "Noté : spam",
+    "missed_urgent": "Noté : urgent raté",
+    "wrong_archive": "Noté : à garder",
 }
+FEEDBACK_ORIGIN = {FEEDBACK: "alert", REVIEW: "review"}
 UNKNOWN_MAIL = "Mail inconnu"
 UNKNOWN_ACTION = "Action non reconnue"
 ALREADY_SENT = "Déjà envoyé"
@@ -61,6 +66,9 @@ class InteractionHandler:
         self._mail = mail
         self._unsubscriber = unsubscriber
         self.commands = CommandRouter(chat)
+        self.commands.register(
+            "review", "mails non alertés à vérifier, ex. /review 5", ReviewCommand(store, chat).run
+        )
 
     def dispatch(self, event: ChatEvent) -> None:
         if isinstance(event, CallbackEvent):
@@ -88,6 +96,7 @@ class InteractionHandler:
             return
         handlers = {
             FEEDBACK: self._on_feedback,
+            REVIEW: self._on_feedback,
             SEND: self._on_send,
             CANCEL: self._on_cancel,
             UNSUBSCRIBE: self._on_unsubscribe,
@@ -96,10 +105,14 @@ class InteractionHandler:
         handlers[callback.action](event, callback)
 
     def _on_feedback(self, event: CallbackEvent, callback: Callback) -> None:
-        if not self._store.record_feedback(callback.target, callback.verdict):
+        record = self._store.get(callback.target)
+        origin = FEEDBACK_ORIGIN[callback.action]
+        if record is None or not self._store.record_feedback(
+            callback.target, callback.verdict, origin
+        ):
             self._answer(event, UNKNOWN_MAIL)
             return
-        Metrics.mark_feedback(callback.verdict)
+        Metrics.mark_feedback(callback.verdict, record.route)
         self._answer(event, FEEDBACK_ACKS[callback.verdict])
         self._clear(event.message_id)
 

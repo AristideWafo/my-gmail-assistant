@@ -16,7 +16,10 @@ FEW_SHOT_INSTRUCTION = (
 _VERDICT_CORRECTIONS: dict[str, tuple[str, str | None]] = {
     "false_urgent": ("medium", None),
     "false_spam": ("low", "spam"),
+    "missed_urgent": ("high", None),
 }
+# "wrong_archive" is left out: the verdict does not say what the category should have been.
+EXAMPLE_VERDICTS = tuple(_VERDICT_CORRECTIONS)
 
 
 class CorrectionLike(Protocol):

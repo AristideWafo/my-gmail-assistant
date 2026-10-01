@@ -73,7 +73,7 @@ class FeedbackTests(HandlerTestCase):
                 self.handler.dispatch(callback(f"fb:{code}:m1"))
 
                 self.assertEqual(self.store.feedback_counts()[verdict], 1)
-                self.metrics.mark_feedback.assert_called_with(verdict)
+                self.metrics.mark_feedback.assert_called_with(verdict, "llm")
                 self.assertTrue(self.answered())
                 self.bot.clear_buttons.assert_called_with(ALERT_MESSAGE_ID)
 
@@ -295,13 +295,14 @@ class InteractionMetricsTests(unittest.TestCase):
         def value(name, labels):
             return REGISTRY.get_sample_value(name, labels) or 0.0
 
-        feedback_before = value("feedback_total", {"verdict": "false_spam"})
+        feedback_labels = {"verdict": "false_spam", "route": "label"}
+        feedback_before = value("feedback_total", feedback_labels)
         replies_before = value("chat_replies_total", {"status": "sent"})
 
-        Metrics.mark_feedback("false_spam")
+        Metrics.mark_feedback("false_spam", "label")
         Metrics.mark_chat_reply("sent")
 
-        self.assertEqual(value("feedback_total", {"verdict": "false_spam"}), feedback_before + 1)
+        self.assertEqual(value("feedback_total", feedback_labels), feedback_before + 1)
         self.assertEqual(value("chat_replies_total", {"status": "sent"}), replies_before + 1)
 
 
