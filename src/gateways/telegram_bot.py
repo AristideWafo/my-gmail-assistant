@@ -55,8 +55,11 @@ class TelegramBot:
         text: str,
         buttons: list[list[Button]] | None = None,
         reply_to: int | None = None,
+        silent: bool = False,
     ) -> int:
         payload: dict[str, Any] = {"chat_id": self._chat_id, "text": text}
+        if silent:
+            payload["disable_notification"] = True
         if buttons:
             payload["reply_markup"] = _inline_keyboard(buttons)
         if reply_to is not None:

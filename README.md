@@ -154,6 +154,15 @@ Urgent mails are unchanged: they are alerted. A mail labeled `Assistant/A_repond
 
 Switch from `shadow` to `on` once `python -m src.evaluation attention` shows a volume you are willing to look at every day.
 
+### The daily list
+
+A label alone shows little: a processed mail is marked read. With `ATTENTION_LIST_HOUR` set (local hour `0` to `23` in `TIMEZONE`; `-1`, the default, disables it) and `ATTENTION_MODE=on`, the assistant sends once a day, **without sound**, the mails put forward since the previous list: one header, then one message per mail with the reason, at most 5; the mails beyond five come with the next day's list. Nothing is sent on a day with nothing new. The hour is yours to choose, the list never rings: it is the only proactive message besides urgent alerts.
+
+- Each mail carries **[Vu] / [Pas utile]** when `TELEGRAM_INBOUND_ENABLED` is on. Both remove it from the list; `[Pas utile]` is stored as the verdict `false_important` (origin `list`), which is how wrongly promoted mails get measured.
+- **`/avoir`** lists, on demand, the mails put forward over the last 7 days that still wait (the 10 latest): not rated, and still in your Gmail inbox. Archiving or deleting a mail in Gmail handles it too. The command only exists with `ATTENTION_MODE=on`.
+- The list is sent at the first polling cycle at or after the hour; a restart neither repeats nor skips it, and a late start still sends it that day. If Telegram fails, the mails that did not go out come with the next day's list.
+- `TIMEZONE` is an IANA name such as `Europe/Paris` (default `UTC`); an unknown name stops the startup.
+
 ## Choosing / adding implementations
 
 The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interactions/`) only talks to the protocols in `src/ports`. `src/bootstrap.py` builds the concrete adapters from these selectors:
@@ -198,6 +207,7 @@ With `TELEGRAM_INBOUND_ENABLED=true` (and `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID
 - **Replying** to an alert in Telegram creates a Gmail reply draft in the original thread and shows a preview with **[Envoyer] / [Annuler]**. Nothing is sent until you press [Envoyer] on that preview (buttons forged for another draft or pressed elsewhere are refused); each draft is sent at most once. If the send call fails its outcome is uncertain: check Gmail's Sent folder before sending the draft by hand. Outcomes are counted in `chat_replies_total{status}`.
 - **`/review [n]`** (default 5, at most 10) sends mails from the last 7 days that were archived or labeled without an alert and that you have not rated yet, half archived ones and half the labeled ones the classifier was least sure about, one per sender. Decisions made by a deterministic rule are left out. An archived mail carries **[OK] / [À garder] / [À voir] / [Urgent raté]**, a labeled one **[OK] / [À voir] / [Urgent raté] / [Spam]**. **[À voir]** means the mail should have been put forward without a notification, **[Urgent raté]** that it deserved an immediate alert. These verdicts (`wrong_archive`, `missed_important`, `missed_urgent`) are stored like the alert ones, tagged `origin=review`, and `feedback_total` is labelled by `verdict` and `route`. Until schema version 4 `/review` only had [Urgent raté] for both meanings: the upgrade turns those earlier review verdicts into `missed_important` (the previous state stays in `assistant.db.pre-v4`).
 - **`/stats`** answers with the share of correct decisions and the kinds of mistakes, per decision (alerted, labeled, archived) and per source (`jev`, `rule`, `heuristic`), computed from every stored verdict, plus the number of decisions per source over 30 days. It reads SQLite, so it survives restarts, unlike the Prometheus counters.
+- **`/avoir`** lists the mails put forward that still wait (see [The daily list](#the-daily-list)).
 - **Commands**: a message starting with `/` that is not a reply to an alert is a command; `/help` lists them. A redelivered command runs once. Counted in `chat_commands_total{command,status}`.
 - `JEV_FEW_SHOT_ENABLED=true` additionally sends your latest Faux-Urgent, Faux-Spam and Urgent raté corrections to JEV as examples ([À voir] and [À garder] are not: they do not say which urgency or category was wrong). Only the sender's domain and the subject (truncated to 100 characters) are sent, never the body, but a subject is still attacker-chosen text replayed into every later classification. Off by default until verified against the live API.
 
@@ -242,7 +252,7 @@ The stale `-wal` and `-shm` files belong to the replaced database and must go wi
 - `candidates [--min-count N]` lists senders JEV has classified the same way at least N times over 90 days without any correction from you: candidates for a deterministic rule.
 - `lab` compares **question variants** on live JEV calls, to check an idea in minutes before changing the triage. `--source corpus` (default) uses the 68 invented mails of `src/evaluation/corpus.toml`, each with its acceptable routes and expected yes/no answers; `--source rated` replays the real mails you gave a verdict on, leaving out those a rule decides. Variants: `current` (what production sends), `direct-action` (one alert / keep / archive question instead of urgency), `signals` (current plus candidate yes/no questions: reply expected, meeting, deadline, payment due, commitment), `attention` (current plus what `ATTENTION_MODE=shadow` asks; also reports which mails would be put forward). The report gives, per variant, the correct routes per run, the mails whose route changed between runs (`--repeats N`), tokens per mail, median and p95 latency, and the misrouted mails; yes/no answers are compared with the truth on the corpus and only listed on real mails, except that a mail you marked [À voir] is known to deserve being put forward. The number of JEV calls is printed first and the run is refused beyond `--max-calls` (default 500); `--limit` and `--variants` reduce it. Nothing is written to the store or to Gmail.
 
-A verdict is read as a constraint on the route: `valid` expects the same route, `false_urgent` anything but an alert, `false_spam` an archive, `missed_urgent` an alert, `wrong_archive` and `missed_important` anything but an archive.
+A verdict is read as a constraint on the route: `valid` expects the same route, `false_urgent` anything but an alert, `false_spam` an archive, `missed_urgent` an alert, `wrong_archive` and `missed_important` anything but an archive, `false_important` anything but an alert.
 
 ## Docker deployment
 

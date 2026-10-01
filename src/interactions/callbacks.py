@@ -5,6 +5,7 @@ from src.domain import Button
 
 FEEDBACK = "fb"
 REVIEW = "rv"
+PUT_FORWARD = "pf"
 SEND = "send"
 CANCEL = "cancel"
 UNSUBSCRIBE = "unsub"
@@ -18,6 +19,7 @@ VERDICT_CODES = {
     "m": "missed_urgent",
     "k": "wrong_archive",
     "i": "missed_important",
+    "n": "false_important",
 }
 _FEEDBACK_LABELS = (("v", "Valider"), ("u", "Faux-Urgent"), ("s", "Faux-Spam"))
 # What can be wrong depends on what was done: an archived mail may have deserved to stay, a
@@ -26,6 +28,15 @@ _FEEDBACK_LABELS = (("v", "Valider"), ("u", "Faux-Urgent"), ("s", "Faux-Spam"))
 _REVIEW_LABELS = {
     "label": (("v", "OK"), ("i", "À voir"), ("m", "Urgent raté"), ("s", "Spam")),
     "reject": (("v", "OK"), ("k", "À garder"), ("i", "À voir"), ("m", "Urgent raté")),
+}
+
+
+_PUT_FORWARD_LABELS = (("v", "Vu"), ("n", "Pas utile"))
+# Callback data comes from the client: a button set only accepts the verdicts it offers.
+_VERDICT_CODES_BY_ACTION = {
+    FEEDBACK: {code for code, _ in _FEEDBACK_LABELS},
+    REVIEW: {code for labels in _REVIEW_LABELS.values() for code, _ in labels},
+    PUT_FORWARD: {code for code, _ in _PUT_FORWARD_LABELS},
 }
 
 
@@ -49,6 +60,12 @@ def review_buttons(gmail_id: str, route: str) -> list[list[Button]] | None:
     return _single_row([(label, f"{REVIEW}:{code}:{gmail_id}") for code, label in labels])
 
 
+def put_forward_buttons(gmail_id: str) -> list[list[Button]] | None:
+    return _single_row(
+        [(label, f"{PUT_FORWARD}:{code}:{gmail_id}") for code, label in _PUT_FORWARD_LABELS]
+    )
+
+
 def draft_buttons(draft_id: str) -> list[list[Button]] | None:
     return _single_row([("Envoyer", f"{SEND}:{draft_id}"), ("Annuler", f"{CANCEL}:{draft_id}")])
 
@@ -65,10 +82,11 @@ def is_valid_callback_data(data: Any) -> bool:
 
 def parse_callback(data: str) -> Callback | None:
     action, _, rest = data.partition(":")
-    if action in (FEEDBACK, REVIEW):
+    if action in _VERDICT_CODES_BY_ACTION:
         code, _, gmail_id = rest.partition(":")
-        verdict = VERDICT_CODES.get(code)
-        return Callback(action, gmail_id, verdict) if verdict and gmail_id else None
+        if code not in _VERDICT_CODES_BY_ACTION[action] or not gmail_id:
+            return None
+        return Callback(action, gmail_id, VERDICT_CODES[code])
     if action in (SEND, CANCEL, UNSUBSCRIBE, KEEP) and rest:
         return Callback(action, rest)
     return None

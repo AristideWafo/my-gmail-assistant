@@ -1,4 +1,5 @@
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -64,6 +65,10 @@ class Settings(BaseSettings):
     # "on" also puts forward the mails they say yes to.
     attention_mode: Literal["off", "shadow", "on"] = "off"
     attention_threshold: float = Field(default=0.5, ge=0, le=1)
+    # Local hour from which the daily list of mails put forward is sent, silently; -1 disables.
+    attention_list_hour: int = Field(default=-1, ge=-1, le=23)
+    # IANA name, e.g. Europe/Paris; everything scheduled at a local hour reads it.
+    timezone: str = "UTC"
     # Offers to unsubscribe from senders whose mail is always archived; needs the chat inbox.
     unsubscribe_proposals_enabled: bool = False
     unsubscribe_min_archived: int = Field(default=5, ge=2)
@@ -82,6 +87,19 @@ class Settings(BaseSettings):
     def _validate_user_ids(cls, value: str) -> str:
         parse_user_ids(value)
         return value
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError(f"unknown time zone: {value!r}") from None
+        return value
+
+    @property
+    def tzinfo(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
 
     @property
     def allowed_user_ids(self) -> frozenset[int]:

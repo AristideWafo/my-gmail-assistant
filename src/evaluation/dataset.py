@@ -14,6 +14,8 @@ EXPECTATIONS: dict[str, Callable[[str, str], bool]] = {
     "wrong_archive": lambda route, recorded: route != "reject",
     # Putting a mail forward is not a route: the verdict only rules out the archive.
     "missed_important": lambda route, recorded: route != "reject",
+    # "Not worth putting forward" leaves both keeping and archiving open, not alerting.
+    "false_important": lambda route, recorded: route != "llm",
 }
 
 
@@ -23,6 +25,7 @@ class Case:
     verdict: str
     recorded_route: str
     rated_at: str
+    put_forward: bool = False
 
     def satisfied_by(self, route: str) -> bool:
         return EXPECTATIONS[self.verdict](route, self.recorded_route)
@@ -67,7 +70,9 @@ def build_dataset(
         if email is None:
             missing += 1
             continue
-        cases.append(Case(email, item.verdict, item.record.route, item.rated_at))
+        cases.append(
+            Case(email, item.verdict, item.record.route, item.rated_at, item.record.put_forward)
+        )
     return Dataset(cases=cases, training=training, missing=missing, split_at=split_at)
 
 

@@ -91,6 +91,17 @@ class SendMessageTests(unittest.TestCase):
             },
         )
 
+    def test_silent_message_asks_telegram_not_to_notify(self):
+        bot, http = make_bot(api_response({"message_id": 5}), api_response({"message_id": 6}))
+
+        bot.send_message("list", silent=True)
+        silent = http.post.call_args.kwargs["json"]
+        bot.send_message("alert")
+        loud = http.post.call_args.kwargs["json"]
+
+        self.assertIs(silent["disable_notification"], True)
+        self.assertNotIn("disable_notification", loud)
+
     def test_without_buttons_has_no_markup_and_reply_to_is_forwarded(self):
         bot, http = make_bot(api_response({"message_id": 5}))
 

@@ -62,5 +62,22 @@ class SettingsAttentionTests(unittest.TestCase):
                 Settings(_env_file=None, **overrides)
 
 
+class SettingsScheduleTests(unittest.TestCase):
+    def test_daily_list_is_off_and_times_are_utc_by_default(self):
+        settings = Settings(_env_file=None)
+
+        self.assertEqual((settings.attention_list_hour, settings.timezone), (-1, "UTC"))
+
+    def test_time_zone_is_resolved(self):
+        settings = Settings(_env_file=None, timezone="Europe/Paris")
+
+        self.assertEqual(str(settings.tzinfo), "Europe/Paris")
+
+    def test_unknown_time_zone_or_hour_fails_at_startup(self):
+        for overrides in ({"timezone": "Mars/Olympus"}, {"attention_list_hour": 24}):
+            with self.subTest(overrides), self.assertRaises(ValidationError):
+                Settings(_env_file=None, **overrides)
+
+
 if __name__ == "__main__":
     unittest.main()
