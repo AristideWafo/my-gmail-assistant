@@ -1,6 +1,55 @@
 # CHANGELOG
 
 
+## v0.12.0 (2026-10-01)
+
+### Documentation
+
+- Record the first lab run on real rated mails
+  ([#57](https://github.com/AristideWafo/my-gmail-assistant/pull/57),
+  [`7b4640b`](https://github.com/AristideWafo/my-gmail-assistant/commit/7b4640b4557cb4ab685c3fa30316299959b7aadf))
+
+* docs: record the first lab run on real rated mails
+
+16 rated mails were replayed on the VPS. The sample is too small to rank the variants, but it shows
+  that real mails cost 2.6 times the test corpus in tokens, that the meeting and deadline questions
+  fire on webinars, and that the direct-action variant brings nothing.
+
+Proposed decisions for L2, L3 and L4 are written down, pending confirmation.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+* docs: record the second lab run on real rated mails
+
+With 37 rated mails replayed, direct-action is behind the production questions (24 against 28), the
+  deadline question only fires on newsletters and events, and one of the production misroutes is an
+  archive the verdict disagrees with, which L4 now measures first.
+
+---------
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+### Features
+
+- **evaluation**: Show the verdict of rated mails in the lab report
+  ([#58](https://github.com/AristideWafo/my-gmail-assistant/pull/58),
+  [`605f3df`](https://github.com/AristideWafo/my-gmail-assistant/commit/605f3dfc9bfe99b55dda69b2fb31474edde63033))
+
+* feat(evaluation): show the verdict of rated mails in the lab report
+
+A misrouted rated mail was listed with its sender and subject only, so the report could not tell a
+  mistake JEV repeats after being corrected from a departure from a decision the user had validated.
+  Each rated mail now carries its verdict and the route it originally took.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+* docs: say what the misrouted count cannot tell without the verdict
+
+---------
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+
 ## v0.11.0 (2026-10-01)
 
 ### Features
