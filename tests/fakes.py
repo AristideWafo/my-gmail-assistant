@@ -76,6 +76,11 @@ class FakeChannel:
         self.sent.append(text)
         return len(self.sent) if self.interactive else None
 
+    def update(
+        self, message_id: int, text: str, buttons: list[list[Button]] | None = None
+    ) -> None:
+        self.sent[message_id - 1] = text
+
 
 @dataclass
 class FakeChat:

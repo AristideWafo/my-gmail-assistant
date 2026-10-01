@@ -26,7 +26,7 @@ main.py
   1. `src/triage` classifies each email into `{ urgency, category, confidence }`
   2. only `urgency=high` (or low confidence) paths invoke `src/llm` Gemini generation
 - **Retroactive ingestion** with `--sync-history` startup flag and Gmail 429 exponential backoff
-- **Urgency alerts** to Telegram + Discord
+- **Urgency alerts** to Telegram + Discord. Repeated automated alerts (same sender and same subject once commit hashes and numbers are removed, within 30 minutes) are folded into the first one, whose Telegram message is updated with the count and the latest subject instead of notifying again. A different subject, such as another workflow of the same repository, alerts immediately; mail from a person is never grouped. Outcomes: `alerts_total{status="deduplicated"|"updated"|"update_failed"}`
 - **Feedback and replies from Telegram** (see below)
 - **Observability** at `GET /metrics`
 

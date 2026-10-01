@@ -50,6 +50,11 @@ class DiscordChannel:
         response.raise_for_status()
         return "webhook reachable"
 
+    def update(
+        self, message_id: int, text: str, buttons: list[list[Button]] | None = None
+    ) -> None:
+        raise ChannelDeliveryError("Discord webhook messages cannot be updated")
+
     def send(self, text: str, buttons: list[list[Button]] | None = None) -> None:
         if not self._url_valid:
             raise ChannelDeliveryError("Discord webhook URL malformed")

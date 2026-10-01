@@ -153,6 +153,25 @@ class CallbackActionsTests(unittest.TestCase):
             {"chat_id": CHAT_ID, "message_id": 7, "reply_markup": {"inline_keyboard": []}},
         )
 
+    def test_edit_message_rewrites_the_text_and_resends_the_keyboard(self):
+        bot, http = make_bot(api_response({"message_id": 7}), api_response(True))
+
+        bot.edit_message(7, "updated", buttons=[[("OK", "fb:v:1")]])
+        bot.edit_message(7, "plain")
+
+        first, second = (call.kwargs["json"] for call in http.post.call_args_list)
+        self.assertTrue(http.post.call_args.args[0].endswith("/editMessageText"))
+        self.assertEqual(
+            first,
+            {
+                "chat_id": CHAT_ID,
+                "message_id": 7,
+                "text": "updated",
+                "reply_markup": {"inline_keyboard": [[{"text": "OK", "callback_data": "fb:v:1"}]]},
+            },
+        )
+        self.assertNotIn("reply_markup", second)
+
     def test_get_me_returns_the_bot_profile(self):
         bot, http = make_bot(api_response({"username": "mybot"}))
 
@@ -383,6 +402,17 @@ class TelegramChannelTests(unittest.TestCase):
             str(ctx.exception), "Telegram sendMessage failed: HTTPError (status 403)"
         )
         self.assertIsNone(ctx.exception.__cause__)
+
+    def test_update_edits_the_message_and_sanitizes_failures(self):
+        bot = MagicMock()
+        channel = TelegramChannel(bot)
+
+        channel.update(7, "updated", [[("OK", "fb:v:1")]])
+        bot.edit_message.assert_called_once_with(7, "updated", buttons=[[("OK", "fb:v:1")]])
+
+        bot.edit_message.side_effect = TelegramApiError("Telegram editMessageText failed")
+        with self.assertRaises(ChannelDeliveryError):
+            channel.update(7, "updated")
 
     def test_check_connection_reports_the_bot_username_via_get_me(self):
         bot, http = make_bot(api_response({"username": "mybot"}))
