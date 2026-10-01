@@ -2,7 +2,7 @@
 # Installs and bootstraps my-gmail-assistant.
 # Usage: ./install.sh [--docker]
 #   (no flag)  local venv install
-#   --docker   build & start via docker compose
+#   --docker   build from this checkout & start via docker compose
 
 set -euo pipefail
 
@@ -47,7 +47,7 @@ install_docker() {
     ensure_env_file
 
     log "Building and starting containers..."
-    docker compose up --build -d
+    docker compose -f docker-compose.yml -f docker-compose.build.yml up --build -d
 
     log "Assistant:  http://localhost:8000/healthz"
     log "Metrics:    http://localhost:8000/metrics"
