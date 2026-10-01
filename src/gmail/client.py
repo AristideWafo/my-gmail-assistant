@@ -99,6 +99,20 @@ class GmailClient:
             raise
         return self._parse_message(message)
 
+    def in_inbox(self, message_id: str, max_retries: int = 5) -> bool:
+        if not self._service:
+            return True
+        request = self._service.users().messages().get(
+            userId=self._user_id, id=message_id, format="minimal"
+        )
+        try:
+            message = self._execute_with_backoff(request.execute, max_retries=max_retries)
+        except HttpError as exc:
+            if getattr(getattr(exc, "resp", None), "status", None) == 404:
+                return False
+            raise
+        return "INBOX" in message.get("labelIds", [])
+
     def _list_and_parse(self, query: str | None, max_results: int, max_retries: int) -> list[EmailMessage]:
         def list_messages():
             list_kwargs: dict[str, Any] = {"userId": self._user_id, "maxResults": max_results}

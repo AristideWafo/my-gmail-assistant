@@ -7,8 +7,9 @@ VERDICTS = (
     "missed_urgent",
     "wrong_archive",
     "missed_important",
+    "false_important",
 )
-FEEDBACK_ORIGINS = ("alert", "review")
+FEEDBACK_ORIGINS = ("alert", "review", "list")
 
 
 @dataclass
@@ -65,7 +66,6 @@ class DecisionRecord:
     source: str = ""
     needs_reply: float | None = None
     signals: dict[str, float] = field(default_factory=dict)
-    # The mail was labeled as worth seeing when it was processed.
     put_forward: bool = False
 
 

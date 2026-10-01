@@ -18,8 +18,14 @@ class ChatInbox(Protocol):
     def get_updates(self, offset: int | None) -> tuple[list[ChatEvent], int | None]: ...
 
     def send_message(
-        self, text: str, buttons: list[list[Button]] | None = None, reply_to: int | None = None
-    ) -> int: ...
+        self,
+        text: str,
+        buttons: list[list[Button]] | None = None,
+        reply_to: int | None = None,
+        silent: bool = False,
+    ) -> int:
+        """`silent` delivers the message without sound or vibration."""
+        ...
 
     def answer_callback(self, callback_id: str, text: str = "") -> None: ...
 

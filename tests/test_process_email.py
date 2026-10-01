@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -11,6 +12,7 @@ from main import (
     REPLY_EXPECTED_LABEL,
     RETENTION,
     ApplicationContext,
+    poll_once,
 )
 from src.bootstrap import build_components
 from src.config import Settings
@@ -297,6 +299,73 @@ class PutForwardTests(unittest.TestCase):
         self.assertIsNone(threshold(attention_mode="shadow"))
         self.assertEqual(threshold(attention_mode="on"), 0.5)
         self.assertEqual(threshold(attention_mode="on", attention_threshold=0.7), 0.7)
+
+
+class DailyListTests(unittest.TestCase):
+    def context(self, chat=None, **settings):
+        settings = make_settings(**settings)
+        components = fake_components(chat=chat or FakeChat())
+        self.addCleanup(components.store.close)
+        ctx = ApplicationContext(settings, components)
+        if ctx.interactions.put_forward is not None:
+            ctx.interactions.put_forward = MagicMock()
+            ctx.interactions.put_forward.send_daily.return_value = 2
+        return ctx
+
+    def test_job_needs_the_mode_on_an_hour_and_a_chat(self):
+        on = {"attention_mode": "on", "attention_list_hour": 0}
+
+        self.assertIsNotNone(self.context(**on).put_forward_job)
+        self.assertIsNone(self.context().put_forward_job)
+        self.assertIsNone(self.context(attention_mode="on").put_forward_job)
+        self.assertIsNone(self.context(attention_mode="shadow", attention_list_hour=0).put_forward_job)
+        with self.assertLogs("gmail-assistant", level="WARNING"):
+            self.assertIsNone(self.context(chat=FakeChat(is_configured=False), **on).put_forward_job)
+
+    def test_list_is_sent_once_a_day_with_buttons_only_when_inbound_is_on(self):
+        ctx = self.context(attention_mode="on", attention_list_hour=0)
+
+        ctx.send_put_forward_list_if_due()
+        ctx.send_put_forward_list_if_due()
+
+        ctx.interactions.put_forward.send_daily.assert_called_once_with(interactive=False)
+
+    def test_nothing_is_sent_without_a_job(self):
+        ctx = self.context(attention_mode="on")
+
+        ctx.send_put_forward_list_if_due()
+
+        ctx.interactions.put_forward.send_daily.assert_not_called()
+
+    def test_list_and_command_only_exist_when_the_mode_is_on(self):
+        for mode in ("off", "shadow"):
+            with self.subTest(mode=mode):
+                settings = make_settings(attention_mode=mode)
+                components = fake_components()
+                self.addCleanup(components.store.close)
+
+                self.assertIsNone(ApplicationContext(settings, components).interactions.put_forward)
+
+    def test_a_store_failure_when_claiming_the_day_does_not_stop_the_poll(self):
+        ctx = self.context(attention_mode="on", attention_list_hour=0)
+        ctx.put_forward_job = MagicMock()
+        ctx.put_forward_job.claim.side_effect = sqlite3.OperationalError("database is locked")
+
+        with self.assertLogs("gmail-assistant", level="ERROR"):
+            ctx.send_put_forward_list_if_due()
+
+        ctx.interactions.put_forward.send_daily.assert_not_called()
+
+    def test_a_failed_list_is_logged_and_does_not_stop_the_poll(self):
+        ctx = self.context(attention_mode="on", attention_list_hour=0)
+        ctx.interactions.put_forward.send_daily.side_effect = RuntimeError("telegram down")
+        ctx.mail = MagicMock()
+        ctx.mail.fetch_unread.return_value = []
+
+        with self.assertLogs("gmail-assistant", level="ERROR"):
+            poll_once(ctx)
+
+        ctx.mail.fetch_unread.assert_called_once()
 
 
 class AttentionShadowTests(unittest.TestCase):

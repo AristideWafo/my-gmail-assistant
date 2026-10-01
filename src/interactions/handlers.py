@@ -14,6 +14,7 @@ from src.interactions.callbacks import (
     CANCEL,
     FEEDBACK,
     KEEP,
+    PUT_FORWARD,
     REVIEW,
     SEND,
     UNSUBSCRIBE,
@@ -22,6 +23,7 @@ from src.interactions.callbacks import (
     parse_callback,
 )
 from src.interactions.commands import CommandRouter
+from src.interactions.put_forward import PutForwardList
 from src.interactions.review import ReviewCommand
 from src.interactions.stats import StatsCommand
 from src.interactions.unsubscribe import offer_key
@@ -41,8 +43,9 @@ FEEDBACK_ACKS = {
     "missed_urgent": "Noté : urgent raté",
     "wrong_archive": "Noté : à garder",
     "missed_important": "Noté : à mettre en avant",
+    "false_important": "Noté : pas utile",
 }
-FEEDBACK_ORIGIN = {FEEDBACK: "alert", REVIEW: "review"}
+FEEDBACK_ORIGIN = {FEEDBACK: "alert", REVIEW: "review", PUT_FORWARD: "list"}
 UNKNOWN_MAIL = "Mail inconnu"
 UNKNOWN_ACTION = "Action non reconnue"
 ALREADY_SENT = "Déjà envoyé"
@@ -62,11 +65,18 @@ class InteractionHandler:
         chat: ChatInbox,
         mail: MailProvider,
         unsubscriber: Unsubscriber | None = None,
+        attention_threshold: float | None = None,
     ) -> None:
         self._store = store
         self._chat = chat
         self._mail = mail
         self._unsubscriber = unsubscriber
+        # None: mails are not put forward, so there is neither a list nor a command for them.
+        self.put_forward = (
+            PutForwardList(store, chat, mail, attention_threshold)
+            if attention_threshold is not None
+            else None
+        )
         self.commands = CommandRouter(chat)
         self.commands.register(
             "review", "mails non alertés à vérifier, ex. /review 5", ReviewCommand(store, chat).run
@@ -74,6 +84,10 @@ class InteractionHandler:
         self.commands.register(
             "stats", "précision du tri d'après tes verdicts", StatsCommand(store, chat).run
         )
+        if self.put_forward is not None:
+            self.commands.register(
+                "avoir", "mails mis en avant en attente", self.put_forward.run
+            )
 
     def dispatch(self, event: ChatEvent) -> None:
         if isinstance(event, CallbackEvent):
@@ -102,6 +116,7 @@ class InteractionHandler:
         handlers = {
             FEEDBACK: self._on_feedback,
             REVIEW: self._on_feedback,
+            PUT_FORWARD: self._on_feedback,
             SEND: self._on_send,
             CANCEL: self._on_cancel,
             UNSUBSCRIBE: self._on_unsubscribe,
@@ -112,6 +127,8 @@ class InteractionHandler:
     def _on_feedback(self, event: CallbackEvent, callback: Callback) -> None:
         record = self._store.get(callback.target)
         origin = FEEDBACK_ORIGIN[callback.action]
+        if callback.action == PUT_FORWARD and record is not None and not record.put_forward:
+            record = None
         if record is None or not self._store.record_feedback(
             callback.target, callback.verdict, origin
         ):
