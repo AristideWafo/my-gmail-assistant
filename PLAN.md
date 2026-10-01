@@ -314,7 +314,7 @@ Lots :
   - Coût : 526 tokens de plus par mail pour les quatre questions (942 → 1 468), latence inchangée
   - Deux mails du corpus à mettre en avant sont aujourd'hui archivés (billet d'un événement, avis de travaux) par la règle « notification d'urgence basse » : la mise en avant devra les sortir de l'archivage
   - **Limite** : questions et mails de test ont le même auteur. Seul le mode observation sur les vrais mails dit le volume réel ; cible : 3 mails par jour au plus
-- ⬜ Mise en avant : label `Assistant/A_voir`, mail sorti de l'archivage
+- ✅ Mise en avant (`ATTENTION_MODE=on`) : un mail non urgent qui a au moins une raison reçoit le label `Assistant/A_voir`, sans notification, et reste en boîte même si la règle « notification d'urgence basse » l'aurait archivé. Décision stockée (`decisions.put_forward`). Au banc, les deux mails du corpus archivés à tort sont rattrapés : 63/68 contre 61/68, aucune route correcte modifiée. **Reste à faire** : passer de `shadow` à `on` au vu du volume réel
 - ⬜ Liste quotidienne silencieuse sur Telegram, commande à la demande, boutons de verdict
 
 ---

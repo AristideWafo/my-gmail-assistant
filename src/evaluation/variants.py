@@ -4,9 +4,11 @@ from dataclasses import dataclass
 
 from src.triage.attention import ATTENTION_QUESTIONS
 from src.triage.engine import NEEDS_REPLY_QUESTION, JevClassifier
-from src.workflow import attention_reasons, route_for
+from src.workflow import attention_reasons, route_for, route_with_attention
 
 Answers = dict[str, dict]
+# Probability from which a yes/no answer counts as yes in the lab.
+SIGNAL_THRESHOLD = 0.5
 
 ROUTE_OF_ACTION = {"alert": "llm", "keep": "label", "archive": "reject"}
 ACTION_QUESTION = {
@@ -105,6 +107,11 @@ def _add_attention(request: dict) -> dict:
     return {**request, "questions": questions}
 
 
+def _attention_route(answers: Answers, low_confidence_threshold: float) -> str:
+    triage = JevClassifier.parse_answers({"answers": answers})
+    return route_with_attention(triage, low_confidence_threshold, SIGNAL_THRESHOLD)
+
+
 def _put_forward(answers: Answers, threshold: float) -> bool:
     return bool(attention_reasons(JevClassifier.parse_answers({"answers": answers}), threshold))
 
@@ -133,9 +140,10 @@ VARIANTS = {
         ),
         Variant(
             "attention",
-            "current questions plus reply expected and the three attention questions",
+            "current questions plus reply expected and the three attention questions; a mail "
+            "put forward is not archived",
             _add_attention,
-            _current_route,
+            _attention_route,
             signals=("needs_reply", *ATTENTION_QUESTIONS),
             put_forward=_put_forward,
         ),

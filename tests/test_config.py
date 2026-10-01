@@ -56,6 +56,7 @@ class SettingsAttentionTests(unittest.TestCase):
         self.assertEqual((settings.attention_mode, settings.attention_threshold), ("off", 0.5))
 
     def test_unknown_mode_or_threshold_out_of_range_fails_at_startup(self):
+        self.assertEqual(Settings(_env_file=None, attention_mode="on").attention_mode, "on")
         for overrides in ({"attention_mode": "loud"}, {"attention_threshold": 1.5}):
             with self.subTest(overrides), self.assertRaises(ValidationError):
                 Settings(_env_file=None, **overrides)

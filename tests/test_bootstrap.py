@@ -127,11 +127,13 @@ class AttentionWiringTests(unittest.TestCase):
     def test_questions_are_off_by_default(self):
         self.assertFalse(build().classifier.primary.ask_attention)
 
-    def test_shadow_mode_asks_the_attention_questions_and_whether_a_reply_is_expected(self):
-        classifier = build(attention_mode="shadow").classifier.primary
+    def test_both_modes_ask_the_attention_questions_and_whether_a_reply_is_expected(self):
+        for mode in ("shadow", "on"):
+            with self.subTest(mode=mode):
+                classifier = build(attention_mode=mode).classifier.primary
 
-        self.assertTrue(classifier.ask_attention)
-        self.assertTrue(classifier.ask_needs_reply)
+                self.assertTrue(classifier.ask_attention)
+                self.assertTrue(classifier.ask_needs_reply)
 
 
 class ConnectionProbesTests(unittest.TestCase):

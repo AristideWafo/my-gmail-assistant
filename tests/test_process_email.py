@@ -5,7 +5,13 @@ import unittest
 from dataclasses import replace
 from unittest.mock import MagicMock, call, patch
 
-from main import ALERTED_TTL_SECONDS, REPLY_EXPECTED_LABEL, RETENTION, ApplicationContext
+from main import (
+    ALERTED_TTL_SECONDS,
+    PUT_FORWARD_LABEL,
+    REPLY_EXPECTED_LABEL,
+    RETENTION,
+    ApplicationContext,
+)
 from src.bootstrap import build_components
 from src.config import Settings
 from src.domain import EmailMessage, TriageResult
@@ -231,6 +237,66 @@ class ReplyExpectedTests(unittest.TestCase):
         self.assertIsNone(threshold(needs_reply_threshold=0.7))
         self.assertEqual(threshold(needs_reply_enabled=True), 0.5)
         self.assertEqual(threshold(needs_reply_enabled=True, needs_reply_threshold=0.7), 0.7)
+
+
+class PutForwardTests(unittest.TestCase):
+    def test_label_worth_seeing_comes_before_the_category_label_that_commits(self):
+        ctx = make_context("label", {"attention": ("service_change",)})
+
+        ctx.process_email(make_email())
+
+        self.assertEqual(
+            ctx.mail.label_message.mock_calls, [call("m1", PUT_FORWARD_LABEL), call("m1", "personnel")]
+        )
+        ctx.alerts.send_urgent_alert.assert_not_called()
+        ctx.mail.archive_message.assert_not_called()
+        self.assertTrue(ctx.store.get("m1").put_forward)
+
+    def test_a_failed_label_still_commits_the_category_label(self):
+        ctx = make_context("label", {"attention": ("service_change",)})
+        ctx.mail.label_message.side_effect = [RuntimeError("boom"), None]
+
+        with self.assertLogs("gmail-assistant", level="ERROR"):
+            ctx.process_email(make_email())
+
+        self.assertEqual(ctx.mail.label_message.mock_calls[-1], call("m1", "personnel"))
+
+    def test_reply_label_then_worth_seeing_label_then_category_label(self):
+        ctx = make_context(
+            "label", {"attention": ("needs_reply",), "reply_expected": True, "draft": "Bonjour"}
+        )
+
+        ctx.process_email(make_email())
+
+        self.assertEqual(
+            ctx.mail.label_message.mock_calls,
+            [call("m1", REPLY_EXPECTED_LABEL), call("m1", PUT_FORWARD_LABEL), call("m1", "personnel")],
+        )
+
+    def test_put_forward_mails_are_counted(self):
+        before = Metrics.put_forward._value.get()
+
+        make_context("label", {"attention": ("personal_event",)}).process_email(make_email())
+        make_context("label").process_email(make_email())
+
+        self.assertEqual(Metrics.put_forward._value.get(), before + 1)
+
+    def test_a_plain_decision_is_stored_as_not_put_forward(self):
+        ctx = make_context("label")
+
+        ctx.process_email(make_email())
+
+        self.assertFalse(ctx.store.get("m1").put_forward)
+
+    def test_threshold_reaches_the_workflow_only_when_the_mode_is_on(self):
+        def threshold(**settings):
+            settings = make_settings(**settings)
+            return ApplicationContext(settings, build_components(settings)).workflow.attention_threshold
+
+        self.assertIsNone(threshold())
+        self.assertIsNone(threshold(attention_mode="shadow"))
+        self.assertEqual(threshold(attention_mode="on"), 0.5)
+        self.assertEqual(threshold(attention_mode="on", attention_threshold=0.7), 0.7)
 
 
 class AttentionShadowTests(unittest.TestCase):

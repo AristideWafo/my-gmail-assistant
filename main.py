@@ -42,6 +42,7 @@ ALERTED_TTL_SECONDS = 24 * 3600
 RETENTION = timedelta(days=90)
 MAINTENANCE_INTERVAL_SECONDS = 24 * 3600
 REPLY_EXPECTED_LABEL = "a_repondre"
+PUT_FORWARD_LABEL = "a_voir"
 
 
 class ApplicationContext:
@@ -67,6 +68,7 @@ class ApplicationContext:
             settings.low_confidence_threshold,
             load_ruleset(settings.triage_rules_path),
             settings.needs_reply_threshold if settings.needs_reply_enabled else None,
+            settings.attention_threshold if settings.attention_mode == "on" else None,
         )
         self.health = PollHealth(settings.poll_stale_after_seconds)
         self.outage = OutageNotifier(
@@ -100,8 +102,11 @@ class ApplicationContext:
         result = self.workflow.run(email)
         triage = result["triage"]
         route = result["route"]
+        put_forward = bool(result.get("attention"))
         self._best_effort(
-            lambda: self.store.record_decision(email, triage, route), "record decision", email.id
+            lambda: self.store.record_decision(email, triage, route, put_forward),
+            "record decision",
+            email.id,
         )
 
         if route == "reject":
@@ -113,6 +118,13 @@ class ApplicationContext:
         elif route == "label":
             if result.get("reply_expected"):
                 self._flag_reply_expected(email, result.get("draft", ""))
+            if put_forward:
+                Metrics.mark_put_forward()
+                self._best_effort(
+                    lambda: self.mail.label_message(email.id, PUT_FORWARD_LABEL),
+                    "label as worth seeing",
+                    email.id,
+                )
             self.mail.label_message(email.id, triage.category)
         elif route == "llm":
             self._handle_urgent(email, triage, result)

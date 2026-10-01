@@ -210,6 +210,12 @@ class VariantTests(unittest.TestCase):
         self.assertEqual(variant.route(answers("low", "newsletter"), 0.5), "reject")
         self.assertEqual(set(self.request["questions"]), {"urgency", "category"})
 
+    def test_attention_keeps_a_mail_worth_seeing_out_of_the_archive(self):
+        notice = answers("low", "notification_systeme", service_change=noul(0.99))
+
+        self.assertEqual(VARIANTS["current"].route(notice, 0.5), "reject")
+        self.assertEqual(VARIANTS["attention"].route(notice, 0.5), "label")
+
     def test_attention_puts_forward_on_any_reason_except_in_bulk_categories(self):
         put_forward = VARIANTS["attention"].put_forward
         event = {"personal_event": noul(0.9)}
