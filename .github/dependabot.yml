@@ -1,0 +1,43 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    # "chore" keeps a dependency bump from cutting a release by itself.
+    commit-message:
+      prefix: chore
+    groups:
+      # One pull request for the test and lint tools, which do not ship.
+      dev-tools:
+        patterns: ["pytest*", "ruff"]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
+    ignore:
+      # Changing the Python version is a decision, not a routine bump.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  # Prometheus and Grafana, pinned in docker-compose.yml.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
