@@ -1,0 +1,456 @@
+# Test mails for `python -m src.evaluation lab --source corpus`.
+# Every mail here is invented: no real mail may be added to this file.
+#   routes      routes that are acceptable for the mail (llm = alert, label, reject = archive)
+#   needs_reply whether a person expects a written reply
+#   facts       yes/no questions whose answer is yes; any other question is expected to be no
+# Dates are written for a mail received on Thursday 2026-10-01.
+
+[[mail]]
+name = "perso_invitation"
+sender = "Marc Dupont <marc.dupont@gmail.com>"
+subject = "Week-end du 18"
+body = "Salut, on pense faire un barbecue le samedi 18 chez nous. Tu serais dispo ? Dis-moi si tu viens avec quelqu'un. Marc"
+routes = ["label"]
+needs_reply = true
+facts = ["asks_for_meeting"]
+
+[[mail]]
+name = "perso_question_objet_neutre"
+sender = "Sophie Martin <sophie.martin@outlook.fr>"
+subject = "Re: hier"
+body = "Merci pour la soirée, c'était super. Au fait, tu pourrais me renvoyer le nom du restaurant dont tu parlais ? Je voudrais y emmener mes parents le mois prochain."
+routes = ["label"]
+needs_reply = true
+facts = []
+
+[[mail]]
+name = "perso_fyi"
+sender = "Sophie Martin <sophie.martin@outlook.fr>"
+subject = "Photos du mariage"
+body = "Coucou, je te mets en pièce jointe les photos du mariage de Julie. Bonne journée, bises."
+routes = ["label"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "perso_merci"
+sender = "Paul Leroy <paul.leroy@gmail.com>"
+subject = "Merci"
+body = "Bien reçu le document, merci beaucoup. Tout est bon de mon côté, rien d'autre à faire. Bonne semaine."
+routes = ["label"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "perso_urgent_reponse"
+sender = "Claire Morel <claire.morel@gmail.com>"
+subject = "Clés"
+body = "Je suis devant chez toi et je n'ai pas les clés, tu rentres à quelle heure ce soir ? Réponds vite stp."
+routes = ["llm"]
+needs_reply = true
+facts = []
+
+[[mail]]
+name = "asso_convocation_confirmer"
+sender = "Bureau AIF <bureau@asso-aif.org>"
+subject = "Réunion du bureau - jeudi 15 octobre"
+body = "Bonjour à tous, la prochaine réunion du bureau aura lieu jeudi 15 octobre à 19h. Merci de confirmer votre présence par retour de mail avant lundi. Jean, secrétaire"
+routes = ["label"]
+needs_reply = true
+facts = ["asks_for_meeting", "has_deadline"]
+
+[[mail]]
+name = "asso_compte_rendu"
+sender = "Bureau AIF <bureau@asso-aif.org>"
+subject = "Compte rendu de la réunion du 24 septembre"
+body = "Bonjour à tous, veuillez trouver ci-dessous le compte rendu de la réunion. Bonne lecture. Jean, secrétaire"
+routes = ["label"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "recruteur_dispo"
+sender = "Julie Bernard <julie.bernard@talentsearch.fr>"
+subject = "Opportunité SRE - scale-up Paris"
+body = "Bonjour Aristide, votre profil a retenu mon attention pour un poste de SRE senior (70-85k). Seriez-vous disponible pour un échange de 20 minutes cette semaine ? Cordialement, Julie"
+routes = ["label"]
+needs_reply = true
+facts = ["asks_for_meeting"]
+
+[[mail]]
+name = "recruteur_relance_sans_question"
+sender = "Julie Bernard <julie.bernard@talentsearch.fr>"
+subject = "Suite à notre échange"
+body = "Bonjour Aristide, merci pour notre échange de ce matin. Je transmets votre dossier au client et reviens vers vous dès que j'ai leur retour. Cordialement, Julie"
+routes = ["label"]
+needs_reply = false
+facts = ["contains_commitment"]
+
+[[mail]]
+name = "mise_en_relation"
+sender = "Thomas Petit <thomas@petit-conseil.com>"
+subject = "Intro : Aristide <> Nadia"
+body = "Aristide, je te présente Nadia qui monte une plateforme d'observabilité. Je vous laisse échanger pour caler un café. Thomas"
+routes = ["label"]
+needs_reply = true
+facts = ["asks_for_meeting"]
+
+[[mail]]
+name = "banque_echeance"
+sender = "Banque Populaire <notification@banquepopulaire.fr>"
+subject = "Votre échéance de prêt a été rejetée"
+body = "Bonjour, le prélèvement de votre échéance de prêt du 30/09 a été rejeté. Merci de régulariser votre situation sous 48h depuis votre espace client. Ceci est un message automatique, merci de ne pas y répondre."
+routes = ["llm"]
+needs_reply = false
+facts = ["has_deadline", "has_payment_due"]
+
+[[mail]]
+name = "securite_connexion"
+sender = "Google <no-reply@accounts.google.com>"
+subject = "Alerte de sécurité"
+body = "Une nouvelle connexion à votre compte a été détectée depuis un appareil Windows à Lagos. Si ce n'était pas vous, sécurisez votre compte immédiatement."
+routes = ["llm"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "ci_echec"
+sender = "GitHub <notifications@github.com>"
+subject = "[my-gmail-assistant] Run failed: Deploy - prod"
+body = "Run failed for prod (92b1aef). Job deploy failed. View workflow run."
+routes = ["llm"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "review_demandee"
+sender = "octocat <notifications@github.com>"
+subject = "[infra] Review requested: bump terraform provider (#214)"
+body = "@octocat requested your review on this pull request. Can you take a look before Friday?"
+routes = ["label"]
+needs_reply = false
+facts = ["has_deadline"]
+
+[[mail]]
+name = "newsletter_appat"
+sender = "Le Wagon <newsletter@lewagon.com>"
+subject = "On a une question pour vous"
+body = "Bonjour, quel est votre plus grand défi cette année ? Répondez directement à cet email, nous lisons toutes les réponses ! Découvrez aussi nos nouveaux bootcamps à -20%. Se désabonner"
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "promo_appat"
+sender = "Cdiscount <promo@cdiscount.com>"
+subject = "Aristide, vous n'avez pas répondu !"
+body = "Votre panier vous attend. Confirmez votre commande avant minuit pour profiter de -30%. Répondez vite !"
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "spam_arnaque"
+sender = "Mr Ibrahim <ibrahim.trust@consultant.com>"
+subject = "URGENT business proposal"
+body = "Dear friend, I need your urgent reply regarding a transfer of 4.5M USD. Please reply with your bank details today."
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "pro_demande_doc"
+sender = "Karim Benali <k.benali@client-corp.com>"
+subject = "Devis infra"
+body = "Bonjour Aristide, pourriez-vous m'envoyer le devis mis à jour pour la migration Kubernetes ? Pas d'urgence, d'ici la fin du mois ça ira. Merci, Karim"
+routes = ["label"]
+needs_reply = true
+facts = ["has_deadline"]
+
+[[mail]]
+name = "pro_info_cc"
+sender = "Karim Benali <k.benali@client-corp.com>"
+subject = "FYI - planning de la migration"
+body = "Pour information, voici le planning validé par la direction. Aucune action attendue de ton côté pour l'instant."
+routes = ["label"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "admin_impots_humain"
+sender = "Mme Roche <c.roche@dgfip.finances.gouv.fr>"
+subject = "Votre dossier - pièce manquante"
+body = "Monsieur, il manque un justificatif de domicile à votre dossier. Merci de me le transmettre en réponse à ce message avant le 5 octobre, faute de quoi votre demande sera classée."
+routes = ["llm", "label"]
+needs_reply = true
+facts = ["has_deadline"]
+
+[[mail]]
+name = "perso_question_fin_long_mail"
+sender = "Maman <mireille.morel@yahoo.fr>"
+subject = "Nouvelles"
+body = "Bonjour mon fils, ici tout va bien. Ton père a repris le jardin, les tomates ont bien donné cette année. Ta sœur a eu son permis. Il a beaucoup plu la semaine dernière. Bonjour mon fils, ici tout va bien. Ton père a repris le jardin, les tomates ont bien donné cette année. Ta sœur a eu son permis. Il a beaucoup plu la semaine dernière. Bonjour mon fils, ici tout va bien. Ton père a repris le jardin, les tomates ont bien donné cette année. Ta sœur a eu son permis. Il a beaucoup plu la semaine dernière. Tu viens pour Noël ou pas ? Il faut que je prévienne ta tante."
+routes = ["label"]
+needs_reply = true
+facts = []
+
+[[mail]]
+name = "livraison"
+sender = "Colissimo <noreply@colissimo.fr>"
+subject = "Votre colis est arrivé en point relais"
+body = "Votre colis 6A123 est disponible en point relais jusqu'au 10 octobre."
+routes = ["label", "reject"]
+needs_reply = false
+facts = ["has_deadline"]
+
+[[mail]]
+name = "low_pressure_livre"
+sender = "Paul Leroy <paul.leroy@gmail.com>"
+subject = "Le livre"
+body = "Salut, quand tu as un moment, dis-moi ce que tu as pensé du livre que je t'ai prêté. Rien ne presse du tout."
+routes = ["label"]
+needs_reply = true
+facts = []
+
+[[mail]]
+name = "low_pressure_plombier"
+sender = "Sophie Martin <sophie.martin@outlook.fr>"
+subject = "Petite question"
+body = "Au fait, tu as toujours le numéro de ton plombier ? Aucune urgence, c'est pour le printemps."
+routes = ["label"]
+needs_reply = true
+facts = []
+
+[[mail]]
+name = "vieux_copain"
+sender = "Yannick Essomba <yannick.essomba@gmail.com>"
+subject = "Ça fait un bail"
+body = "Salut Aristide ! Ça fait longtemps. Tu deviens quoi ? Toujours à Paris ? Donne des nouvelles à l'occasion."
+routes = ["label"]
+needs_reply = true
+facts = []
+
+[[mail]]
+name = "groupe_chaises"
+sender = "Bureau AIF <bureau@asso-aif.org>"
+subject = "Fête de samedi"
+body = "Bonjour à tous, qui peut apporter des chaises samedi ? Il nous en manque une vingtaine."
+routes = ["label"]
+needs_reply = true
+facts = []
+
+[[mail]]
+name = "avis_document"
+sender = "Karim Benali <k.benali@client-corp.com>"
+subject = "Proposition d'architecture"
+body = "Aristide, je t'ai partagé la proposition d'architecture. Ton avis m'intéresse, quand tu auras le temps de la lire."
+routes = ["label"]
+needs_reply = true
+facts = []
+
+[[mail]]
+name = "rappel_inscription"
+sender = "Claire Morel <claire.morel@gmail.com>"
+subject = "Listes électorales"
+body = "N'oublie pas de t'inscrire sur le site de la mairie avant vendredi pour les listes électorales, après c'est trop tard."
+routes = ["llm", "label"]
+needs_reply = false
+facts = ["has_deadline"]
+
+[[mail]]
+name = "depot_carton"
+sender = "Paul Leroy <paul.leroy@gmail.com>"
+subject = "Carton"
+body = "Je passe déposer le carton jeudi vers 18h, je le laisserai chez la gardienne si tu n'es pas là. A+"
+routes = ["label"]
+needs_reply = false
+facts = ["contains_commitment"]
+
+[[mail]]
+name = "proprio_loyer"
+sender = "M. Girard <girard.immobilier@orange.fr>"
+subject = "Révision du loyer"
+body = "Bonjour, je vous informe que le loyer passe à 912 euros à compter du 1er novembre, conformément au bail. Pensez à modifier votre virement permanent. Cordialement."
+routes = ["label"]
+needs_reply = false
+facts = ["has_deadline", "has_payment_due"]
+
+[[mail]]
+name = "reunion_decalee"
+sender = "Bureau AIF <bureau@asso-aif.org>"
+subject = "Réunion de jeudi décalée"
+body = "Bonjour à tous, la réunion de jeudi est décalée à 20h, même salle. À jeudi."
+routes = ["label"]
+needs_reply = false
+facts = ["asks_for_meeting"]
+
+[[mail]]
+name = "collegue_merge"
+sender = "Lina Haddad <lina.haddad@client-corp.com>"
+subject = "PR mergée"
+body = "J'ai mergé ta PR ce matin. Il faudra penser à relancer le déploiement demain avant la démo."
+routes = ["llm", "label"]
+needs_reply = false
+facts = ["has_deadline"]
+
+[[mail]]
+name = "accuse_reception"
+sender = "Karim Benali <k.benali@client-corp.com>"
+subject = "Re: Devis infra"
+body = "Parfait, merci, c'est bien noté. Je valide en interne."
+routes = ["label"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "recruteur_passif"
+sender = "Hugo Lambert <hugo.lambert@rh-partners.fr>"
+subject = "Restons en contact"
+body = "Bonjour Aristide, je me permets de vous ajouter à mon réseau. N'hésitez pas à revenir vers moi si vous êtes un jour ouvert aux opportunités. Cordialement."
+routes = ["label"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "linkedin_job_alert"
+sender = "LinkedIn Job Alerts <jobalerts-noreply@linkedin.com>"
+subject = "30 nouveaux postes « SRE » à Paris"
+body = "SRE Senior - Datadog - Paris. DevOps Engineer - Doctolib - Paris. Platform Engineer - Qonto. Voir toutes les offres. Se désabonner"
+routes = ["label"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "substack"
+sender = "Pragmatic Engineer <pragmaticengineer@substack.com>"
+subject = "The Pulse #112: layoffs and AI tooling"
+body = "This week: what the latest layoffs mean for senior engineers, and a deep dive on AI coding tools. Read online. Unsubscribe"
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "medium_digest"
+sender = "Medium Daily Digest <noreply@medium.com>"
+subject = "10 Kubernetes mistakes you keep making"
+body = "Today's highlights for you. 10 Kubernetes mistakes. Why Rust is eating the world. Read more."
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "amazon_promo"
+sender = "Amazon.fr <store-news@amazon.fr>"
+subject = "Ventes Flash : jusqu'à -40% sur le high-tech"
+body = "Profitez des ventes flash jusqu'à dimanche. Casques, SSD, écrans. J'en profite."
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "uber_receipt"
+sender = "Uber Receipts <noreply@uber.com>"
+subject = "Votre course de jeudi matin"
+body = "Merci d'avoir voyagé avec Uber. Total : 14,20 €. Payé par Visa 4242."
+routes = ["label", "reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "dependabot"
+sender = "dependabot[bot] <notifications@github.com>"
+subject = "[my-gmail-assistant] Bump requests from 2.31 to 2.32 (#61)"
+body = "Bumps requests from 2.31.0 to 2.32.0. Release notes. Dependabot will resolve any conflicts."
+routes = ["label", "reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "paiement_vps_echoue"
+sender = "OVHcloud <support@ovh.com>"
+subject = "Échec du paiement - suspension de votre VPS sous 24h"
+body = "Le renouvellement de votre VPS vps-4821 a échoué. Sans régularisation avant demain 12h, le service sera suspendu. Mettez à jour votre moyen de paiement dans l'espace client."
+routes = ["llm"]
+needs_reply = false
+facts = ["has_deadline", "has_payment_due"]
+
+[[mail]]
+name = "impots_avis"
+sender = "impots.gouv.fr <nepasrepondre@dgfip.finances.gouv.fr>"
+subject = "Votre avis d'impôt est disponible"
+body = "Votre avis d'impôt sur les revenus est disponible dans votre espace particulier."
+routes = ["label", "reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "doctolib_rappel"
+sender = "Doctolib <no-reply@doctolib.fr>"
+subject = "Rappel : RDV demain à 09h00 - Dr Lemoine"
+body = "Vous avez rendez-vous demain vendredi 2 octobre à 09h00 avec le Dr Lemoine, 12 rue de Rivoli."
+routes = ["llm", "label"]
+needs_reply = false
+facts = ["asks_for_meeting"]
+
+[[mail]]
+name = "grafana_alert"
+sender = "Grafana <alerts@grafana.morel.dev>"
+subject = "[FIRING:1] API 5xx rate > 5% (prod)"
+body = "Alert firing: api-prod 5xx rate at 12% for 10m. Labels: severity=critical env=prod."
+routes = ["llm"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "invitation_calendar"
+sender = "Karim Benali <k.benali@client-corp.com>"
+subject = "Invitation : Point migration - mar. 6 oct. 14:00"
+body = "Karim Benali vous invite à : Point migration, mardi 6 octobre 14:00-14:30, Google Meet. Participerez-vous ? Oui / Peut-être / Non"
+routes = ["label"]
+needs_reply = true
+facts = ["asks_for_meeting"]
+
+[[mail]]
+name = "phishing"
+sender = "Service Client <secure@paypa1-support.com>"
+subject = "Votre compte a été suspendu"
+body = "Cher client, votre compte a été suspendu suite à une activité inhabituelle. Cliquez ici dans les 24h pour le réactiver : http://paypa1-support.com/login"
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "domaine_expire"
+sender = "Gandi <no-reply@gandi.net>"
+subject = "morel.dev expire dans 3 jours"
+body = "Votre nom de domaine morel.dev expire le 4 octobre. Renouvelez-le pour éviter l'interruption de vos services et de vos e-mails."
+routes = ["llm"]
+needs_reply = false
+facts = ["has_deadline", "has_payment_due"]
+
+[[mail]]
+name = "newsletter_urgent"
+sender = "Udemy <no-reply@e.udemy.com>"
+subject = "URGENT : dernière chance, les cours à 9,99 € se terminent ce soir"
+body = "Plus que quelques heures ! Tous les cours à 9,99 €. L'offre expire à minuit."
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "bienvenue"
+sender = "Notion <team@mail.notion.so>"
+subject = "Bienvenue sur Notion"
+body = "Bienvenue ! Voici 5 astuces pour bien démarrer avec votre espace de travail."
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "ci_succes"
+sender = "GitHub <notifications@github.com>"
+subject = "[my-gmail-assistant] Run succeeded: CI - feat/p2-needs-reply"
+body = "Run succeeded for feat/p2-needs-reply. All jobs passed."
+routes = ["reject"]
+needs_reply = false
+facts = []

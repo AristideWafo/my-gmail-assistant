@@ -210,18 +210,18 @@ class FewShotRequestTests(unittest.TestCase):
             },
         }
 
-        request = self._client()._build_request(self.email)
+        request = self._client().build_request(self.email)
 
         self.assertEqual(json.dumps(request), json.dumps(expected))
 
     def test_empty_examples_leave_request_unchanged(self):
         self.assertEqual(
-            self._client(list)._build_request(self.email),
-            self._client()._build_request(self.email),
+            self._client(list).build_request(self.email),
+            self._client().build_request(self.email),
         )
 
     def test_examples_are_added_to_state_and_both_instructions(self):
-        request = self._client(lambda: self.EXAMPLES)._build_request(self.email)
+        request = self._client(lambda: self.EXAMPLES).build_request(self.email)
 
         self.assertEqual(request["state"]["examples"], self.EXAMPLES)
         self.assertEqual(
