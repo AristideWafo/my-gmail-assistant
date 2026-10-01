@@ -1,6 +1,44 @@
 # CHANGELOG
 
 
+## v0.10.0 (2026-10-01)
+
+### Documentation
+
+- Plan a JEV question lab and the changes that depend on it
+  ([#54](https://github.com/AristideWafo/my-gmail-assistant/pull/54),
+  [`67ac14f`](https://github.com/AristideWafo/my-gmail-assistant/commit/67ac14fd615658ea752ad09fe55476b3cbf81b62))
+
+A first series of live JEV calls on test mails settled several questions about cost, stability and
+  alternative question sets, but on mails written for the test. Phase 1bis records those results and
+  plans the lab as a repository tool (L1) that replays the real rated mails.
+
+Business questions (L2), head-and-tail truncation (L3) and three routing rules (L4) are planned but
+  wait for L1 to be validated.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+### Features
+
+- **triage**: Draft a reply for non-urgent mails that expect one
+  ([#53](https://github.com/AristideWafo/my-gmail-assistant/pull/53),
+  [`ef99444`](https://github.com/AristideWafo/my-gmail-assistant/commit/ef99444f2762b7f9bf5a873dbb7bde6e191cae90))
+
+Reply drafts were only written on the urgent route, so a personal mail asking a question without
+  time pressure got neither a draft nor a signal.
+
+The JEV classification call now carries a third question, needs_reply, when NEEDS_REPLY_ENABLED is
+  set. A labeled mail whose probability reaches NEEDS_REPLY_THRESHOLD gets a Gmail draft and the
+  label Assistant/A_repondre, with no Telegram message. The route stays "label", so stats, review
+  and the evaluation harness are unaffected.
+
+Bulk, scam and automated mail is excluded by category and sender, since it asks to be answered too.
+  The probability is stored with each decision (schema version 3) and stays out of the routing
+  confidence. With the flag off, the request sent to JEV is unchanged.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+
 ## v0.9.0 (2026-10-01)
 
 ### Features
