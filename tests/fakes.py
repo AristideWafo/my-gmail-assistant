@@ -21,7 +21,7 @@ class FakeMail:
     def fetch_history(self) -> list[EmailMessage]:
         return []
 
-    def fetch_message(self, message_id: str) -> EmailMessage | None:
+    def fetch_message(self, message_id: str, full_body: bool = False) -> EmailMessage | None:
         return next((email for email in self.unread if email.id == message_id), None)
 
     def in_inbox(self, message_id: str) -> bool:

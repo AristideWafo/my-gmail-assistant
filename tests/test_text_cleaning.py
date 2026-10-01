@@ -36,6 +36,26 @@ class TextCleaningTests(unittest.TestCase):
         result = truncate_words(text, max_words=1000)
         self.assertEqual(len(result.split()), 1000)
 
+    def test_truncate_words_can_keep_the_end_after_a_visible_cut(self):
+        text = " ".join(f"word{i}" for i in range(1500))
+
+        result = truncate_words(text, max_words=700, tail_words=300).split()
+
+        self.assertEqual(len(result), 1001)
+        self.assertEqual((result[699], result[700], result[701]), ("word699", "[…]", "word1200"))
+        self.assertEqual(result[-1], "word1499")
+
+    def test_truncate_words_with_a_tail_leaves_a_text_that_fits_untouched(self):
+        text = " ".join(f"word{i}" for i in range(1000))
+
+        self.assertEqual(truncate_words(text, max_words=700, tail_words=300), text)
+
+    def test_clean_body_can_return_the_whole_text(self):
+        text = " ".join(f"word{i}" for i in range(1500))
+
+        self.assertEqual(len(clean_body(text, is_html=False).split()), 1000)
+        self.assertEqual(len(clean_body(text, is_html=False, max_words=None).split()), 1500)
+
     def test_truncate_words_under_limit_unchanged(self):
         text = "short message"
         self.assertEqual(truncate_words(text), text)

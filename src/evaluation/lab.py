@@ -2,7 +2,7 @@ import logging
 import statistics
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from src.evaluation.corpus import LabCase
 from src.evaluation.runner import Tally
@@ -34,6 +34,31 @@ class LabReport:
     errors: int = 0
     signals: dict[str, SignalReport] = field(default_factory=dict)
     forward: SignalReport | None = None
+
+
+def against_baseline(
+    baseline: Variant,
+    cases: Sequence[LabCase],
+    classifier: JevClassifier,
+    low_confidence_threshold: float,
+) -> tuple[list[LabCase], int]:
+    """Cases accepting only the route `baseline` gives them now, and how many it failed on.
+
+    For mails nobody rated: a variant is then scored on how often it routes like the baseline,
+    and the baseline itself, run again, shows how much two identical calls disagree.
+    """
+    report = LabReport(baseline.name)
+    kept = []
+    for case in cases:
+        answers = _ask(baseline, case, classifier, report, time.perf_counter)
+        if answers is None:
+            continue
+        try:
+            route = baseline.route(answers, low_confidence_threshold)
+        except (KeyError, ValueError, TypeError):
+            continue
+        kept.append(replace(case, accepts={route}.__contains__))
+    return kept, len(cases) - len(kept)
 
 
 def planned_calls(variants: Sequence[Variant], cases: Sequence[LabCase], repeats: int) -> int:
@@ -89,7 +114,8 @@ def _ask(
     report: LabReport,
     clock: Callable[[], float],
 ) -> dict | None:
-    request = variant.prepare(classifier.build_request(case.email))
+    email = replace(case.email, body=variant.cut(case.email.body))
+    request = variant.prepare(classifier.build_request(email))
     if case.today:
         request = {**request, "state": {**request["state"], "today": case.today}}
     started = clock()

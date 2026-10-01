@@ -270,13 +270,14 @@ Les 9 erreurs de `current`, par verdict :
 
 **DoD** : pour chaque question activée, ratés et faux positifs mesurés sur le corpus et contrôlés à la main sur 30 vrais mails, chiffres notés ici.
 
-### L3 — Troncature début + fin (en attente de L1)
+### L3 — Troncature début + fin
 
-- ⬜ Source `recent` du banc : les N dernières décisions stockées, sans verdict. Chaque variante est comparée à la route de `current` sur le même mail, ce qui mesure ce qu'une troncature change sans attendre de notes. Écart à lire au regard du bruit entre deux appels identiques (`--repeats`)
-- ⬜ Variantes du banc sur les vrais mails de plus de 300 mots : début 1000 mots (actuel), début 700 + fin 300, début 150, début 100 + fin 50
-- ⬜ Prérequis : `fetch_message` renvoie aujourd'hui un corps déjà coupé à 1000 mots (`clean_body`), la fin d'un mail plus long est donc perdue avant le banc. Le banc doit pouvoir demander le corps nettoyé non coupé
-- ⬜ Règle de décision : adopter la variante la moins chère dont l'accord avec les verdicts n'est pas inférieur à l'actuelle et qui ne change aucune route correcte ; sinon ne rien changer
-- ⬜ Si adoptée : `truncate_words` garde le début et la fin, marqueur de coupure visible dans le texte envoyé
+- ✅ Source `recent` du banc (`lab --source recent`) : les derniers mails de plus de `--min-words` mots (300 par défaut), sans verdict. Une première passe de `current` donne la route de référence de chaque mail ; chaque variante est notée sur son accord avec elle. La ligne `current` mesure donc le bruit entre deux appels identiques
+- ✅ Variantes de coupe : `current` (1000 premiers mots, comme la production), `head-700-tail-300`, `head-150`, `head-100-tail-50`. Utilisables aussi sur `--source rated`, pour confronter une coupe aux verdicts
+- ✅ `fetch_message(full_body=True)` : le banc reçoit le corps nettoyé non coupé, la production ne change pas
+- ✅ `truncate_words(text, max_words, tail_words)` garde le début et la fin autour d'une coupure visible `[…]`. La production l'appelle sans fin : adopter une coupe revient à changer cet appel
+- ⬜ À lancer sur le VPS : `lab --source recent`, puis `lab --source rated --variants current,head-700-tail-300,head-150,head-100-tail-50`
+- ⬜ Règle de décision : adopter la variante la moins chère dont l'accord avec les verdicts n'est pas inférieur à l'actuelle, qui ne change aucune route correcte, et dont l'écart avec `current` sur les mails récents ne dépasse pas le bruit ; sinon ne rien changer
 
 **DoD** : au moins 30 vrais mails longs rejoués, économie de tokens et écarts de route notés ici.
 
