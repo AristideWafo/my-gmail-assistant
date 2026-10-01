@@ -400,6 +400,29 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("example.com «about cut» [service_change; reject]", output)
         self.assertNotIn("about promo", output)
 
+    def test_routing_rules_reads_the_store_without_any_call(self):
+        store = SqliteDecisionStore(self.db_path)
+        for message_id, urgency, category, route, source in (
+            ("notice", "low", "notification_systeme", "reject", "jev"),
+            ("ci", "low", "alerte_technique", "label", "jev"),
+            ("ruled", "low", "alerte_technique", "label", "rule"),
+        ):
+            store.record_decision(
+                email(message_id, subject=f"about {message_id}"),
+                TriageResult(urgency, category, 0.9, source),
+                route,
+            )
+        store.record_feedback("notice", "wrong_archive", origin="review")
+        store.close()
+
+        code, output = self.run_cli("routing-rules", "--days", "30")
+
+        self.assertEqual(code, 0)
+        self.assertIn("Classifier decisions over 30 days: 2", output)
+        self.assertIn("applies to 1 mail(s); 1 rated: 0 verdict(s) agree, 1 disagree", output)
+        self.assertIn("disagrees: notice example.com «about notice» [wrong_archive, was reject]", output)
+        self.assertIn("would move 1 of 1 matching mail(s); 0 rated", output)
+
     def test_candidates_reports_when_there_are_none(self):
         self.seed()
 
