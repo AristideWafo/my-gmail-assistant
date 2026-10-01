@@ -128,6 +128,15 @@ class PollOnceObservabilityTests(unittest.TestCase):
             maintenance, ["backup_if_due", "prune_if_due", "send_put_forward_list_if_due"]
         )
 
+    def test_health_is_checked_at_each_poll_even_when_the_fetch_fails(self):
+        ctx = make_ctx()
+        ctx.mail.fetch_unread.side_effect = RuntimeError("gmail down")
+
+        with self.assertLogs("gmail-assistant", level="ERROR"):
+            poll_once(ctx)
+
+        ctx.check_health.assert_called_once_with()
+
     def test_failing_email_is_counted_and_still_beats(self):
         ctx = make_ctx()
         ctx.mail.fetch_unread.return_value = [MagicMock(id="1")]
