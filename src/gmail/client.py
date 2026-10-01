@@ -251,6 +251,8 @@ class GmailClient:
             received_at=cls._received_at(message),
             message_id_header=headers.get("message-id", ""),
             dmarc_pass=dmarc_passed(header_list),
+            list_unsubscribe=headers.get("list-unsubscribe", ""),
+            list_unsubscribe_post=headers.get("list-unsubscribe-post", ""),
         )
 
     @staticmethod

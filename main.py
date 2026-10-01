@@ -26,6 +26,7 @@ from src.health import (
 )
 from src.interactions import InteractionHandler
 from src.interactions.listener import run_listener
+from src.interactions.unsubscribe import UnsubscribeProposer
 from src.maintenance import BackupRotation
 from src.observability import Metrics
 from src.triage.rules import load_ruleset
@@ -54,8 +55,11 @@ class ApplicationContext:
             list(self.components.channels), feedback_buttons=self.inbound_enabled
         )
         self.interactions = (
-            InteractionHandler(self.store, self.chat, self.mail) if self.chat is not None else None
+            InteractionHandler(self.store, self.chat, self.mail, self.components.unsubscriber)
+            if self.chat is not None
+            else None
         )
+        self.unsubscribes = self._build_unsubscribe_proposer()
         self.workflow = EmailWorkflow(
             self.components.classifier,
             self.components.analyzer,
@@ -99,6 +103,10 @@ class ApplicationContext:
 
         if route == "reject":
             self.mail.archive_message(email.id)
+            if self.unsubscribes is not None:
+                self._best_effort(
+                    lambda: self.unsubscribes.consider(email), "propose unsubscribe", email.id
+                )
         elif route == "label":
             self.mail.label_message(email.id, triage.category)
         elif route == "llm":
@@ -197,6 +205,20 @@ class ApplicationContext:
             )
             return False
         return True
+
+    def _build_unsubscribe_proposer(self) -> UnsubscribeProposer | None:
+        if not self.settings.unsubscribe_proposals_enabled:
+            return None
+        # The proposal is only useful with its buttons, and those need the inbound listener.
+        if not self.inbound_enabled:
+            logger.warning("UNSUBSCRIBE_PROPOSALS_ENABLED ignored: chat inbound is not enabled")
+            return None
+        if self.components.unsubscriber is None:
+            logger.warning("UNSUBSCRIBE_PROPOSALS_ENABLED ignored: UNSUBSCRIBER is none")
+            return None
+        return UnsubscribeProposer(
+            self.store, self.chat, self.settings.unsubscribe_min_archived
+        )
 
     def start_telegram_listener(self) -> None:
         if not self.inbound_enabled:

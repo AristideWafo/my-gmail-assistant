@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # Comma-separated; mandatory for inbound in group chats, where anyone could press buttons.
     telegram_allowed_user_ids: str = ""
     jev_few_shot_enabled: bool = False
+    # Offers to unsubscribe from senders whose mail is always archived; needs the chat inbox.
+    unsubscribe_proposals_enabled: bool = False
+    unsubscribe_min_archived: int = Field(default=5, ge=2)
 
     mail_provider: str = "gmail"
     classifier: str = "jev"
@@ -63,6 +66,7 @@ class Settings(BaseSettings):
     alert_channels: str = "telegram,discord"
     chat_inbox: str = "telegram"
     store_backend: str = "sqlite"
+    unsubscriber: str = "http"
 
     @field_validator("telegram_allowed_user_ids")
     @classmethod

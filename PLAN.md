@@ -149,7 +149,7 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 - ✅ Label `source` sur `triage_confidence` ; le panneau Grafana de confiance ne suit plus que `source="jev"`
 - ⬜ Décision documentée sur un repli Gemini pour les classifications à basse confiance, avec un seuil lu sur le banc
 - ✅ **Regroupement d'incidents** : les répétitions d'une alerte automatisée (même expéditeur, même objet hors hash et numéros, 30 min) mettent à jour l'alerte d'origine (« 🔁 6 occurrences en 25 min · dernière : … ») au lieu d'être ignorées en silence. Regroupement par workflow et non par dépôt : un autre workflow du même dépôt, par exemple un déploiement de production, alerte immédiatement. État en mémoire : un redémarrage ouvre un nouvel incident
-- ⬜ **Désabonnement proposé** : expéditeur archivé N fois sans jamais être gardé → bouton `[Se désabonner]` s'appuyant sur l'en-tête `List-Unsubscribe`. Soumis à confirmation comme toute écriture
+- ✅ **Désabonnement proposé** (`UNSUBSCRIBE_PROPOSALS_ENABLED`, désactivé par défaut) : expéditeur archivé `UNSUBSCRIBE_MIN_ARCHIVED` fois en 30 jours sans jamais être gardé → proposition unique `[Se désabonner] [Garder]`. One-click RFC 8058 en HTTPS uniquement, mail authentifié par DMARC, lien conservé côté serveur, confirmation liée au message et exécutée au plus une fois. Le lien étant choisi par l'expéditeur : adresses publiques seulement, connexion à l'adresse vérifiée, aucune redirection suivie. `mailto:` non géré
 
 **Attention** : une règle sur « Run failed » ne doit pas écraser une panne de production, que `URGENCIES` classe `high`. La règle porte donc sur le dépôt, pas sur le seul motif.
 
@@ -312,16 +312,11 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 
 ## Prochaine étape
 
-D'abord S1 (deux PR) :
+Le code de S1, de la Phase 0 et de la Phase 1 est écrit. Ce qui reste dépend du déploiement et des données :
 
-1. Sauvegarde quotidienne + restauration testée et documentée
-2. Alerte de panne silencieuse + distinction « aucun mail » / « échec »
-
-Puis Phase 0 (quatre PR) :
-
-1. Migrations de schéma + colonnes `decisions.source` et `feedback.origin`
-2. `CommandEvent` + routeur de commandes
-3. Verdicts étendus + `/review`
-4. `/stats` + mise à jour README et dashboard
-
-En parallèle, sans code : vérifier `state.examples` contre l'API JEV. S2 se traite au fil de la Phase 0 et doit être clos avant la Phase 2.
+1. Déployer, puis vérifier sur le VPS : sauvegarde et restauration, alerte de panne, `/help`, `/review`, `/stats`
+2. `python -m src.evaluation check-examples` avec la vraie clé JEV
+3. Utiliser `/review` jusqu'à 30 verdicts hors alertes (critère de sortie de la Phase 0)
+4. À 100 verdicts dont 20 corrections : `python -m src.evaluation run`, puis décider du few-shot et du repli Gemini, chiffres notés ici
+5. `python -m src.evaluation candidates` pour écrire les premières règles et la liste VIP
+6. S2 avant la Phase 2

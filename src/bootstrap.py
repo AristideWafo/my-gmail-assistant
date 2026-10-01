@@ -7,6 +7,7 @@ from src.config import Settings
 from src.errors import ConfigurationError
 from src.gateways.discord import DiscordChannel
 from src.gateways.telegram_bot import TelegramBot, TelegramChannel
+from src.gateways.unsubscribe_http import HttpUnsubscriber
 from src.gmail.client import GmailClient, build_unread_query
 from src.llm.gemini import GeminiClient
 from src.observability.metrics import Metrics
@@ -17,6 +18,7 @@ from src.ports import (
     EmailAnalyzer,
     EmailClassifier,
     MailProvider,
+    Unsubscriber,
 )
 from src.storage.decision_store import SqliteDecisionStore
 from src.triage.engine import JEV_RECOVERABLE_ERRORS, JevClassifier
@@ -100,6 +102,10 @@ CHAT_INBOXES: dict[str, Factory[ChatInbox | None]] = {
     "telegram": lambda ctx: ctx.telegram_bot,
     "none": lambda ctx: None,
 }
+UNSUBSCRIBERS: dict[str, Factory[Unsubscriber | None]] = {
+    "http": lambda ctx: HttpUnsubscriber(),
+    "none": lambda ctx: None,
+}
 
 # Default gate is `is_configured`. JEV sits behind a fallback that is always configured, and a
 # malformed Discord URL must still be probed so startup reports it instead of skipping it.
@@ -117,6 +123,7 @@ class Components:
     channels: tuple[AlertChannel, ...]
     chat: ChatInbox | None
     store: DecisionStore
+    unsubscriber: Unsubscriber | None = None
     # (registry name, component) pairs to probe at startup, in report order.
     probe_targets: tuple[tuple[str, Any], ...] = ()
 
@@ -147,6 +154,7 @@ def build_components(settings: Settings) -> Components:
     classifier_factory = _select(CLASSIFIERS, settings.classifier, "CLASSIFIER")
     analyzer_factory = _select(ANALYZERS, settings.llm_provider, "LLM_PROVIDER")
     chat_factory = _select(CHAT_INBOXES, settings.chat_inbox, "CHAT_INBOX")
+    unsubscriber_factory = _select(UNSUBSCRIBERS, settings.unsubscriber, "UNSUBSCRIBER")
     channel_names = _channel_names(settings)
 
     ctx = BuildContext(settings, store_factory(settings))
@@ -162,6 +170,7 @@ def build_components(settings: Settings) -> Components:
         channels=tuple(channel for _, channel in channels),
         chat=chat,
         store=ctx.store,
+        unsubscriber=unsubscriber_factory(ctx),
         probe_targets=(
             (settings.mail_provider, mail),
             (settings.llm_provider, analyzer),

@@ -1,3 +1,4 @@
+import json
 import logging
 
 from src.domain import Button, CallbackEvent, ChatEvent, DecisionRecord, ReplyEvent
@@ -5,13 +6,16 @@ from src.formatting import truncate
 from src.interactions.callbacks import (
     CANCEL,
     FEEDBACK,
+    KEEP,
     SEND,
+    UNSUBSCRIBE,
     Callback,
     draft_buttons,
     parse_callback,
 )
+from src.interactions.unsubscribe import offer_key
 from src.observability.metrics import Metrics
-from src.ports import ChatInbox, DecisionStore, MailProvider
+from src.ports import ChatInbox, DecisionStore, MailProvider, Unsubscriber
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +34,24 @@ ALREADY_SENT = "Déjà envoyé"
 SENT = "Envoyé"
 SEND_FAILED = "Envoi incertain : vérifie tes Envoyés dans Gmail avant de renvoyer."
 CANCELLED = "Brouillon conservé dans Gmail"
+UNSUBSCRIBED = "Désabonnement demandé"
+ALREADY_UNSUBSCRIBED = "Désabonnement déjà demandé"
+UNSUBSCRIBE_FAILED = "Échec : désabonne-toi depuis le mail dans Gmail."
+KEPT = "Abonnement conservé"
 
 
 class InteractionHandler:
-    def __init__(self, store: DecisionStore, chat: ChatInbox, mail: MailProvider) -> None:
+    def __init__(
+        self,
+        store: DecisionStore,
+        chat: ChatInbox,
+        mail: MailProvider,
+        unsubscriber: Unsubscriber | None = None,
+    ) -> None:
         self._store = store
         self._chat = chat
         self._mail = mail
+        self._unsubscriber = unsubscriber
 
     def dispatch(self, event: ChatEvent) -> None:
         if isinstance(event, CallbackEvent):
@@ -50,7 +65,13 @@ class InteractionHandler:
             logger.warning("Ignoring unrecognised callback on message %s", event.message_id)
             self._answer(event, UNKNOWN_ACTION)
             return
-        handlers = {FEEDBACK: self._on_feedback, SEND: self._on_send, CANCEL: self._on_cancel}
+        handlers = {
+            FEEDBACK: self._on_feedback,
+            SEND: self._on_send,
+            CANCEL: self._on_cancel,
+            UNSUBSCRIBE: self._on_unsubscribe,
+            KEEP: self._on_keep,
+        }
         handlers[callback.action](event, callback)
 
     def _on_feedback(self, event: CallbackEvent, callback: Callback) -> None:
@@ -91,6 +112,58 @@ class InteractionHandler:
         Metrics.mark_chat_reply("cancelled")
         self._clear(event.message_id)
         self._answer(event, CANCELLED)
+
+    def _on_unsubscribe(self, event: CallbackEvent, callback: Callback) -> None:
+        offer = self._unsubscribe_offer(event, callback)
+        if offer is None:
+            return
+        done_key = f"unsub_done:{callback.target}"
+        if self._store.get_state(done_key) is not None:
+            Metrics.mark_unsubscribe("duplicate")
+            self._answer(event, ALREADY_UNSUBSCRIBED)
+            self._clear(event.message_id)
+            return
+        # Same rule as sending a draft: claimed before the request, so a redelivered press can
+        # at worst skip it, never repeat it.
+        self._store.set_state(done_key, "1")
+        try:
+            if self._unsubscriber is None:
+                raise RuntimeError("no unsubscriber is configured")
+            self._unsubscriber.unsubscribe(offer["url"])
+        except Exception as exc:  # noqa: BLE001 - whatever failed, the user must be told
+            logger.warning("Unsubscribe from %s failed: %s", offer.get("sender"), exc)
+            Metrics.mark_unsubscribe("failed")
+            self._answer(event, UNSUBSCRIBE_FAILED)
+        else:
+            Metrics.mark_unsubscribe("done")
+            self._answer(event, UNSUBSCRIBED)
+        self._clear(event.message_id)
+
+    def _on_keep(self, event: CallbackEvent, callback: Callback) -> None:
+        if self._unsubscribe_offer(event, callback) is None:
+            return
+        Metrics.mark_unsubscribe("kept")
+        self._clear(event.message_id)
+        self._answer(event, KEPT)
+
+    def _unsubscribe_offer(self, event: CallbackEvent, callback: Callback) -> dict | None:
+        # Callback data is client-supplied: only an offer this bot made, pressed on the very
+        # message that made it, is honoured, and the link comes from the store, never the data.
+        raw = self._store.get_state(offer_key(callback.target))
+        try:
+            offer = json.loads(raw) if raw else None
+        except ValueError:
+            offer = None
+        if (
+            isinstance(offer, dict)
+            and isinstance(offer.get("url"), str)
+            and offer.get("offered_on") == event.message_id
+        ):
+            return offer
+        logger.warning("Rejected unsubscribe action on chat message %s", event.message_id)
+        Metrics.mark_unsubscribe("rejected")
+        self._answer(event, UNKNOWN_ACTION)
+        return None
 
     def _offered_here(self, event: CallbackEvent, callback: Callback) -> bool:
         # Callback data is client-supplied: only a draft this bot offered, pressed on the very
