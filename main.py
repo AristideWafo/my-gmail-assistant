@@ -356,6 +356,20 @@ def poll_once(ctx: ApplicationContext) -> None:
     Metrics.mark_poll_success()
     ctx.outage.record_success()
     ctx.health.beat()
+    _process_each(ctx, emails)
+
+
+def sync_history_once(ctx: ApplicationContext) -> None:
+    # Runs inside startup: an exception here would keep the app from ever starting to poll.
+    try:
+        emails = ctx.mail.fetch_history()
+    except Exception:
+        logger.exception("Failed to fetch Gmail history; starting without the history sync")
+        return
+    _process_each(ctx, emails)
+
+
+def _process_each(ctx: ApplicationContext, emails) -> None:
     for email in emails:
         if ctx.stopping.is_set():
             return
@@ -364,14 +378,6 @@ def poll_once(ctx: ApplicationContext) -> None:
         except Exception:
             Metrics.mark_email_skipped()
             logger.exception("Failed to process email %s; skipping", email.id)
-        ctx.health.beat()
-
-
-def sync_history_once(ctx: ApplicationContext) -> None:
-    for email in ctx.mail.fetch_history():
-        if ctx.stopping.is_set():
-            return
-        ctx.process_email(email)
         ctx.health.beat()
 
 

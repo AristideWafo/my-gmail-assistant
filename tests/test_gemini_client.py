@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from google.api_core.exceptions import ResourceExhausted
+from google.api_core.exceptions import DeadlineExceeded, ResourceExhausted
 
 from src.domain import EmailMessage
 from src.llm.gemini import NO_COMMITMENT_RULE, GeminiClient
@@ -161,6 +161,31 @@ class GeminiRetryTests(unittest.TestCase):
 
         self.assertEqual(client._model.generate_content.call_count, 3)
         self.assertEqual(Metrics.llm_errors.labels(reason="rate_limited")._value.get(), before + 3)
+
+    def test_every_call_carries_a_deadline(self):
+        client = make_client(timeout_seconds=12)
+        client._model.generate_content.return_value = fake_response('{"summary": "ok"}')
+
+        client.analyze(make_email(), want_draft=False, want_entities=False)
+        with patch("src.llm.gemini.genai") as genai:
+            client.check_connection()
+
+        options = client._model.generate_content.call_args.kwargs["request_options"]
+        self.assertEqual(options, {"timeout": 12})
+        self.assertEqual(genai.get_model.call_args.kwargs["request_options"], {"timeout": 12})
+
+    def test_a_stalled_call_is_counted_and_not_retried(self):
+        sleeps = []
+        client = make_client(sleep=sleeps.append)
+        client._model.generate_content.side_effect = DeadlineExceeded("504 deadline exceeded")
+        before = Metrics.llm_errors.labels(reason="timeout")._value.get()
+
+        with self.assertRaises(DeadlineExceeded):
+            client.analyze(make_email(), want_draft=False, want_entities=False)
+
+        self.assertEqual(client._model.generate_content.call_count, 1)
+        self.assertEqual(sleeps, [])
+        self.assertEqual(Metrics.llm_errors.labels(reason="timeout")._value.get(), before + 1)
 
     def test_every_attempt_goes_through_the_rate_limiter(self):
         limiter = MagicMock()

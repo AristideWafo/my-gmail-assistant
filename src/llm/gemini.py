@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 
 import google.generativeai as genai
-from google.api_core.exceptions import ResourceExhausted
+from google.api_core.exceptions import DeadlineExceeded, ResourceExhausted
 
 from src.domain import EmailMessage, LLMAnalysis
 from src.formatting import clean_draft, has_placeholder, strip_markdown
@@ -47,11 +47,15 @@ class GeminiClient:
         model_name: str = "gemini-1.5-flash",
         max_rpm: int = 12,
         user_name: str = "",
+        timeout_seconds: float = 30.0,
         limiter: RateLimiter | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.model_name = model_name
         self._user_name = user_name
+        # Without a deadline a stalled call blocks the polling thread until the watchdog restarts
+        # the container, and every mail behind it waits.
+        self._request_options = {"timeout": timeout_seconds}
         self._limiter = limiter or RateLimiter(max_rpm)
         self._sleep = sleep
         self._enabled = bool(api_key)
@@ -64,7 +68,7 @@ class GeminiClient:
         return self._enabled
 
     def check_connection(self) -> str:
-        genai.get_model(f"models/{self.model_name}")
+        genai.get_model(f"models/{self.model_name}", request_options=self._request_options)
         return f"model {self.model_name} available"
 
     def _generate(self, prompt: str, kind: str, json_output: bool = False) -> str:
@@ -72,7 +76,14 @@ class GeminiClient:
         for attempt in range(MAX_RETRIES + 1):
             self._limiter.acquire()
             try:
-                response = self._model.generate_content(prompt, **options)
+                response = self._model.generate_content(
+                    prompt, request_options=self._request_options, **options
+                )
+            except DeadlineExceeded:
+                # Not retried: the caller has a degraded path, and waiting again would hold the
+                # polling thread for another full deadline.
+                Metrics.mark_llm_error("timeout")
+                raise
             except ResourceExhausted as exc:
                 Metrics.mark_llm_error("rate_limited")
                 if attempt == MAX_RETRIES:
