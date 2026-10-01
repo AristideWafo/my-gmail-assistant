@@ -14,8 +14,8 @@ class Metrics:
     routes = Counter("triage_route_total", "Emails per routing decision", ["route"])
     triage_confidence = Histogram(
         "triage_confidence",
-        "Combined JEV confidence, to calibrate the low-confidence threshold",
-        ["urgency"],
+        "Triage confidence by deciding stage; source=jev calibrates the low-confidence threshold",
+        ["urgency", "source"],
         buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
     )
     emails_skipped = Counter("emails_skipped_total", "Emails whose processing failed and was retried next cycle")
@@ -90,9 +90,11 @@ class Metrics:
         cls.telegram_poll_errors.inc()
 
     @classmethod
-    def mark_route(cls, route: str, urgency: str, confidence: float) -> None:
+    def mark_route(cls, route: str, urgency: str, confidence: float, source: str = "") -> None:
         cls.routes.labels(route=route).inc()
-        cls.triage_confidence.labels(urgency=urgency).observe(confidence)
+        cls.triage_confidence.labels(urgency=urgency, source=source or "unknown").observe(
+            confidence
+        )
 
     @classmethod
     def mark_email_skipped(cls) -> None:

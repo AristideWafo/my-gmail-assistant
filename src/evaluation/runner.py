@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 from src.evaluation.dataset import Case
 from src.ports import EmailClassifier
-from src.triage.rules import apply_rules
+from src.triage.rules import RuleSet
 from src.workflow import route_for
 
 logger = logging.getLogger(__name__)
@@ -38,12 +38,17 @@ class VariantReport:
 
 
 def evaluate(
-    name: str, classifier: EmailClassifier, cases: Iterable[Case], low_confidence_threshold: float
+    name: str,
+    classifier: EmailClassifier,
+    cases: Iterable[Case],
+    low_confidence_threshold: float,
+    rules: RuleSet | None = None,
 ) -> VariantReport:
     """Replays each case through the rules and `classifier`, exactly as the workflow routes it."""
     report = VariantReport(name)
+    rules = rules or RuleSet()
     for case in cases:
-        triage = apply_rules(case.email.sender)
+        triage = rules.classify(case.email)
         if triage is None:
             report.classifier_calls += 1
             try:

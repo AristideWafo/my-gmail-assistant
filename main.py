@@ -28,6 +28,7 @@ from src.interactions import InteractionHandler
 from src.interactions.listener import run_listener
 from src.maintenance import BackupRotation
 from src.observability import Metrics
+from src.triage.rules import load_ruleset
 from src.workflow import EmailWorkflow
 
 logging.basicConfig(level=logging.INFO)
@@ -59,6 +60,7 @@ class ApplicationContext:
             self.components.classifier,
             self.components.analyzer,
             settings.low_confidence_threshold,
+            load_ruleset(settings.triage_rules_path),
         )
         self.health = PollHealth(settings.poll_stale_after_seconds)
         self.outage = OutageNotifier(
@@ -103,7 +105,7 @@ class ApplicationContext:
             self._handle_urgent(email, triage, result)
 
         Metrics.mark_processed(triage.urgency, triage.category)
-        Metrics.mark_route(route, triage.urgency, triage.confidence)
+        Metrics.mark_route(route, triage.urgency, triage.confidence, triage.source)
         Metrics.triage_latency.observe(perf_counter() - started)
         logger.info(
             "Processed email %s with urgency=%s category=%s confidence=%.2f",

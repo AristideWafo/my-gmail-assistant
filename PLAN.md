@@ -144,9 +144,9 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 - ✅ `check-examples` (un appel JEV réel avec `state.examples`) et `candidates` (expéditeurs toujours classés pareil : candidats à une règle)
 - ✅ Séparation temporelle obligatoire : exemples few-shot tirés des corrections antérieures à une date T, évaluation sur les verdicts postérieurs. Sans cela le few-shot est évalué sur ses propres exemples
 - ⬜ Activation de `JEV_FEW_SHOT_ENABLED` si le banc montre un gain
-- ⬜ Règles en fichier de config (`TRIAGE_RULES_PATH`) : expéditeur **et** objet, urgence et catégorie par règle. Candidats tirés du store : expéditeurs à fort volume toujours classés pareil
-- ⬜ Liste VIP par adresse exacte, forçant `high`. Appliquée seulement si l'en-tête `Authentication-Results` indique `dmarc=pass` : le champ `From` est falsifiable
-- ⬜ Label `source` sur `triage_confidence` et sur le panneau Grafana existant
+- ✅ Règles en fichier de config (`TRIAGE_RULES_PATH`, TOML, `config/triage_rules.example.toml`) : expéditeur **et** objet, urgence et catégorie par règle, fichier invalide refusé au démarrage. Candidats tirés du store par `python -m src.evaluation candidates`
+- ✅ Liste VIP par adresse exacte, forçant `high` (`source=vip`). Appliquée seulement si l'en-tête `Authentication-Results` de Gmail indique `dmarc=pass` : le champ `From` est falsifiable. Limite connue : si Gmail n'ajoutait aucun en-tête à un message, un en-tête forgé portant son identifiant serait lu ; l'effet se limite à une alerte, jamais à une action
+- ✅ Label `source` sur `triage_confidence` ; le panneau Grafana de confiance ne suit plus que `source="jev"`
 - ⬜ Décision documentée sur un repli Gemini pour les classifications à basse confiance, avec un seuil lu sur le banc
 - ⬜ **Regroupement d'incidents** : plusieurs `alerte_technique` sur le même dépôt dans une fenêtre donnée → une seule alerte mise à jour (« 6 échecs depuis 14 h, dernier : deploy prod ») au lieu d'une notification par mail
 - ⬜ **Désabonnement proposé** : expéditeur archivé N fois sans jamais être gardé → bouton `[Se désabonner]` s'appuyant sur l'en-tête `List-Unsubscribe`. Soumis à confirmation comme toute écriture

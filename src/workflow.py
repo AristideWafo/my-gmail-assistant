@@ -7,7 +7,7 @@ from src.domain import EmailMessage, LLMAnalysis, TriageResult
 from src.formatting import truncate
 from src.observability.metrics import Metrics
 from src.ports import EmailAnalyzer, EmailClassifier
-from src.triage.rules import apply_rules, is_automated_sender
+from src.triage.rules import RuleSet, is_automated_sender
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +47,12 @@ class EmailWorkflow:
         classifier: EmailClassifier,
         analyzer: EmailAnalyzer,
         low_confidence_threshold: float = 0.50,
+        rules: RuleSet | None = None,
     ):
         self.classifier = classifier
         self.analyzer = analyzer
         self.low_confidence_threshold = low_confidence_threshold
+        self.rules = rules or RuleSet()
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -80,7 +82,7 @@ class EmailWorkflow:
 
     def _triage_node(self, state: TriageState) -> dict[str, Any]:
         email = state["email"]
-        return {"triage": apply_rules(email.sender) or self.classifier.classify(email)}
+        return {"triage": self.rules.classify(email) or self.classifier.classify(email)}
 
     def _llm_node(self, state: TriageState) -> dict[str, Any]:
         email = state["email"]

@@ -1,0 +1,25 @@
+# Copy to config/triage_rules.toml and point TRIAGE_RULES_PATH at it.
+# The file is read at startup; an invalid file stops the app with the offending rule.
+
+# Exact addresses whose mail always alerts. Only applied when Gmail reports dmarc=pass for the
+# message, because the From address alone can be forged.
+vip = [
+    "someone@example.com",
+]
+
+# Deterministic rules, checked in order before the built-in ones and before the classifier.
+# sender and subject are case-insensitive regular expressions; subject is optional.
+# urgency: low | medium | high
+# category: offre_emploi | alerte_emploi | mise_en_relation | newsletter | promotion |
+#           alerte_technique | notification_systeme | personnel | spam
+
+[[rules]]
+sender = '^notifications@github\.com$'
+subject = '^\[my-org/sandbox\] Run failed'
+urgency = "low"
+category = "alerte_technique"
+
+[[rules]]
+sender = '@mailer\.example\.com$'
+urgency = "low"
+category = "promotion"

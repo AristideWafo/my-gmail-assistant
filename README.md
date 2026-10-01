@@ -97,6 +97,15 @@ Also configure:
 - `FETCH_MAX_AGE_DAYS` (default `3`; only unread inbox mails newer than this are processed; promotions are filtered by the classifier, never dropped by the query) and `FETCH_QUERY` (full Gmail query override)
 - `LOW_CONFIDENCE_THRESHOLD` (default `0.50`; below it a mail is labeled and never archived, and only `high` urgency triggers an alert)
 
+## Triage rules and VIP senders
+
+Deterministic rules run before the classifier: a matching mail costs no JEV call and gets confidence `1.0`. A few bulk senders are built in (`src/triage/rules.py`). To add your own, copy `config/triage_rules.example.toml` to `config/triage_rules.toml` (git-ignored, mounted read-only at `/config` by `docker-compose.yml`) and set `TRIAGE_RULES_PATH=/config/triage_rules.toml`.
+
+- `[[rules]]`: `sender` and optional `subject` are case-insensitive regular expressions, `urgency` and `category` must be valid values. File rules are checked in order, before the built-in ones. A rule on a CI subject should name the repository, so a production failure elsewhere still reaches the classifier.
+- `vip`: exact addresses whose mail always alerts (`high`, source `vip`). A VIP is only honoured when Gmail's own `Authentication-Results` header reports `dmarc=pass`, since a `From` address alone can be forged; otherwise the mail is classified normally. A domain without DMARC therefore never gets VIP treatment.
+
+The file is read at startup and an invalid one stops the app with the offending rule. `python -m src.evaluation candidates` suggests senders worth a rule. Each decision records its `source` (`vip`, `rule`, `jev`, `heuristic`), which also labels the `triage_confidence` histogram so the JEV confidence can be followed on its own.
+
 ## Choosing / adding implementations
 
 The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interactions/`) only talks to the protocols in `src/ports`. `src/bootstrap.py` builds the concrete adapters from these selectors:
