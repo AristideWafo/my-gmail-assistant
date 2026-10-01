@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     poll_interval_seconds: int = 60
     # 0 disables the chat message sent when fetching mail keeps failing.
     poll_failure_alert_minutes: int = Field(default=10, ge=0)
+    # Tells the chat when failures pile up (JEV fallbacks, skipped mails, LLM errors, silent
+    # listener): at least HEALTH_ALERT_MIN_EVENTS over the window. 0 minutes disables it.
+    health_alert_window_minutes: int = Field(default=15, ge=0)
+    health_alert_min_events: int = Field(default=3, ge=1)
+    # Estimated LLM spend per local day above which the LLM is no longer called; 0 = no cap.
+    llm_daily_budget_usd: float = Field(default=0, ge=0)
     low_confidence_threshold: float = 0.50
     # TOML file of extra deterministic rules and VIP senders; empty keeps the built-in rules only.
     triage_rules_path: str = ""

@@ -31,6 +31,7 @@ PRUNABLE_STATE_PREFIXES = (
     "unsub:",
     "unsub_done:",
     "cmd:",
+    "llm_spend:",
 )
 
 _DECISION_COLUMNS = (
