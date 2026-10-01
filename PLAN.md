@@ -218,10 +218,10 @@ Ce que ces chiffres montrent, et ce qu'ils ne montrent pas :
 
 - **Le coût réel est 2,5 fois celui du corpus** (2 375 tokens contre 936) : les vrais mails sont longs, proches du plafond de 1000 mots. Le corps pèse environ 70 % du coût, la troncature (L3) est donc le premier levier. La latence ne bouge pas
 - **Les questions oui/non ajoutent 19 % de tokens** (441 par mail) sur de vrais mails, sans effet sur la latence
-- **Bruit entre deux appels : environ un mail.** `current` et `signals` posent les mêmes questions de routage ; ils diffèrent d'un mail à la passe 1 et sont identiques à la passe 2
+- **Bruit entre deux appels : un à deux mails sur 37.** `current` et `signals` posent les mêmes questions de routage ; ils diffèrent d'un mail à la passe 1, d'aucun à la passe 2, de deux à la passe 3. Les deux écarts de la passe 3 sont des archivages : le bruit peut donc faire disparaître un mail de la boîte
 - **`direct-action` fait moins bien** : 24/37 contre 28/37. Ses erreurs propres sont quatre archivages de discussions de revue de code et une alerte sur un avis bancaire automatique. Même constat que sur le corpus
-- **`has_deadline` est inutilisable tel quel** : 5 oui sur 37, tous sur des lettres d'information, des événements ou une mise à jour de conditions d'utilisation
-- **`asks_for_meeting` confond rendez-vous et événements publics** : 9 oui, dont au moins 5 webinaires ou événements. Le filtre de catégorie est indispensable et l'énoncé doit exclure les événements publics
+- **`has_deadline` est inutilisable tel quel** : 5 oui sur 37, dont 4 sur des mails que tu as validés comme archivés ou simplement gardés (lettres d'information, événements, conditions d'utilisation)
+- **`asks_for_meeting` suit mieux tes verdicts que prévu** : 9 oui, dont 6 sur des mails que tu voulais voir alertés (2 alertes validées, 4 « urgent raté ») et 3 sur des mails validés sans alerte (deux webinaires archivés, un événement gardé). Les événements auxquels tu participes comptent donc pour toi ; ce qui reste à exclure, ce sont les webinaires promotionnels. Lecture corrigée : la passe 2 les comptait tous comme faux
 - **`contains_commitment`** : un seul oui, sur un avis bancaire automatique. **`has_payment_due`** : aucun oui
 - **`needs_reply`** : oui sur 3 mails sur 37, donc pas une copie de l'urgence. À contrôler à la main
 - **Une des erreurs de `current` est un archivage** : un avis d'une administration, classé notification d'urgence basse, est archivé alors que le verdict demandait autre chose. La règle d'archivage existante se trompe donc déjà au moins une fois sur 37 (voir L4)
@@ -230,13 +230,30 @@ Limites de l'outil apparues à l'usage :
 
 - Le rapport ne montrait pas le verdict d'un mail mal routé : impossible de dire si JEV répète une erreur déjà corrigée ou s'écarte d'une décision validée. Corrigé : chaque mail noté est affiché avec son verdict et sa route d'origine
 - `current` n'envoie pas les exemples few-shot, alors que la production les envoie quand `JEV_FEW_SHOT_ENABLED` est actif. Le score de `current` n'est donc pas exactement celui de la production. Sans effet sur la comparaison entre variantes, qui partagent ce biais
-- 9 mails sur 37 non conformes à la passe 2 (6 sur 16 à la passe 1). Sans le verdict affiché, on ne sait pas lesquels sont des corrections que le rejeu reproduit (attendu, les questions n'ayant pas changé) et lesquels s'écartent d'une décision validée : à relire à la prochaine passe
+- Passe 3, verdicts affichés : les 9 mails non conformes de `current` sont tous des corrections que le rejeu reproduit à l'identique. Aucune décision validée n'est modifiée par `current`
+
+**Passe 3, avec le verdict de chaque mail** (v0.12.0, mêmes 37 mails : `current` 28/37, `direct-action` 24/37, `signals` 27/37)
+
+Les 9 erreurs de `current`, par verdict :
+
+| Verdict | Nombre | Nature |
+| --- | --- | --- |
+| `missed_urgent` (gardé, tu voulais une alerte) | 7 | Annonce datée qui te concerne, événements et invitation dans la semaine, rappel pour le lendemain, migration annoncée d'un outil que tu utilises, message de recruteur, question d'une personne |
+| `wrong_archive` | 1 | Avis d'une administration archivé |
+| `false_spam` (gardé, tu voulais l'archiver) | 1 | Résumé de discussions d'un réseau social |
+
+- **7 erreurs sur 9 sont des urgences ratées, aucune n'est une fausse alerte.** Le tri est trop prudent sur l'alerte, pas trop bavard. La définition de « haute » envoyée à JEV (à traiter aujourd'hui ou demain) est plus étroite que ce que tu appelles urgent : des choses datées dans les jours qui viennent, et des personnes qui attendent quelque chose de toi
+- **Question ouverte avant tout changement** : « Urgent raté » veut-il dire « j'aurais voulu une alerte immédiate » ou « j'aurais voulu que ce soit mis en avant » ? `/review` n'offre que ce bouton pour dire qu'un mail comptait. Si c'est le second sens, la réponse est un niveau intermédiaire (récap de la Phase 3), pas plus d'alertes
+- **Les questions oui/non ne suffisent pas à rattraper ces 7 mails** : `asks_for_meeting` ou `needs_reply` en couvrent 5, mais déclencheraient aussi sur 4 mails validés sans alerte
+- **`needs_reply`** : oui sur 3 mails. Deux sont des urgences ratées (message de recruteur, question d'une personne) : le brouillon silencieux les aurait signalés. Le troisième est un mail validé comme simplement gardé
+- **`direct-action`** : ses erreurs propres sont 5 décisions validées qu'il modifie (4 discussions de revue de code archivées, 1 avis bancaire alerté) et 1 archive validée qu'il garde
+
 
 **Décisions proposées** (à confirmer) :
 
 - **L2 — reporté.** Chaque question attend la fonction qui la consomme, comme prévu. Acquis : coût faible. À faire avant tout usage : réécrire `has_deadline` et `asks_for_meeting`, qui se déclenchent sur les événements publics et les lettres d'information
 - **L3 — à lancer en premier.** C'est le seul levier de coût significatif. Il lui faut une source `recent` (voir L3) : 37 mails notés ne suffisent pas, et comparer une troncature à la réponse sur le mail entier ne demande aucun verdict
-- **L4 — à lancer avec prudence.** Les deux règles vérifiables sur l'historique élargissent l'archivage, alors que la règle existante est déjà contredite par un verdict. L4 commence donc par mesurer la règle existante
+- **L4 — priorité inversée.** La règle à étudier d'abord est l'élargissement de « haute » : elle vise 7 des 9 erreurs. Elle se teste par une variante du banc sur ces mêmes mails, une fois tranché le sens de « Urgent raté ». Les règles qui élargissent l'archivage passent après : la règle d'archivage existante est déjà contredite par un verdict, à mesurer d'abord sur l'historique
 - **`direct-action` — abandonné** : moins bon sur le corpus en gravité d'erreur, moins bon sur les vrais mails en nombre
 
 ### L2 — Questions métier (en attente de L1)
@@ -269,7 +286,7 @@ Les deux premières se vérifient sans aucun appel JEV : elles réinterprètent 
 - ⬜ **Mesurer d'abord la règle existante** (`notification_systeme` d'urgence basse et confiante → archivé) : nombre de mails archivés par elle sur 90 jours, et parmi eux ceux qui ont reçu `wrong_archive` ou `missed_urgent`. Un avis d'administration archivé à tort a été vu au banc
 - ⬜ **Archiver `alerte_technique` d'urgence basse et confiante** (succès de CI, mises à jour de dépendances), comme `notification_systeme` aujourd'hui. À compter sur l'historique : mails concernés, et parmi eux ceux qui ont reçu `wrong_archive` ou `missed_urgent`
 - ⬜ **Archiver le spam même quand il se dit urgent**. Aujourd'hui urgence haute + spam reste en boîte par prudence. Risque : un vrai mail urgent pris pour du spam. Garde proposée : seulement au-dessus d'un seuil de confiance sur la catégorie, lu sur le banc
-- ⬜ **Élargir « haute » à une échéance sous 3 jours** (domaine qui expire, paiement à régulariser). Modifie la définition envoyée à JEV : nécessite un rejeu. À mesurer : alertes en plus par semaine, à confronter au plafond de notifications (invariant 5)
+- ⬜ **Élargir « haute »** aux choses datées dans les jours qui viennent (événement, échéance, coupure, migration annoncée) et aux personnes qui attendent une réponse. Prioritaire : 7 des 9 erreurs relevées au banc sont des urgences ratées de ce type, aucune n'est une fausse alerte. À faire dans l'ordre : trancher le sens de « Urgent raté » (alerte immédiate ou mise en avant) ; ajouter une variante du banc avec la définition élargie ; la rejouer sur les mails notés en comptant les urgences rattrapées **et** les alertes ajoutées sur des mails validés sans alerte ; confronter au plafond de notifications (invariant 5)
 - ⬜ Chaque règle adoptée arrive seule, dans sa PR, avec le nombre de mails de l'historique qu'elle aurait déplacés
 
 **DoD** : pour chaque règle, nombre de mails déplacés sur 90 jours et verdicts contredits notés ici ; aucune règle adoptée si elle contredit un verdict existant.
@@ -435,6 +452,6 @@ Le code de S1, de la Phase 0 et de la Phase 1 est écrit. Ce qui reste dépend d
 4. À 100 verdicts dont 20 corrections : `python -m src.evaluation run`, puis décider du few-shot et du repli Gemini, chiffres notés ici
 5. `python -m src.evaluation candidates` pour écrire les premières règles et la liste VIP
 6. Activer `NEEDS_REPLY_ENABLED`, puis contrôler pendant une semaine les brouillons créés et le label `Assistant/A_repondre` ; ajuster `NEEDS_REPLY_THRESHOLD` d'après les probabilités stockées
-7. Confirmer les décisions proposées en Phase 1bis, puis L3 (troncature, avec la source `recent`) et les deux règles de L4 vérifiables sur l'historique
+7. Trancher le sens de « Urgent raté », puis tester au banc une définition élargie de « haute » (L4) ; L3 (troncature, avec la source `recent`) ensuite
 8. Continuer `/review` (43 verdicts à ce jour), puis relancer `lab --source rated` à 100 verdicts dont 20 corrections
 9. S2 avant le reste de la Phase 2
