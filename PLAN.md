@@ -198,8 +198,39 @@ Les 5 erreurs du flow actuel sur ce corpus viennent des règles de routage, pas 
 
 **Validation de L1** (condition d'entrée de L2, L3 et L4)
 - ✅ Sur le corpus, la variante `current` retrouve les chiffres de la première série : 45/50 sur 3 passes, aucun changement de route, 936 tokens par mail, latence médiane 0,26 s (`direct-action` 47/50, `signals` 45/50 pour 1 377 tokens)
-- ⬜ Exécuté sur le VPS avec `docker compose exec assistant python -m src.evaluation lab --source rated` ; nombre de cas, taux par variante et coût notés ici
-- ⬜ Décision écrite ici pour chacun des points L2, L3, L4 : lancé, reporté ou abandonné, chiffres à l'appui
+- ✅ Exécuté sur le VPS avec `docker compose exec assistant python -m src.evaluation lab --source rated` (v0.11.0) : résultats ci-dessous
+- ⬜ Décision écrite ici pour chacun des points L2, L3, L4 : lancé, reporté ou abandonné, chiffres à l'appui. Décisions proposées ci-dessous, à confirmer
+
+**Résultats sur les vrais mails notés** (17 verdicts, 1 décidé par une règle et écarté, 16 rejoués, 48 appels ; **non concluant** : moins de 100 verdicts dont 20 corrections)
+
+| Variante | Routes conformes au verdict | Tokens par mail | Latence médiane |
+| --- | --- | --- | --- |
+| `current` | 10/16 | 2 431 | 0,24 s |
+| `direct-action` | 10/16 | 2 432 | 0,25 s |
+| `signals` | 11/16 | 2 872 | 0,25 s |
+
+Ce que ces chiffres montrent, et ce qu'ils ne montrent pas :
+
+- **Le coût réel est 2,6 fois celui du corpus** (2 431 tokens contre 936) : les vrais mails sont longs, proches du plafond de 1000 mots. Le corps pèse environ 70 % du coût, la troncature (L3) est donc le premier levier. La latence ne bouge pas
+- **Les questions oui/non ajoutent 18 % de tokens** (441 par mail) sur de vrais mails, sans effet sur la latence
+- **Le routage n'est pas parfaitement stable sur de vrais mails** : `current` et `signals` posent les mêmes questions de routage et diffèrent sur un mail (10 contre 11). L'écart entre variantes est donc du bruit à cette taille d'échantillon
+- **`direct-action` n'apporte rien** : même score, et ses deux erreurs propres sont des archivages de discussions de revue de code, plus graves que les erreurs de `current` (mails gardés à tort). Même constat que sur le corpus
+- **`asks_for_meeting` et `has_deadline` répondent oui aux webinaires et événements promotionnels** (4 des 6 « rendez-vous », 2 des 2 « échéances »). Le filtre de catégorie est indispensable, et l'énoncé doit exclure les événements publics
+- **`needs_reply`** : oui sur 2 mails sur 16, donc pas une copie de l'urgence. À contrôler à la main
+- **`has_payment_due` et `contains_commitment`** : aucun oui, rien à en conclure
+
+Limites de l'outil apparues à l'usage :
+
+- Le rapport ne montrait pas le verdict d'un mail mal routé : impossible de dire si JEV répète une erreur déjà corrigée ou s'écarte d'une décision validée. Corrigé depuis (le verdict et la route d'origine sont affichés)
+- `current` n'envoie pas les exemples few-shot, alors que la production les envoie quand `JEV_FEW_SHOT_ENABLED` est actif. Le score de `current` n'est donc pas exactement celui de la production. Sans effet sur la comparaison entre variantes, qui partagent ce biais
+- 6 mails sur 16 non conformes : en grande partie des corrections, que le rejeu reproduit telles quelles. C'est attendu, les questions n'ayant pas changé
+
+**Décisions proposées** (à confirmer) :
+
+- **L2 — reporté.** Chaque question attend la fonction qui la consomme, comme prévu. Acquis : coût faible, mais énoncés à revoir pour exclure webinaires et promotions
+- **L3 — à lancer en premier.** C'est le seul levier de coût significatif. Il lui faut une source `recent` (voir L3) : 16 mails notés ne suffisent pas, et comparer une troncature à la réponse sur le mail entier ne demande aucun verdict
+- **L4 — à lancer pour les deux règles vérifiables sur l'historique**, sans appel JEV. La troisième (« haute » à 3 jours) reste en attente de verdicts
+- **`direct-action` — abandonné** sauf résultat contraire à 100 verdicts
 
 ### L2 — Questions métier (en attente de L1)
 
@@ -216,6 +247,7 @@ Les 5 erreurs du flow actuel sur ce corpus viennent des règles de routage, pas 
 
 ### L3 — Troncature début + fin (en attente de L1)
 
+- ⬜ Source `recent` du banc : les N dernières décisions stockées, sans verdict. Chaque variante est comparée à la route de `current` sur le même mail, ce qui mesure ce qu'une troncature change sans attendre de notes. Écart à lire au regard du bruit entre deux appels identiques (`--repeats`)
 - ⬜ Variantes du banc sur les vrais mails de plus de 300 mots : début 1000 mots (actuel), début 700 + fin 300, début 150, début 100 + fin 50
 - ⬜ Prérequis : `fetch_message` renvoie aujourd'hui un corps déjà coupé à 1000 mots (`clean_body`), la fin d'un mail plus long est donc perdue avant le banc. Le banc doit pouvoir demander le corps nettoyé non coupé
 - ⬜ Règle de décision : adopter la variante la moins chère dont l'accord avec les verdicts n'est pas inférieur à l'actuelle et qui ne change aucune route correcte ; sinon ne rien changer
@@ -395,5 +427,6 @@ Le code de S1, de la Phase 0 et de la Phase 1 est écrit. Ce qui reste dépend d
 4. À 100 verdicts dont 20 corrections : `python -m src.evaluation run`, puis décider du few-shot et du repli Gemini, chiffres notés ici
 5. `python -m src.evaluation candidates` pour écrire les premières règles et la liste VIP
 6. Activer `NEEDS_REPLY_ENABLED`, puis contrôler pendant une semaine les brouillons créés et le label `Assistant/A_repondre` ; ajuster `NEEDS_REPLY_THRESHOLD` d'après les probabilités stockées
-7. Sur le VPS : `docker compose exec assistant python -m src.evaluation lab --source rated`, noter les chiffres dans la Phase 1bis, puis décider de L2, L3 et L4
-8. S2 avant le reste de la Phase 2
+7. Confirmer les décisions proposées en Phase 1bis, puis L3 (troncature, avec la source `recent`) et les deux règles de L4 vérifiables sur l'historique
+8. Relancer `lab --source rated` à 100 verdicts dont 20 corrections
+9. S2 avant le reste de la Phase 2
