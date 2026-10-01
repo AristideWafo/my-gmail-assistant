@@ -17,6 +17,7 @@ from src.config import Settings
 from src.expiring_set import ExpiringSet
 from src.gateways.alerts import AlertGateway
 from src.health import (
+    OutageNotifier,
     PollHealth,
     StartupCheckMode,
     format_status_report,
@@ -60,6 +61,9 @@ class ApplicationContext:
             settings.low_confidence_threshold,
         )
         self.health = PollHealth(settings.poll_stale_after_seconds)
+        self.outage = OutageNotifier(
+            settings.poll_failure_alert_minutes * 60, self.alerts.send_text
+        )
         self.stopping = threading.Event()
         self.listener: threading.Thread | None = None
         # Backs up the persisted flag: if both mark_alerted and the label fail, the mail must not
@@ -244,14 +248,18 @@ def poll_once(ctx: ApplicationContext) -> None:
     ctx.prune_if_due()
     try:
         emails = ctx.mail.fetch_unread()
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to fetch unread emails; will retry next cycle")
+        Metrics.mark_poll_failure()
         # The loop is alive; a Gmail outage must not make the watchdog restart-loop the container.
+        # The watchdog therefore stays quiet, so the user is told through the chat instead.
         ctx.health.beat()
+        ctx.outage.record_failure(exc)
         return
 
     logger.info("Polled Gmail: %d unread email(s)", len(emails))
     Metrics.mark_poll_success()
+    ctx.outage.record_success()
     ctx.health.beat()
     for email in emails:
         if ctx.stopping.is_set():

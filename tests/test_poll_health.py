@@ -147,6 +147,27 @@ class PollOnceObservabilityTests(unittest.TestCase):
         ctx.health.beat.assert_called_once()
         self.assertEqual(Metrics.last_poll_timestamp._value.get(), before)
 
+    def test_failed_fetch_is_counted_and_reported_to_the_outage_notifier(self):
+        ctx = make_ctx()
+        error = RuntimeError("down")
+        ctx.mail.fetch_unread.side_effect = error
+        before = Metrics.poll_failures._value.get()
+
+        poll_once(ctx)
+
+        self.assertEqual(Metrics.poll_failures._value.get(), before + 1)
+        ctx.outage.record_failure.assert_called_once_with(error)
+        ctx.outage.record_success.assert_not_called()
+
+    def test_successful_fetch_clears_the_outage_even_with_no_mail(self):
+        ctx = make_ctx()
+        ctx.mail.fetch_unread.return_value = []
+
+        poll_once(ctx)
+
+        ctx.outage.record_success.assert_called_once_with()
+        ctx.outage.record_failure.assert_not_called()
+
     def test_stop_request_ends_the_batch_between_emails(self):
         ctx = make_ctx()
         ctx.stopping.is_set.side_effect = [False, True]

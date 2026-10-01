@@ -251,7 +251,13 @@ class SendTextTests(unittest.TestCase):
 
     def test_failure_is_logged_not_raised(self):
         with self.assertLogs("src.gateways.alerts", level="WARNING"):
-            AlertGateway([FakeChannel(error=down())]).send_text("hello")
+            delivered = AlertGateway([FakeChannel(error=down())]).send_text("hello")
+
+        self.assertFalse(delivered)
+
+    def test_reports_whether_an_interactive_channel_delivered_it(self):
+        self.assertTrue(AlertGateway([FakeChannel()]).send_text("hello"))
+        self.assertFalse(AlertGateway([FakeChannel("webhook", False)]).send_text("hello"))
 
 
 class ChannelProtocolTests(unittest.TestCase):

@@ -29,7 +29,7 @@ class ConnectionCheck:
     detail: str
 
 
-def _describe_failure(exc: Exception) -> str:
+def describe_failure(exc: Exception) -> str:
     if isinstance(exc, ConfigurationError):
         return str(exc)
     # Exception messages from HTTP clients embed the request URL, which carries bot tokens and webhook secrets.
@@ -45,7 +45,7 @@ def _run_one(name: str, probe: Callable[[], str] | None) -> ConnectionCheck:
     try:
         return ConnectionCheck(name, OK, probe())
     except Exception as exc:  # noqa: BLE001 - probes span several SDKs; report any failure, never crash startup
-        return ConnectionCheck(name, FAILED, _describe_failure(exc))
+        return ConnectionCheck(name, FAILED, describe_failure(exc))
 
 
 def _log(check: ConnectionCheck) -> None:

@@ -76,11 +76,14 @@ class AlertGateway:
             self._record_automated_alert(email)
         return chat_message_id
 
-    def send_text(self, text: str) -> None:
-        """Best-effort message to the interactive channels only."""
-        for channel in self._configured():
-            if channel.interactive:
-                self._safe_send(channel, text, None)
+    def send_text(self, text: str) -> bool:
+        """Best-effort message to the interactive channels only; True when one delivered it."""
+        outcomes = [
+            self._safe_send(channel, text, None)[0]
+            for channel in self._configured()
+            if channel.interactive
+        ]
+        return any(outcomes)
 
     def _configured(self) -> list[AlertChannel]:
         return [channel for channel in self.channels if channel.is_configured]

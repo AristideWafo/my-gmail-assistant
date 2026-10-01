@@ -73,8 +73,8 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 - ✅ Sauvegarde quotidienne vérifiée (`BACKUP_DIR`, `BACKUP_KEEP`, `src/maintenance/backup.py`) sur un volume distinct, avec rotation ; métriques `backup_last_success_timestamp_seconds` et `backup_failures_total`
 - 🟡 Copie hors de l'hôte : le volume de sauvegarde est sur le même disque que la base ; commande documentée, planification à mettre en place sur le VPS
 - 🟡 Restauration : procédure écrite dans le README et couverte par un test automatisé (copie → réouverture → verdicts présents). Reste à l'exécuter une fois sur le VPS
-- ⬜ Alerte de panne silencieuse : `poll_once` signale la boucle comme vivante même quand `fetch_unread` échoue (voulu, pour éviter un redémarrage en boucle). Un refresh token révoqué arrête donc le tri sans aucun signal. Envoyer un message Telegram quand aucun poll n'a réussi depuis `POLL_FAILURE_ALERT_MINUTES`, puis un second au retour à la normale
-- ⬜ Distinguer « aucun mail » de « échec » : après épuisement des tentatives sur 429, `_execute_with_backoff` renvoie `None`, converti en liste vide et compté comme un poll réussi
+- ✅ Alerte de panne silencieuse (`src/health/outage.py`) : message Telegram quand la relève échoue depuis `POLL_FAILURE_ALERT_MINUTES` (10 par défaut), réessayé à chaque cycle jusqu'à livraison, puis message de rétablissement avec la durée. Le watchdog reste volontairement muet sur ce cas ; compteur `poll_failures_total`
+- ✅ « Aucun mail » distingué de « échec » : `_execute_with_backoff` lève l'erreur une fois les tentatives sur 429 épuisées, au lieu de renvoyer une liste vide comptée comme un poll réussi
 
 ### S2 — Avant la Phase 2
 
