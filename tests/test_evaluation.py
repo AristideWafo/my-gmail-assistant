@@ -1,3 +1,4 @@
+import base64
 import contextlib
 import io
 import os
@@ -205,6 +206,19 @@ class FetchMessageTests(unittest.TestCase):
         message = client.fetch_message("m1")
 
         self.assertEqual((message.id, message.sender), ("m1", "jane@example.com"))
+
+    def test_body_is_cut_for_triage_unless_the_full_body_is_asked(self):
+        client, execute = self.make_client()
+        text = " ".join(f"w{index}" for index in range(1500))
+        data = base64.urlsafe_b64encode(text.encode()).decode()
+        execute.return_value = {
+            "id": "m1",
+            "threadId": "t1",
+            "payload": {"mimeType": "text/plain", "body": {"data": data}, "headers": []},
+        }
+
+        self.assertEqual(len(client.fetch_message("m1").body.split()), 1000)
+        self.assertEqual(len(client.fetch_message("m1", full_body=True).body.split()), 1500)
 
     def test_a_deleted_message_is_none_and_other_errors_propagate(self):
         client, execute = self.make_client()

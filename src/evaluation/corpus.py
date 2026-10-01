@@ -3,7 +3,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.domain import EmailMessage
+from src.domain import DecisionRecord, EmailMessage
 from src.errors import ConfigurationError
 from src.evaluation.dataset import Case
 from src.evaluation.variants import KNOWN_QUESTIONS
@@ -57,6 +57,34 @@ def cases_from_rated(cases: Iterable[Case], rules: RuleSet) -> tuple[list[LabCas
             )
         )
     return kept, decided_by_rule
+
+
+def cases_from_recent(
+    records: Iterable[DecisionRecord],
+    fetch: Callable[[str], EmailMessage | None],
+    rules: RuleSet,
+    min_words: int,
+    limit: int,
+) -> list[LabCase]:
+    """The latest mails long enough for a cut to matter, newest first; they carry no verdict."""
+    cases = []
+    for record in sorted(records, key=lambda record: record.created_at, reverse=True):
+        if len(cases) >= limit:
+            break
+        email = fetch(record.message_id)
+        if email is None or rules.classify(email) is not None:
+            continue
+        words = len(email.body.split())
+        if words <= min_words:
+            continue
+        subject = " ".join(email.subject.split())[:SUBJECT_CHARS]
+        name = f"{email.id} {extract_domain(email.sender)} «{subject}» [{words} words]"
+        cases.append(LabCase(name, email, _any_route))
+    return cases
+
+
+def _any_route(_: str) -> bool:
+    return True
 
 
 def _wanted(case: Case) -> bool | None:

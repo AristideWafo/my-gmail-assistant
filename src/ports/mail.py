@@ -14,8 +14,11 @@ class MailProvider(Protocol):
 
     def fetch_history(self) -> list[EmailMessage]: ...
 
-    def fetch_message(self, message_id: str) -> EmailMessage | None:
-        """Returns None when the message no longer exists or the provider is not configured."""
+    def fetch_message(self, message_id: str, full_body: bool = False) -> EmailMessage | None:
+        """Returns None when the message no longer exists or the provider is not configured.
+
+        `full_body` returns the cleaned body uncut, instead of the length triage works on.
+        """
         ...
 
     def in_inbox(self, message_id: str) -> bool:

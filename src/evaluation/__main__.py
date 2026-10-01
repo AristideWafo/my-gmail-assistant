@@ -6,11 +6,11 @@ from src.bootstrap import MAIL_PROVIDERS, STORES, BuildContext
 from src.config import Settings
 from src.domain import EmailMessage
 from src.evaluation.attention import format_attention_report
-from src.evaluation.corpus import LabCase, cases_from_rated, load_corpus
+from src.evaluation.corpus import LabCase, cases_from_rated, cases_from_recent, load_corpus
 from src.evaluation.dataset import build_dataset
-from src.evaluation.lab import format_lab_report, planned_calls, run_variant
+from src.evaluation.lab import against_baseline, format_lab_report, planned_calls, run_variant
 from src.evaluation.runner import NOT_CONCLUSIVE, evaluate, format_report, is_conclusive
-from src.evaluation.variants import VARIANTS
+from src.evaluation.variants import QUESTION_VARIANTS, TRUNCATION_VARIANTS, VARIANTS
 from src.ports import EmailClassifier
 from src.triage.engine import JevClassifier
 from src.triage.few_shot import build_examples
@@ -19,6 +19,12 @@ from src.triage.rules import load_ruleset
 
 CANDIDATE_WINDOW = timedelta(days=90)
 DEFAULT_MAX_CALLS = 500
+DEFAULT_RECENT_MAILS = 60
+RECENT_NOTE = (
+    "No verdict on these mails: \"correct\" means routed as a first pass of `current` routed "
+    "them. The `current` row is therefore the disagreement between two identical calls, the "
+    "noise every other row has to be read against."
+)
 SAMPLE_EMAIL = EmailMessage(
     id="check",
     thread_id="check",
@@ -84,8 +90,9 @@ def _rated_lab_cases(
         rated = store.rated_decisions()
         if args.limit:
             rated = rated[-args.limit :]
-        # No split: question variants learn nothing from past verdicts.
-        dataset = build_dataset(rated, mail, split_at="")
+        # No split: question variants learn nothing from past verdicts. Full bodies, so that a
+        # variant keeping the end of a long mail has an end to keep.
+        dataset = build_dataset(rated, mail, split_at="", full_body=True)
     finally:
         store.close()
     cases, by_rule = cases_from_rated(dataset.cases, load_ruleset(settings.triage_rules_path))
@@ -100,8 +107,24 @@ def _rated_lab_cases(
     return cases, notes
 
 
+def _recent_lab_cases(args: argparse.Namespace, settings: Settings) -> list[LabCase]:
+    store = STORES[settings.store_backend](settings)
+    try:
+        mail = MAIL_PROVIDERS[settings.mail_provider](BuildContext(settings, store))
+        return cases_from_recent(
+            store.decisions_since(timedelta(days=args.days)),
+            lambda message_id: mail.fetch_message(message_id, full_body=True),
+            load_ruleset(settings.triage_rules_path),
+            args.min_words,
+            args.limit or DEFAULT_RECENT_MAILS,
+        )
+    finally:
+        store.close()
+
+
 def lab(args: argparse.Namespace, settings: Settings) -> int:
-    wanted = [name for name in args.variants.split(",") if name] or list(VARIANTS)
+    default = TRUNCATION_VARIANTS if args.source == "recent" else QUESTION_VARIANTS
+    wanted = [name for name in args.variants.split(",") if name] or list(default)
     unknown = sorted(set(wanted) - set(VARIANTS))
     if unknown:
         print(f"Unknown variant(s) {unknown}; available: {sorted(VARIANTS)}")
@@ -112,13 +135,16 @@ def lab(args: argparse.Namespace, settings: Settings) -> int:
         return 2
     if args.source == "rated":
         cases, notes = _rated_lab_cases(args, settings)
+    elif args.source == "recent":
+        cases, notes = _recent_lab_cases(args, settings), [RECENT_NOTE]
     else:
         cases, notes = load_corpus()[: args.limit or None], []
     variants = [VARIANTS[name] for name in wanted]
-    calls = planned_calls(variants, cases, args.repeats)
+    baseline_calls = len(cases) if args.source == "recent" else 0
+    calls = planned_calls(variants, cases, args.repeats) + baseline_calls
     print(
         f"{calls} JEV call(s): {len(variants)} variant(s) x {len(cases)} mail(s) "
-        f"x {args.repeats} run(s)"
+        f"x {args.repeats} run(s)" + (f" + {baseline_calls} for the baseline" if baseline_calls else "")
     )
     if calls > args.max_calls:
         print(
@@ -126,6 +152,12 @@ def lab(args: argparse.Namespace, settings: Settings) -> int:
             "Raise it, or use --limit / --variants."
         )
         return 2
+    if args.source == "recent":
+        cases, failed = against_baseline(
+            VARIANTS["current"], cases, classifier, settings.low_confidence_threshold
+        )
+        if failed:
+            notes.append(f"{failed} mail(s) left out: the baseline call failed")
     reports = [
         run_variant(variant, cases, classifier, settings.low_confidence_threshold, args.repeats)
         for variant in variants
@@ -209,9 +241,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     lab_parser.add_argument(
         "--source",
-        choices=("corpus", "rated"),
+        choices=("corpus", "rated", "recent"),
         default="corpus",
-        help="corpus: invented test mails; rated: the real mails you gave a verdict on",
+        help="corpus: invented test mails; rated: the real mails you gave a verdict on; "
+        "recent: the latest long mails, compared with what `current` does with them",
     )
     lab_parser.add_argument(
         "--variants", default="", help=f"comma-separated subset of {sorted(VARIANTS)}"
@@ -220,7 +253,20 @@ def main(argv: list[str] | None = None) -> int:
         "--repeats", type=int, default=1, help="runs per mail, to see instability"
     )
     lab_parser.add_argument(
-        "--limit", type=int, default=0, help="only the first N test mails, or the N latest verdicts"
+        "--limit",
+        type=int,
+        default=0,
+        help="only the first N test mails, the N latest verdicts, or the N latest long mails "
+        f"(recent: {DEFAULT_RECENT_MAILS} by default)",
+    )
+    lab_parser.add_argument(
+        "--days", type=int, default=30, help="recent: how far back to look for mails"
+    )
+    lab_parser.add_argument(
+        "--min-words",
+        type=int,
+        default=300,
+        help="recent: only mails whose body is longer than this, where a cut can matter",
     )
     lab_parser.add_argument(
         "--max-calls",

@@ -9,13 +9,24 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.config import Settings
-from src.domain import EmailMessage, TriageResult
+from src.domain import DecisionRecord, EmailMessage, TriageResult
 from src.errors import ConfigurationError
 from src.evaluation.__main__ import main
-from src.evaluation.corpus import CORPUS_TODAY, LabCase, cases_from_rated, load_corpus
+from src.evaluation.corpus import (
+    CORPUS_TODAY,
+    LabCase,
+    cases_from_rated,
+    cases_from_recent,
+    load_corpus,
+)
 from src.evaluation.dataset import Case
-from src.evaluation.lab import format_lab_report, planned_calls, run_variant
-from src.evaluation.variants import SIGNAL_QUESTIONS, VARIANTS
+from src.evaluation.lab import against_baseline, format_lab_report, planned_calls, run_variant
+from src.evaluation.variants import (
+    QUESTION_VARIANTS,
+    SIGNAL_QUESTIONS,
+    TRUNCATION_VARIANTS,
+    VARIANTS,
+)
 from src.storage import SqliteDecisionStore
 from src.triage.attention import ATTENTION_QUESTIONS
 from src.triage.engine import JevClassifier
@@ -176,6 +187,128 @@ class RatedCasesTests(unittest.TestCase):
         cases, by_rule = cases_from_rated(rated, rules)
 
         self.assertEqual((len(cases), by_rule), (1, 1))
+
+
+def long_email(message_id, words, sender="alice@example.com") -> EmailMessage:
+    body = " ".join(f"w{index}" for index in range(words))
+    return EmailMessage(message_id, "t", sender, f"subject {message_id}", "s", body)
+
+
+def decision(message_id, created_at) -> DecisionRecord:
+    return DecisionRecord(
+        message_id, "t", "alice@example.com", "s", "e", "low", "personnel", 0.9, "label", created_at
+    )
+
+
+class RecentCasesTests(unittest.TestCase):
+    def cases(self, mails, records, rules=None, min_words=300, limit=10):
+        return cases_from_recent(records, mails.get, rules or RuleSet(), min_words, limit)
+
+    def test_keeps_the_latest_long_mails_newest_first_and_accepts_any_route(self):
+        mails = {
+            "old": long_email("old", 400),
+            "short": long_email("short", 300),
+            "new": long_email("new", 1200),
+        }
+        records = [decision("old", "2026-09-01"), decision("short", "2026-09-02"),
+                   decision("new", "2026-09-03"), decision("gone", "2026-09-04")]
+
+        cases = self.cases(mails, records)
+
+        self.assertEqual(
+            [item.name for item in cases],
+            [
+                "new example.com «subject new» [1200 words]",
+                "old example.com «subject old» [400 words]",
+            ],
+        )
+        self.assertTrue(all(item.accepts(route) for item in cases for route in ("llm", "reject")))
+        self.assertIsNone(cases[0].expected_signals)
+
+    def test_stops_at_the_limit_without_fetching_further(self):
+        mails = {name: long_email(name, 400) for name in ("a", "b", "c")}
+        fetched = []
+
+        def fetch(message_id):
+            fetched.append(message_id)
+            return mails[message_id]
+
+        records = [decision("a", "2026-09-01"), decision("b", "2026-09-02"), decision("c", "2026-09-03")]
+        cases = cases_from_recent(records, fetch, RuleSet(), 300, 2)
+
+        self.assertEqual(len(cases), 2)
+        self.assertEqual(fetched, ["c", "b"])
+
+    def test_mails_decided_by_a_rule_are_left_out(self):
+        rules = RuleSet(rules=(SenderRule(re.compile("news@shop"), "low", "newsletter"),))
+        mails = {"m1": long_email("m1", 400, sender="news@shop.com")}
+
+        self.assertEqual(self.cases(mails, [decision("m1", "2026-09-01")], rules), [])
+
+
+class BaselineTests(unittest.TestCase):
+    def test_each_mail_then_accepts_only_the_route_the_baseline_gave_it(self):
+        cases = [case("kept", routes=("llm", "label", "reject")), case("alerted")]
+        jev = ScriptedJev([answers("low", "personnel"), answers("high", "personnel")])
+
+        based, failed = against_baseline(VARIANTS["current"], cases, jev, 0.5)
+
+        self.assertEqual(failed, 0)
+        self.assertEqual(
+            [[route for route in ("llm", "label", "reject") if item.accepts(route)] for item in based],
+            [["label"], ["llm"]],
+        )
+
+    def test_mails_the_baseline_failed_on_are_left_out_and_counted(self):
+        cases = [case("down"), case("odd"), case("fine")]
+        jev = ScriptedJev([RuntimeError("boom"), {"urgency": choice("low")}, answers()])
+
+        with self.assertLogs("src.evaluation.lab", level="WARNING"):
+            based, failed = against_baseline(VARIANTS["current"], cases, jev, 0.5)
+
+        self.assertEqual(([item.name for item in based], failed), (["fine"], 2))
+
+
+class TruncationTests(unittest.TestCase):
+    def body_sent(self, variant_name, words):
+        jev = ScriptedJev([answers()])
+        long_case = LabCase("long", long_email("long", words), {"label"}.__contains__)
+
+        run_variant(VARIANTS[variant_name], [long_case], jev, 0.5)
+
+        return jev.requests[0]["state"]["body"].split()
+
+    def test_current_sends_what_production_sends(self):
+        sent = self.body_sent("current", 1500)
+
+        self.assertEqual((len(sent), sent[0], sent[-1]), (1000, "w0", "w999"))
+
+    def test_head_and_tail_keep_both_ends_around_a_visible_cut(self):
+        sent = self.body_sent("head-700-tail-300", 1500)
+
+        self.assertEqual(len(sent), 1001)
+        self.assertEqual((sent[0], sent[699], sent[700], sent[701], sent[-1]),
+                         ("w0", "w699", "[…]", "w1200", "w1499"))
+
+    def test_short_variants_cut_more(self):
+        self.assertEqual(len(self.body_sent("head-150", 1500)), 150)
+        self.assertEqual(len(self.body_sent("head-100-tail-50", 1500)), 151)
+
+    def test_a_mail_shorter_than_the_cut_is_sent_whole(self):
+        for name in TRUNCATION_VARIANTS:
+            with self.subTest(name):
+                self.assertEqual(len(self.body_sent(name, 90)), 90)
+
+    def test_the_case_itself_keeps_its_full_body(self):
+        long_case = LabCase("long", long_email("long", 1500), {"label"}.__contains__)
+
+        run_variant(VARIANTS["head-150"], [long_case], ScriptedJev([answers()]), 0.5)
+
+        self.assertEqual(len(long_case.email.body.split()), 1500)
+
+    def test_question_variants_are_the_default_and_leave_the_cuts_out(self):
+        self.assertEqual(QUESTION_VARIANTS, ("current", "direct-action", "signals", "attention"))
+        self.assertEqual(TRUNCATION_VARIANTS[0], "current")
 
 
 class VariantTests(unittest.TestCase):
@@ -358,7 +491,9 @@ class RunVariantTests(unittest.TestCase):
 
 class ReportTests(unittest.TestCase):
     def test_planned_calls_multiply_variants_mails_and_runs(self):
-        self.assertEqual(planned_calls(list(VARIANTS.values()), [case("a"), case("b")], 3), 24)
+        variants = [VARIANTS[name] for name in QUESTION_VARIANTS]
+
+        self.assertEqual(planned_calls(variants, [case("a"), case("b")], 3), 24)
 
     def test_report_has_one_row_per_variant_and_the_details_below(self):
         cases = [case("ok", expected=frozenset()), case("bad", routes=("reject",))]
@@ -461,6 +596,35 @@ class LabCommandTests(unittest.TestCase):
         self.assertIn("current  2/2", output)
         self.assertEqual(len(jev.requests), 2)
         self.assertNotIn("NOT CONCLUSIVE", output)
+
+    def test_recent_source_scores_each_cut_against_a_first_pass_of_current(self):
+        store = SqliteDecisionStore(self.db_path)
+        for message_id in ("long", "short"):
+            store.record_decision(
+                email(message_id), TriageResult("low", "personnel", 0.6, "jev"), "label"
+            )
+        store.close()
+        mail = FakeMail(unread=[long_email("long", 400), long_email("short", 20)])
+        script = [answers("low", "personnel"), answers("low", "personnel"), answers("high", "personnel")]
+
+        with patch.dict("src.evaluation.__main__.MAIL_PROVIDERS", {"gmail": lambda ctx: mail}):
+            code, output, jev = self.run_cli(
+                "--source", "recent", "--variants", "current,head-150", script=script
+            )
+
+        self.assertEqual(code, 0)
+        self.assertIn("3 JEV call(s): 2 variant(s) x 1 mail(s) x 1 run(s) + 1 for the baseline", output)
+        self.assertIn("current   1/1", output)
+        self.assertIn("head-150  0/1", output)
+        self.assertIn("[400 words]", output)
+        self.assertIn("two identical calls", output)
+        self.assertEqual(len(jev.requests[2]["state"]["body"].split()), 150)
+
+    def test_recent_source_defaults_to_the_cuts(self):
+        code, output, _ = self.run_cli("--source", "recent")
+
+        self.assertEqual(code, 0)
+        self.assertIn("0 JEV call(s): 4 variant(s) x 0 mail(s)", output)
 
     def test_rated_source_replays_real_verdicts_and_warns_on_a_small_sample(self):
         store = SqliteDecisionStore(self.db_path)

@@ -53,7 +53,10 @@ def default_split(rated: list[RatedDecision]) -> str:
 
 
 def build_dataset(
-    rated: Iterable[RatedDecision], mail: MailProvider, split_at: str | None = None
+    rated: Iterable[RatedDecision],
+    mail: MailProvider,
+    split_at: str | None = None,
+    full_body: bool = False,
 ) -> Dataset:
     rated = [item for item in rated if item.verdict in EXPECTATIONS]
     if split_at is None:
@@ -66,7 +69,7 @@ def build_dataset(
             if is_correction(item):
                 training.append(_to_correction(item))
             continue
-        email = mail.fetch_message(item.record.message_id)
+        email = mail.fetch_message(item.record.message_id, full_body)
         if email is None:
             missing += 1
             continue
