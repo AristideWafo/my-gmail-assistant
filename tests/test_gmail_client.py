@@ -231,6 +231,18 @@ class GmailClientBackoffTests(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertEqual(call_count["n"], 2)
 
+    def test_fetch_unread_raises_once_429_retries_are_exhausted(self):
+        client, service = make_client_with_service()
+        service.users().messages().list().execute.side_effect = HttpError(
+            resp=FakeResponse(429), content=b"rate limited"
+        )
+
+        with patch("time.sleep") as sleep, self.assertRaises(HttpError):
+            client.fetch_unread(max_retries=3)
+
+        self.assertEqual(service.users().messages().list().execute.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
     def test_fetch_unread_reraises_non_429_errors(self):
         client, service = make_client_with_service()
         service.users().messages().list().execute.side_effect = HttpError(

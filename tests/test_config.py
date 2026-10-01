@@ -29,6 +29,15 @@ class SettingsAllowedUserIdsTests(unittest.TestCase):
             Settings(_env_file=None, telegram_allowed_user_ids="me")
 
 
+class SettingsPollFailureAlertTests(unittest.TestCase):
+    def test_alerts_after_ten_minutes_by_default(self):
+        self.assertEqual(Settings(_env_file=None).poll_failure_alert_minutes, 10)
+
+    def test_negative_delay_fails_at_startup(self):
+        with self.assertRaises(ValidationError):
+            Settings(_env_file=None, poll_failure_alert_minutes=-1)
+
+
 class SettingsBackupTests(unittest.TestCase):
     def test_backups_are_off_by_default_and_keep_a_week(self):
         settings = Settings(_env_file=None)

@@ -36,6 +36,8 @@ class Settings(BaseSettings):
 
     startup_checks: str = "warn"
     poll_interval_seconds: int = 60
+    # 0 disables the chat message sent when fetching mail keeps failing.
+    poll_failure_alert_minutes: int = Field(default=10, ge=0)
     low_confidence_threshold: float = 0.50
     watchdog_enabled: bool = True
     fetch_max_age_days: int = 3

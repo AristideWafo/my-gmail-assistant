@@ -81,22 +81,22 @@ class GmailClient:
                 for m in result.get("messages", [])
             ]
 
-        return self._execute_with_backoff(list_messages, max_retries=max_retries) or []
+        return self._execute_with_backoff(list_messages, max_retries=max_retries)
 
     @staticmethod
     def _execute_with_backoff(request_factory: Callable[[], Any], max_retries: int = 5):
         delay = 1.0
-        for _ in range(max_retries):
+        for attempt in range(1, max_retries + 1):
             try:
                 return request_factory()
             except HttpError as exc:
                 status = getattr(getattr(exc, "resp", None), "status", None)
-                if status == 429:
-                    time.sleep(delay)
-                    delay = min(delay * 2, 30)
-                    continue
-                raise
-        return None
+                # Giving up must raise: an empty result would read as "no unread mail".
+                if status != 429 or attempt == max_retries:
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, 30)
+        raise ValueError(f"max_retries must be at least 1, got {max_retries}")
 
     def archive_message(self, message_id: str) -> None:
         if not self._service:
