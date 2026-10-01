@@ -117,8 +117,17 @@ class RatedCasesTests(unittest.TestCase):
         self.assertTrue(cases[0].accepts("label"))
         self.assertIsNone(cases[0].expected_signals)
         self.assertEqual(cases[0].today, "")
-        self.assertIn("m1", cases[0].name)
-        self.assertNotIn("alice", cases[0].name)
+        self.assertEqual(cases[0].name, "m1 example.com «Hello» [false_urgent, was llm]")
+
+    def test_rated_mail_name_keeps_one_line_and_a_bounded_subject(self):
+        subject = "Tr\xa0: COUPURE\nEAU " + "x" * 80
+        cases, _ = cases_from_rated(
+            [Case(email("m1", subject=subject), "valid", "label", "2026-01-01")], RuleSet()
+        )
+
+        self.assertIn("«Tr : COUPURE EAU xxx", cases[0].name)
+        self.assertNotIn("\n", cases[0].name)
+        self.assertLessEqual(len(cases[0].name.split("«")[1].split("»")[0]), 60)
 
     def test_mails_decided_by_a_rule_are_left_out_and_counted(self):
         rules = RuleSet(rules=(SenderRule(re.compile("news@shop"), "low", "newsletter"),))

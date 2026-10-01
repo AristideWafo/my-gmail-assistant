@@ -13,6 +13,7 @@ from src.triage.rules import RuleSet
 CORPUS_PATH = Path(__file__).with_name("corpus.toml")
 CORPUS_TODAY = "2026-10-01"
 CORPUS_RECEIVED_AT = f"{CORPUS_TODAY}T09:00:00Z"
+SUBJECT_CHARS = 60
 ROUTES = frozenset({"llm", "label", "reject"})
 _MAIL_KEYS = {"name", "sender", "subject", "body", "routes", "needs_reply", "facts"}
 
@@ -47,12 +48,18 @@ def cases_from_rated(cases: Iterable[Case], rules: RuleSet) -> tuple[list[LabCas
         if rules.classify(case.email) is not None:
             decided_by_rule += 1
             continue
-        kept.append(LabCase(_describe(case.email), case.email, case.satisfied_by))
+        kept.append(LabCase(_describe(case), case.email, case.satisfied_by))
     return kept, decided_by_rule
 
 
-def _describe(email: EmailMessage) -> str:
-    return f"{email.id} {extract_domain(email.sender)} {email.subject[:60]!r}"
+def _describe(case: Case) -> str:
+    # The verdict is what tells a repeated, already corrected mistake from a new disagreement.
+    email = case.email
+    subject = " ".join(email.subject.split())[:SUBJECT_CHARS]
+    return (
+        f"{email.id} {extract_domain(email.sender)} «{subject}» "
+        f"[{case.verdict}, was {case.recorded_route}]"
+    )
 
 
 def _to_case(mail: dict, path: Path) -> LabCase:
