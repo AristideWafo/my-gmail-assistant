@@ -17,6 +17,7 @@ from src.evaluation.dataset import Case
 from src.evaluation.lab import format_lab_report, planned_calls, run_variant
 from src.evaluation.variants import SIGNAL_QUESTIONS, VARIANTS
 from src.storage import SqliteDecisionStore
+from src.triage.attention import ATTENTION_QUESTIONS
 from src.triage.engine import JevClassifier
 from src.triage.rules import RuleSet, SenderRule
 from tests.fakes import FakeMail
@@ -30,6 +31,10 @@ def email(message_id="m1", sender="alice@example.com", subject="Hello") -> Email
 
 def choice(value, confidence=0.9):
     return {"type": "choice", "choice": value, "confidence": confidence}
+
+
+def noul(value):
+    return {"type": "noul", "noul": value}
 
 
 def answers(urgency="low", category="personnel", **extra):
@@ -61,8 +66,8 @@ class CorpusTests(unittest.TestCase):
     def test_shipped_corpus_is_valid_and_dated(self):
         cases = load_corpus()
 
-        self.assertEqual(len(cases), 50)
-        self.assertEqual(len({item.name for item in cases}), 50)
+        self.assertEqual(len(cases), 68)
+        self.assertEqual(len({item.name for item in cases}), 68)
         self.assertTrue(all(item.today == CORPUS_TODAY for item in cases))
         self.assertTrue(all(item.email.received_at.startswith(CORPUS_TODAY) for item in cases))
         self.assertTrue(any(item.accepts("llm") for item in cases))
@@ -72,9 +77,19 @@ class CorpusTests(unittest.TestCase):
         by_name = {item.name: item for item in load_corpus()}
 
         self.assertEqual(
-            by_name["perso_invitation"].expected_signals, {"needs_reply", "asks_for_meeting"}
+            by_name["perso_invitation"].expected_signals,
+            {"needs_reply", "asks_for_meeting", "personal_event"},
         )
         self.assertEqual(by_name["perso_merci"].expected_signals, frozenset())
+
+    def test_a_mail_is_to_put_forward_when_a_reply_or_an_attention_fact_is_expected(self):
+        by_name = {item.name: item for item in load_corpus()}
+
+        self.assertTrue(by_name["question_courte"].expected_forward)
+        self.assertTrue(by_name["coupure_eau"].expected_forward)
+        self.assertFalse(by_name["webinaire_promo"].expected_forward)
+        # A fact of a candidate question alone says nothing about putting forward.
+        self.assertFalse(by_name["recruteur_relance_sans_question"].expected_forward)
 
     def write(self, body: str) -> Path:
         tmp = tempfile.TemporaryDirectory()
@@ -116,8 +131,20 @@ class RatedCasesTests(unittest.TestCase):
         self.assertFalse(cases[0].accepts("llm"))
         self.assertTrue(cases[0].accepts("label"))
         self.assertIsNone(cases[0].expected_signals)
+        self.assertIsNone(cases[0].expected_forward)
         self.assertEqual(cases[0].today, "")
         self.assertEqual(cases[0].name, "m1 example.com «Hello» [false_urgent, was llm]")
+
+    def test_only_the_put_forward_verdict_says_a_rated_mail_was_to_put_forward(self):
+        rated = [
+            Case(email("wanted"), "missed_important", "label", "2026-01-01"),
+            Case(email("fine"), "valid", "label", "2026-01-01"),
+            Case(email("alerted"), "valid", "llm", "2026-01-01"),
+        ]
+
+        cases, _ = cases_from_rated(rated, RuleSet())
+
+        self.assertEqual([item.expected_forward for item in cases], [True, None, None])
 
     def test_rated_mail_name_keeps_one_line_and_a_bounded_subject(self):
         subject = "Tr\xa0: COUPURE\nEAU " + "x" * 80
@@ -170,6 +197,28 @@ class VariantTests(unittest.TestCase):
         self.assertEqual(prepared["questions"]["urgency"], self.request["questions"]["urgency"])
         self.assertEqual(variant.signals, tuple(SIGNAL_QUESTIONS))
         self.assertEqual(set(self.request["questions"]), {"urgency", "category"})
+
+    def test_attention_asks_what_shadow_mode_asks_and_routes_like_production(self):
+        variant = VARIANTS["attention"]
+        prepared = variant.prepare(self.request)
+        shadow = JevClassifier(
+            "https://jev.example", api_key="k", ask_needs_reply=True, ask_attention=True
+        ).build_request(email())
+
+        self.assertEqual(prepared["questions"], shadow["questions"])
+        self.assertEqual(variant.signals, ("needs_reply", *ATTENTION_QUESTIONS))
+        self.assertEqual(variant.route(answers("low", "newsletter"), 0.5), "reject")
+        self.assertEqual(set(self.request["questions"]), {"urgency", "category"})
+
+    def test_attention_puts_forward_on_any_reason_except_in_bulk_categories(self):
+        put_forward = VARIANTS["attention"].put_forward
+        event = {"personal_event": noul(0.9)}
+
+        self.assertTrue(put_forward(answers("low", "notification_systeme", **event), 0.5))
+        self.assertTrue(put_forward(answers(needs_reply=noul(0.9)), 0.5))
+        self.assertFalse(put_forward(answers("low", "promotion", **event), 0.5))
+        self.assertFalse(put_forward(answers(needs_reply=noul(0.2)), 0.5))
+        self.assertIsNone(VARIANTS["signals"].put_forward)
 
 
 class RunVariantTests(unittest.TestCase):
@@ -230,9 +279,6 @@ class RunVariantTests(unittest.TestCase):
         self.assertEqual(report.latencies, [0.25])
 
     def test_signals_are_compared_with_the_truth_when_it_is_known(self):
-        def noul(value):
-            return {"type": "noul", "noul": value}
-
         cases = [
             case("asks", expected=frozenset({"needs_reply"})),
             case("silent", expected=frozenset({"needs_reply"})),
@@ -264,6 +310,28 @@ class RunVariantTests(unittest.TestCase):
         self.assertEqual((needs_reply.yes, needs_reply.with_truth), (["real"], 0))
         self.assertEqual((needs_reply.missed, needs_reply.unexpected), ([], []))
 
+    def test_put_forward_is_compared_with_what_is_known_and_listed_otherwise(self):
+        cases = [
+            LabCase("wanted", email("wanted"), {"label"}.__contains__, expected_forward=True),
+            LabCase("lost", email("lost"), {"label"}.__contains__, expected_forward=True),
+            LabCase("noise", email("noise"), {"label"}.__contains__, expected_forward=False),
+            LabCase("unknown", email("unknown"), {"label"}.__contains__),
+        ]
+        yes = answers("low", "notification_systeme", service_change=noul(0.9))
+        jev = ScriptedJev([yes, answers(), yes, yes])
+
+        report = run_variant(VARIANTS["attention"], cases, jev, 0.5)
+
+        self.assertEqual(report.forward.yes, ["wanted", "noise", "unknown"])
+        self.assertEqual(report.forward.missed, ["lost"])
+        self.assertEqual(report.forward.unexpected, ["noise"])
+        self.assertEqual(report.forward.with_truth, 3)
+
+    def test_variants_that_put_nothing_forward_report_nothing_about_it(self):
+        report = run_variant(VARIANTS["signals"], [case()], ScriptedJev([answers()]), 0.5)
+
+        self.assertIsNone(report.forward)
+
     def test_signals_are_read_on_the_first_run_only(self):
         yes = answers(needs_reply={"type": "noul", "noul": 0.9})
 
@@ -274,7 +342,7 @@ class RunVariantTests(unittest.TestCase):
 
 class ReportTests(unittest.TestCase):
     def test_planned_calls_multiply_variants_mails_and_runs(self):
-        self.assertEqual(planned_calls(list(VARIANTS.values()), [case("a"), case("b")], 3), 18)
+        self.assertEqual(planned_calls(list(VARIANTS.values()), [case("a"), case("b")], 3), 24)
 
     def test_report_has_one_row_per_variant_and_the_details_below(self):
         cases = [case("ok", expected=frozenset()), case("bad", routes=("reject",))]
@@ -291,7 +359,27 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(lines[3].split()[:5], ["current", "1/2", "0", "900", "0.00"])
         self.assertIn("  misrouted (1): bad -> label", lines)
         self.assertTrue(any(line.startswith("[signals] current questions plus") for line in lines))
-        self.assertIn("  needs_reply: 0 missed, 0 unexpected on 1 mails", lines)
+        self.assertIn(
+            "  needs_reply: 0 missed, 0 unexpected on 1 mails whose answer is known", lines
+        )
+        self.assertIn("  needs_reply: yes on 0 of 2 mails, to check by hand", lines)
+
+    def test_report_lists_what_is_put_forward_and_what_was_wanted_but_missed(self):
+        cases = [
+            LabCase("wanted", email("wanted"), {"label"}.__contains__, expected_forward=True),
+            LabCase("unknown", email("unknown"), {"label"}.__contains__),
+        ]
+        yes = answers("low", "notification_systeme", service_change=noul(0.9))
+        report = run_variant(VARIANTS["attention"], cases, ScriptedJev([answers(), yes]), 0.5)
+
+        lines = format_lab_report([report], len(cases)).splitlines()
+
+        self.assertIn(
+            "  put forward: 1 missed, 0 unexpected on 1 mails whose answer is known", lines
+        )
+        self.assertIn("    missed: wanted", lines)
+        self.assertIn("  put forward: yes on 1 of 2 mails, to check by hand", lines)
+        self.assertIn("    unknown", lines)
 
     def test_a_variant_whose_every_call_failed_still_prints(self):
         with self.assertLogs("src.evaluation.lab", level="WARNING"):
@@ -343,7 +431,7 @@ class LabCommandTests(unittest.TestCase):
         code, output, jev = self.run_cli("--repeats", "3", "--max-calls", "100")
 
         self.assertEqual(code, 2)
-        self.assertIn("450 JEV call(s)", output)
+        self.assertIn("816 JEV call(s)", output)
         self.assertIn("Refused", output)
         self.assertEqual(jev.requests, [])
 

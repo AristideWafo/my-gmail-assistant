@@ -3,7 +3,7 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from src.domain import EmailMessage, LLMAnalysis, TriageResult
+from src.domain import DecisionRecord, EmailMessage, LLMAnalysis, TriageResult
 from src.formatting import truncate
 from src.observability.metrics import Metrics
 from src.ports import EmailAnalyzer, EmailClassifier
@@ -48,6 +48,21 @@ def expects_reply(email: EmailMessage, triage: TriageResult, threshold: float | 
     # Bulk and scam mail asks to be answered too: the category and the sender decide before the
     # model's opinion on the body does.
     return triage.category not in NON_ALERTABLE_CATEGORIES and not is_automated_sender(email.sender)
+
+
+def attention_reasons(
+    decision: TriageResult | DecisionRecord, threshold: float
+) -> tuple[str, ...]:
+    """The questions answered yes, i.e. why this mail deserves to be put forward."""
+    # Same category gate as reply drafts: "register before Friday" in a promotion is a sales
+    # deadline. No sender gate: outage and migration notices come from automated senders, and so
+    # does a person's message relayed by a platform, which cannot be drafted but must be seen.
+    if decision.category in NON_ALERTABLE_CATEGORIES:
+        return ()
+    answers = dict(decision.signals)
+    if decision.needs_reply is not None:
+        answers["needs_reply"] = decision.needs_reply
+    return tuple(name for name, probability in answers.items() if probability >= threshold)
 
 
 class EmailWorkflow:

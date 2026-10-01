@@ -177,6 +177,20 @@ class DecisionStoreTests(unittest.TestCase):
         self.assertEqual([c.verdict for c in usable], ["missed_urgent"])
         self.assertEqual(len(self.store.recent_corrections(10)), 3)
 
+    def test_decisions_since_returns_the_period_oldest_first_with_their_answers(self):
+        self.now = datetime(2025, 12, 1, tzinfo=UTC)
+        self.store.record_decision(make_email("old"), make_triage(), "label")
+        self.now = datetime(2025, 12, 30, tzinfo=UTC)
+        triage = TriageResult("low", "personnel", 0.9, "jev", 0.1, {"personal_event": 0.9})
+        self.store.record_decision(make_email("first"), triage, "label")
+        self.now = datetime(2026, 1, 1, tzinfo=UTC)
+        self.store.record_decision(make_email("second"), make_triage(), "llm")
+
+        records = self.store.decisions_since(timedelta(days=7))
+
+        self.assertEqual([record.message_id for record in records], ["first", "second"])
+        self.assertEqual(records[0].signals, {"personal_event": 0.9})
+
     def test_feedback_origin_is_stored_and_validated(self):
         self.store.record_decision(make_email(), make_triage(), "label")
 

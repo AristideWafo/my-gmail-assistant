@@ -12,7 +12,7 @@ subject = "Week-end du 18"
 body = "Salut, on pense faire un barbecue le samedi 18 chez nous. Tu serais dispo ? Dis-moi si tu viens avec quelqu'un. Marc"
 routes = ["label"]
 needs_reply = true
-facts = ["asks_for_meeting"]
+facts = ["asks_for_meeting", "personal_event"]
 
 [[mail]]
 name = "perso_question_objet_neutre"
@@ -57,7 +57,7 @@ subject = "Réunion du bureau - jeudi 15 octobre"
 body = "Bonjour à tous, la prochaine réunion du bureau aura lieu jeudi 15 octobre à 19h. Merci de confirmer votre présence par retour de mail avant lundi. Jean, secrétaire"
 routes = ["label"]
 needs_reply = true
-facts = ["asks_for_meeting", "has_deadline"]
+facts = ["asks_for_meeting", "has_deadline", "personal_event", "personal_deadline"]
 
 [[mail]]
 name = "asso_compte_rendu"
@@ -102,7 +102,7 @@ subject = "Votre échéance de prêt a été rejetée"
 body = "Bonjour, le prélèvement de votre échéance de prêt du 30/09 a été rejeté. Merci de régulariser votre situation sous 48h depuis votre espace client. Ceci est un message automatique, merci de ne pas y répondre."
 routes = ["llm"]
 needs_reply = false
-facts = ["has_deadline", "has_payment_due"]
+facts = ["has_deadline", "has_payment_due", "personal_deadline"]
 
 [[mail]]
 name = "securite_connexion"
@@ -129,7 +129,7 @@ subject = "[infra] Review requested: bump terraform provider (#214)"
 body = "@octocat requested your review on this pull request. Can you take a look before Friday?"
 routes = ["label"]
 needs_reply = false
-facts = ["has_deadline"]
+facts = ["has_deadline", "personal_deadline"]
 
 [[mail]]
 name = "newsletter_appat"
@@ -165,7 +165,7 @@ subject = "Devis infra"
 body = "Bonjour Aristide, pourriez-vous m'envoyer le devis mis à jour pour la migration Kubernetes ? Pas d'urgence, d'ici la fin du mois ça ira. Merci, Karim"
 routes = ["label"]
 needs_reply = true
-facts = ["has_deadline"]
+facts = ["has_deadline", "personal_deadline"]
 
 [[mail]]
 name = "pro_info_cc"
@@ -183,7 +183,7 @@ subject = "Votre dossier - pièce manquante"
 body = "Monsieur, il manque un justificatif de domicile à votre dossier. Merci de me le transmettre en réponse à ce message avant le 5 octobre, faute de quoi votre demande sera classée."
 routes = ["llm", "label"]
 needs_reply = true
-facts = ["has_deadline"]
+facts = ["has_deadline", "personal_deadline"]
 
 [[mail]]
 name = "perso_question_fin_long_mail"
@@ -201,7 +201,7 @@ subject = "Votre colis est arrivé en point relais"
 body = "Votre colis 6A123 est disponible en point relais jusqu'au 10 octobre."
 routes = ["label", "reject"]
 needs_reply = false
-facts = ["has_deadline"]
+facts = ["has_deadline", "personal_deadline"]
 
 [[mail]]
 name = "low_pressure_livre"
@@ -255,7 +255,7 @@ subject = "Listes électorales"
 body = "N'oublie pas de t'inscrire sur le site de la mairie avant vendredi pour les listes électorales, après c'est trop tard."
 routes = ["llm", "label"]
 needs_reply = false
-facts = ["has_deadline"]
+facts = ["has_deadline", "personal_deadline"]
 
 [[mail]]
 name = "depot_carton"
@@ -273,7 +273,7 @@ subject = "Révision du loyer"
 body = "Bonjour, je vous informe que le loyer passe à 912 euros à compter du 1er novembre, conformément au bail. Pensez à modifier votre virement permanent. Cordialement."
 routes = ["label"]
 needs_reply = false
-facts = ["has_deadline", "has_payment_due"]
+facts = ["has_deadline", "has_payment_due", "personal_deadline"]
 
 [[mail]]
 name = "reunion_decalee"
@@ -282,7 +282,7 @@ subject = "Réunion de jeudi décalée"
 body = "Bonjour à tous, la réunion de jeudi est décalée à 20h, même salle. À jeudi."
 routes = ["label"]
 needs_reply = false
-facts = ["asks_for_meeting"]
+facts = ["asks_for_meeting", "personal_event"]
 
 [[mail]]
 name = "collegue_merge"
@@ -291,7 +291,7 @@ subject = "PR mergée"
 body = "J'ai mergé ta PR ce matin. Il faudra penser à relancer le déploiement demain avant la démo."
 routes = ["llm", "label"]
 needs_reply = false
-facts = ["has_deadline"]
+facts = ["has_deadline", "personal_deadline"]
 
 [[mail]]
 name = "accuse_reception"
@@ -372,7 +372,7 @@ subject = "Échec du paiement - suspension de votre VPS sous 24h"
 body = "Le renouvellement de votre VPS vps-4821 a échoué. Sans régularisation avant demain 12h, le service sera suspendu. Mettez à jour votre moyen de paiement dans l'espace client."
 routes = ["llm"]
 needs_reply = false
-facts = ["has_deadline", "has_payment_due"]
+facts = ["has_deadline", "has_payment_due", "service_change", "personal_deadline"]
 
 [[mail]]
 name = "impots_avis"
@@ -390,7 +390,7 @@ subject = "Rappel : RDV demain à 09h00 - Dr Lemoine"
 body = "Vous avez rendez-vous demain vendredi 2 octobre à 09h00 avec le Dr Lemoine, 12 rue de Rivoli."
 routes = ["llm", "label"]
 needs_reply = false
-facts = ["asks_for_meeting"]
+facts = ["asks_for_meeting", "personal_event"]
 
 [[mail]]
 name = "grafana_alert"
@@ -408,7 +408,7 @@ subject = "Invitation : Point migration - mar. 6 oct. 14:00"
 body = "Karim Benali vous invite à : Point migration, mardi 6 octobre 14:00-14:30, Google Meet. Participerez-vous ? Oui / Peut-être / Non"
 routes = ["label"]
 needs_reply = true
-facts = ["asks_for_meeting"]
+facts = ["asks_for_meeting", "personal_event"]
 
 [[mail]]
 name = "phishing"
@@ -426,7 +426,7 @@ subject = "morel.dev expire dans 3 jours"
 body = "Votre nom de domaine morel.dev expire le 4 octobre. Renouvelez-le pour éviter l'interruption de vos services et de vos e-mails."
 routes = ["llm"]
 needs_reply = false
-facts = ["has_deadline", "has_payment_due"]
+facts = ["has_deadline", "has_payment_due", "service_change", "personal_deadline"]
 
 [[mail]]
 name = "newsletter_urgent"
@@ -452,5 +452,170 @@ sender = "GitHub <notifications@github.com>"
 subject = "[my-gmail-assistant] Run succeeded: CI - feat/p2-needs-reply"
 body = "Run succeeded for feat/p2-needs-reply. All jobs passed."
 routes = ["reject"]
+needs_reply = false
+facts = []
+
+# Mails written for the attention questions: things to know about in the coming days, and
+# their look-alikes (advertised events, sales deadlines, digests, terms updates).
+
+[[mail]]
+name = "coupure_eau"
+sender = "Eaux du Val <ne-pas-repondre@eauxduval.example>"
+subject = "Coupure d'eau programmée le mardi 6 octobre"
+body = "Madame, Monsieur, en raison de travaux sur le réseau, l'alimentation en eau de votre immeuble sera interrompue le mardi 6 octobre de 9h à 13h. Nous vous conseillons de constituer une réserve d'eau. Nous vous prions de nous excuser pour la gêne occasionnée. Le service clients."
+routes = ["label"]
+needs_reply = false
+facts = ["service_change"]
+
+[[mail]]
+name = "soiree_invitation"
+sender = "Cabinet Novalis <evenements@novalis.example>"
+subject = "Votre invitation : soirée découverte du lundi 5 octobre"
+body = "Bonjour Camille, suite à nos échanges, nous avons le plaisir de vous inviter à notre soirée découverte le lundi 5 octobre à 18h30 dans nos locaux, 12 rue des Lilas. Vous rencontrerez les équipes et pourrez échanger avec les managers. Votre place est réservée. A lundi !"
+routes = ["label"]
+needs_reply = false
+facts = ["asks_for_meeting", "personal_event"]
+
+[[mail]]
+name = "conference_inscrit"
+sender = "KubeDay Paris <hello@kubeday.example>"
+subject = "KubeDay Paris, jeudi 8 octobre : votre billet"
+body = "Bonjour Camille, vous êtes inscrit à KubeDay Paris, jeudi 8 octobre de 9h à 18h, Espace Grande Arche. Votre billet est en pièce jointe, présentez-le à l'accueil. Programme complet sur le site."
+routes = ["label"]
+needs_reply = false
+facts = ["personal_event"]
+
+[[mail]]
+name = "webinaire_rappel_inscrit"
+sender = "HashiTools <events@hashitools.example>"
+subject = "Rappel : le webinaire auquel vous êtes inscrit commence demain"
+body = "Bonjour, vous êtes inscrit au webinaire « Gérer ses secrets en production » qui a lieu demain vendredi 2 octobre à 17h. Votre lien de connexion personnel : https://hashitools.example/join/abc. A demain."
+routes = ["llm", "label"]
+needs_reply = false
+facts = ["personal_event"]
+
+[[mail]]
+name = "migration_outil"
+sender = "CodeHub <noreply@codehub.example>"
+subject = "[Action requise] L'image ubuntu-latest change le 12 octobre"
+body = "Vous recevez ce message car vos workflows utilisent l'image ubuntu-latest. A partir du 12 octobre, ubuntu-latest pointera vers Ubuntu 26.04. Certains outils préinstallés sont retirés. Vérifiez vos workflows avant cette date ou épinglez ubuntu-24.04. Dépôts concernés : camille/infra, camille/site."
+routes = ["label"]
+needs_reply = false
+facts = ["has_deadline", "service_change", "personal_deadline"]
+
+[[mail]]
+name = "recruteur_message"
+sender = "Julie Perrin via NetPro <messages-noreply@netpro.example>"
+subject = "Opportunité professionnelle"
+body = "Julie Perrin vous a envoyé un message. « Bonjour Camille, votre profil SRE m'a interpellée. J'accompagne une scale-up parisienne qui cherche un ingénieur plateforme senior. Seriez-vous ouvert à un échange cette semaine ? » Répondre à Julie."
+routes = ["label"]
+needs_reply = true
+facts = ["asks_for_meeting"]
+
+[[mail]]
+name = "question_courte"
+sender = "Thomas Garnier <thomas.garnier@gmail.com>"
+subject = "Question"
+body = "Salut, tu utilises quoi pour sauvegarder ton serveur ? J'hésite entre deux solutions et j'aimerais ton avis. Merci !"
+routes = ["label"]
+needs_reply = true
+facts = []
+
+[[mail]]
+name = "ascenseur_travaux"
+sender = "Syndic Horizon <contact@syndic-horizon.example>"
+subject = "Maintenance de l'ascenseur vendredi 9 octobre"
+body = "Chers résidents, l'ascenseur du bâtiment B sera à l'arrêt le vendredi 9 octobre de 8h à 17h pour sa visite annuelle. Merci de votre compréhension. Le syndic."
+routes = ["label"]
+needs_reply = false
+facts = ["service_change"]
+
+[[mail]]
+name = "mutuelle_justificatif"
+sender = "Mutuelle Solis <service-adherents@solis.example>"
+subject = "Justificatif à transmettre avant le 15 octobre"
+body = "Bonjour, pour maintenir vos droits nous avons besoin de votre attestation de sécurité sociale à jour. Merci de la déposer dans votre espace adhérent avant le 15 octobre. Sans ce document, vos remboursements pourront être suspendus."
+routes = ["label"]
+needs_reply = false
+facts = ["has_deadline", "personal_deadline"]
+
+[[mail]]
+name = "webinaire_promo"
+sender = "CloudEdge <marketing@cloudedge.example>"
+subject = "Webinaire le 7 octobre : 5 façons d'accélérer vos sites"
+body = "Rejoignez nos experts le 7 octobre à 16h pour découvrir comment CloudEdge accélère vos applications. Places limitées, inscrivez-vous dès maintenant. Vous recevez cet e-mail car vous êtes abonné à nos communications. Se désabonner."
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "cours_promo"
+sender = "Learnia <no-reply@learnia.example>"
+subject = "Nouvelles sessions dès le 5 octobre, -30% jusqu'à dimanche"
+body = "Camille, de nouvelles sessions démarrent le 5 octobre : Machine Learning, Cloud, Data. Profitez de 30% de réduction jusqu'à dimanche minuit. Inscrivez-vous maintenant. Se désabonner."
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "evenements_suggeres"
+sender = "Meetly <hello@meetly.example>"
+subject = "Les événements tech à Paris cette semaine"
+body = "Voici les événements qui pourraient vous plaire : Apéro DevOps mardi 6 octobre, Meetup Rust mercredi 7 octobre, Soirée IA jeudi 8 octobre. Découvrez-en plus sur Meetly. Gérer vos préférences."
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "reseau_resume"
+sender = "NetPro <notifications@netpro.example>"
+subject = "Vous avez 6 nouvelles discussions dans vos groupes"
+body = "Voici ce que vous avez manqué cette semaine : « Kubernetes ou Nomad ? » 14 commentaires ; « Vos outils d'observabilité préférés » 9 commentaires. Voir toutes les discussions. Se désabonner."
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "cgu_maj"
+sender = "Streamly <legal@streamly.example>"
+subject = "Mise à jour de nos conditions d'utilisation au 1er novembre"
+body = "Nous mettons à jour nos conditions d'utilisation et notre politique de confidentialité. Les changements entrent en vigueur le 1er novembre. Aucune action de votre part n'est requise. Consultez le détail sur notre site."
+routes = ["label", "reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "promo_minuit"
+sender = "Boutique Aria <offres@aria.example>"
+subject = "Dernières heures : -40% jusqu'à minuit"
+body = "Plus que quelques heures pour profiter de -40% sur toute la collection. L'offre se termine ce soir à minuit. J'en profite. Se désabonner."
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "releve_dispo"
+sender = "Banque Litto <ne-pas-repondre@litto.example>"
+subject = "Votre relevé de compte est disponible"
+body = "Bonjour, votre relevé de compte du mois de septembre est disponible dans votre espace client. Ceci est un message automatique, merci de ne pas y répondre."
+routes = ["label", "reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "newsletter_agenda"
+sender = "La Lettre du Cloud <lettre@lettreducloud.example>"
+subject = "Cette semaine : sorties, lectures et agenda d'octobre"
+body = "Au sommaire : Kubernetes 1.36 est sorti ; notre sélection d'articles ; l'agenda : DevOps Rex le 13 octobre, Cloud Expo le 20 octobre, Open Source Summit le 27 octobre. Bonne lecture. Se désabonner."
+routes = ["reject"]
+needs_reply = false
+facts = []
+
+[[mail]]
+name = "revue_code_discussion"
+sender = "Marc (CodeHub) <notifications@codehub.example>"
+subject = "Re: [equipe/api] Refactor du client HTTP (PR #212)"
+body = "marc a commenté cette pull request. « Ok pour moi sur le principe, je regarde les tests demain. » Voir sur CodeHub. Vous recevez ce message car vous êtes abonné à ce fil."
+routes = ["label"]
 needs_reply = false
 facts = []

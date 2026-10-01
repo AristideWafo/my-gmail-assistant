@@ -37,6 +37,8 @@ class TriageResult:
     source: str = ""
     # Probability that a person expects a written reply; None when the question was not asked.
     needs_reply: float | None = None
+    # Probability of each attention question that was asked and answered, by question name.
+    signals: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -62,6 +64,7 @@ class DecisionRecord:
     message_id_header: str = ""
     source: str = ""
     needs_reply: float | None = None
+    signals: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

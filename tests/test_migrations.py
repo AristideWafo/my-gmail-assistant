@@ -197,6 +197,57 @@ class LegacyMissedUrgentTests(unittest.TestCase):
         self.assertEqual(store.feedback_counts()["missed_urgent"], 1)
 
 
+class SignalsColumnTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = os.path.join(tmp.name, "assistant.db")
+
+    def open_store(self):
+        store = SqliteDecisionStore(self.path)
+        self.addCleanup(store.close)
+        return store
+
+    def test_version_4_database_is_upgraded_keeping_its_rows(self):
+        conn = sqlite3.connect(self.path)
+        conn.executescript("".join(MIGRATIONS[:4]) + "PRAGMA user_version = 4;")
+        conn.execute(
+            "INSERT INTO decisions (message_id, thread_id, sender, subject, excerpt, urgency, "
+            "category, confidence, route, created_at, source, needs_reply) "
+            "VALUES ('m1', 't1', 'a@b.com', 'Hi', 'b', 'low', 'personnel', 0.9, 'label', "
+            "'2026-01-01', 'jev', 0.8)"
+        )
+        conn.commit()
+        conn.close()
+
+        store = self.open_store()
+
+        self.assertEqual(schema_version(store._conn), LATEST_VERSION)
+        record = store.get("m1")
+        self.assertEqual((record.needs_reply, record.signals), (0.8, {}))
+
+    def test_answers_are_stored_and_follow_a_reclassification(self):
+        store = self.open_store()
+        answers = {"personal_event": 0.97, "service_change": 0.02}
+
+        store.record_decision(
+            make_email(), TriageResult("low", "personnel", 0.9, "jev", signals=answers), "label"
+        )
+        self.assertEqual(store.get("m1").signals, answers)
+
+        store.record_decision(make_email(), TriageResult("low", "personnel", 0.9, "rule"), "label")
+        self.assertEqual(store.get("m1").signals, {})
+
+    def test_an_unreadable_value_does_not_hide_the_decision(self):
+        store = self.open_store()
+        store.record_decision(make_email(), TriageResult("low", "personnel", 0.9, "jev"), "label")
+        for raw in ("not json", "[1, 2]"):
+            with self.subTest(raw=raw):
+                store._conn.execute("UPDATE decisions SET signals = ?", (raw,))
+
+                self.assertEqual(store.get("m1").signals, {})
+
+
 class DecisionSourceTests(unittest.TestCase):
     def setUp(self):
         self.store = SqliteDecisionStore(":memory:")
