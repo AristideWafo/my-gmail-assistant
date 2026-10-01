@@ -148,7 +148,7 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 - ✅ Liste VIP par adresse exacte, forçant `high` (`source=vip`). Appliquée seulement si l'en-tête `Authentication-Results` de Gmail indique `dmarc=pass` : le champ `From` est falsifiable. Limite connue : si Gmail n'ajoutait aucun en-tête à un message, un en-tête forgé portant son identifiant serait lu ; l'effet se limite à une alerte, jamais à une action
 - ✅ Label `source` sur `triage_confidence` ; le panneau Grafana de confiance ne suit plus que `source="jev"`
 - ⬜ Décision documentée sur un repli Gemini pour les classifications à basse confiance, avec un seuil lu sur le banc
-- ⬜ **Regroupement d'incidents** : plusieurs `alerte_technique` sur le même dépôt dans une fenêtre donnée → une seule alerte mise à jour (« 6 échecs depuis 14 h, dernier : deploy prod ») au lieu d'une notification par mail
+- ✅ **Regroupement d'incidents** : les répétitions d'une alerte automatisée (même expéditeur, même objet hors hash et numéros, 30 min) mettent à jour l'alerte d'origine (« 🔁 6 occurrences en 25 min · dernière : … ») au lieu d'être ignorées en silence. Regroupement par workflow et non par dépôt : un autre workflow du même dépôt, par exemple un déploiement de production, alerte immédiatement. État en mémoire : un redémarrage ouvre un nouvel incident
 - ⬜ **Désabonnement proposé** : expéditeur archivé N fois sans jamais être gardé → bouton `[Se désabonner]` s'appuyant sur l'en-tête `List-Unsubscribe`. Soumis à confirmation comme toute écriture
 
 **Attention** : une règle sur « Run failed » ne doit pas écraser une panne de production, que `URGENCIES` classe `high`. La règle porte donc sur le dépôt, pas sur le seul motif.

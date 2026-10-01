@@ -3,7 +3,15 @@ import unittest
 from prometheus_client import REGISTRY
 
 from src.domain import EmailMessage, TriageResult
-from src.gateways.alerts import AlertDeliveryError, AlertGateway, dedup_key, format_urgent_alert
+from src.gateways.alerts import (
+    ALERT_MESSAGE_LIMIT,
+    AlertDeliveryError,
+    AlertGateway,
+    Incident,
+    dedup_key,
+    format_incident_update,
+    format_urgent_alert,
+)
 from src.ports import ChannelDeliveryError
 
 
@@ -27,6 +35,8 @@ class FakeChannel:
         self.message_id = message_id if interactive else None
         self.error = error
         self.sent: list[tuple[str, object]] = []
+        self.updates: list[tuple[int, str, object]] = []
+        self.update_error = None
 
     def check_connection(self) -> str:
         return "ok"
@@ -36,6 +46,11 @@ class FakeChannel:
         if self.error is not None:
             raise self.error
         return self.message_id
+
+    def update(self, message_id, text, buttons=None):
+        self.updates.append((message_id, text, buttons))
+        if self.update_error is not None:
+            raise self.update_error
 
 
 def down() -> ChannelDeliveryError:
@@ -178,6 +193,73 @@ class DedupTests(unittest.TestCase):
 
         self.assertIsNone(second)
         self.assertEqual(len(channel.sent), 1)
+
+    def test_repeats_update_the_first_alert_with_a_count_and_the_latest_subject(self):
+        now = [0.0]
+        channel = FakeChannel()
+        gateway = AlertGateway([channel], feedback_buttons=True, clock=lambda: now[0])
+        gateway.send_urgent_alert(make_email(subject="Run failed (53fc758)"), HIGH, "s")
+        now[0] = 12 * 60
+        gateway.send_urgent_alert(make_email(subject="Run failed (acc1a3a)"), HIGH, "s")
+        now[0] = 25 * 60
+        gateway.send_urgent_alert(make_email(subject="Run failed (0b1c2d3)"), HIGH, "s")
+
+        self.assertEqual(len(channel.sent), 1)
+        original_text, original_buttons = channel.sent[0]
+        message_id, text, buttons = channel.updates[-1]
+        self.assertEqual(message_id, 77)
+        self.assertTrue(text.startswith(original_text))
+        self.assertTrue(
+            text.endswith("🔁 3 occurrences en 25 min · dernière : Run failed (0b1c2d3)")
+        )
+        self.assertEqual(buttons, original_buttons)
+        self.assertEqual(len(channel.updates), 2)
+
+    def test_another_workflow_of_the_same_sender_alerts_immediately(self):
+        channel = FakeChannel()
+        gateway = AlertGateway([channel])
+        gateway.send_urgent_alert(make_email(subject="Run failed: Tests"), HIGH, "s")
+        gateway.send_urgent_alert(make_email(subject="Run failed: Tests"), HIGH, "s")
+
+        deploy = gateway.send_urgent_alert(make_email(subject="Run failed: Deploy prod"), HIGH, "s")
+
+        self.assertEqual(deploy, 77)
+        self.assertEqual(len(channel.sent), 2)
+
+    def test_a_new_alert_is_sent_once_the_window_has_passed(self):
+        now = [0.0]
+        channel = FakeChannel()
+        gateway = AlertGateway([channel], clock=lambda: now[0])
+        gateway.send_urgent_alert(make_email(), HIGH, "s")
+        now[0] = 30 * 60
+
+        self.assertEqual(gateway.send_urgent_alert(make_email(), HIGH, "s"), 77)
+        self.assertEqual((len(channel.sent), channel.updates), (2, []))
+
+    def test_a_failed_update_is_logged_and_never_raised(self):
+        channel = FakeChannel()
+        gateway = AlertGateway([channel])
+        gateway.send_urgent_alert(make_email(), HIGH, "s")
+        channel.update_error = down()
+
+        with self.assertLogs("src.gateways.alerts", level="WARNING"):
+            self.assertIsNone(gateway.send_urgent_alert(make_email(), HIGH, "s"))
+
+    def test_an_alert_delivered_only_to_a_webhook_is_grouped_without_update(self):
+        webhook = FakeChannel("webhook", False)
+        gateway = AlertGateway([webhook])
+        gateway.send_urgent_alert(make_email(), HIGH, "s")
+
+        self.assertIsNone(gateway.send_urgent_alert(make_email(), HIGH, "s"))
+        self.assertEqual((len(webhook.sent), webhook.updates), (1, []))
+
+    def test_update_keeps_the_message_within_the_channel_limit(self):
+        incident = Incident("x" * 5000, None, None, 1, started_at=0.0, count=4)
+
+        text = format_incident_update(incident, make_email(subject="y" * 500), now=60.0)
+
+        self.assertLessEqual(len(text), ALERT_MESSAGE_LIMIT)
+        self.assertIn("🔁 4 occurrences en 1 min", text)
 
     def test_human_mail_is_never_deduplicated(self):
         channel = FakeChannel()

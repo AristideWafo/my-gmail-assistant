@@ -25,3 +25,9 @@ class AlertChannel(Protocol):
     def send(self, text: str, buttons: list[list[Button]] | None = None) -> int | None:
         """Returns the channel message id when `interactive`, else None; raises ChannelDeliveryError."""
         ...
+
+    def update(
+        self, message_id: int, text: str, buttons: list[list[Button]] | None = None
+    ) -> None:
+        """Rewrites a message this channel sent. Only called when `interactive`; raises ChannelDeliveryError."""
+        ...

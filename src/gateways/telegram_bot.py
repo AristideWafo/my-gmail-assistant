@@ -54,18 +54,22 @@ class TelegramBot:
     ) -> int:
         payload: dict[str, Any] = {"chat_id": self._chat_id, "text": text}
         if buttons:
-            payload["reply_markup"] = {
-                "inline_keyboard": [
-                    [{"text": label, "callback_data": data} for label, data in row]
-                    for row in buttons
-                ]
-            }
+            payload["reply_markup"] = _inline_keyboard(buttons)
         if reply_to is not None:
             payload["reply_parameters"] = {"message_id": reply_to}
         message_id = self._call("sendMessage", payload, expect=dict).get("message_id")
         if not _is_int(message_id):
             raise TelegramApiError("Telegram sendMessage returned no message id")
         return message_id
+
+    def edit_message(
+        self, message_id: int, text: str, buttons: list[list[Button]] | None = None
+    ) -> None:
+        payload: dict[str, Any] = {"chat_id": self._chat_id, "message_id": message_id, "text": text}
+        # Telegram drops the keyboard of an edited message unless it is sent again.
+        if buttons:
+            payload["reply_markup"] = _inline_keyboard(buttons)
+        self._call("editMessageText", payload)
 
     def get_me(self) -> dict:
         return self._call("getMe", {}, expect=dict)
@@ -200,6 +204,14 @@ class TelegramBot:
         return result
 
 
+def _inline_keyboard(buttons: list[list[Button]]) -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [{"text": label, "callback_data": data} for label, data in row] for row in buttons
+        ]
+    }
+
+
 def _sanitized_error(method: str, exc: requests.RequestException) -> TelegramApiError:
     status = exc.response.status_code if exc.response is not None else "n/a"
     return TelegramApiError(
@@ -252,5 +264,13 @@ class TelegramChannel:
     def send(self, text: str, buttons: list[list[Button]] | None = None) -> int:
         try:
             return self._bot.send_message(text, buttons=buttons)
+        except TelegramApiError as exc:
+            raise ChannelDeliveryError(str(exc)) from None
+
+    def update(
+        self, message_id: int, text: str, buttons: list[list[Button]] | None = None
+    ) -> None:
+        try:
+            self._bot.edit_message(message_id, text, buttons=buttons)
         except TelegramApiError as exc:
             raise ChannelDeliveryError(str(exc)) from None
