@@ -230,7 +230,7 @@ Limites de l'outil apparues à l'usage :
 
 - Le rapport ne montrait pas le verdict d'un mail mal routé : impossible de dire si JEV répète une erreur déjà corrigée ou s'écarte d'une décision validée. Corrigé : chaque mail noté est affiché avec son verdict et sa route d'origine
 - `current` n'envoie pas les exemples few-shot, alors que la production les envoie quand `JEV_FEW_SHOT_ENABLED` est actif. Le score de `current` n'est donc pas exactement celui de la production. Sans effet sur la comparaison entre variantes, qui partagent ce biais
-- 6 mails sur 16 non conformes : en grande partie des corrections, que le rejeu reproduit telles quelles. C'est attendu, les questions n'ayant pas changé
+- 9 mails sur 37 non conformes à la passe 2 (6 sur 16 à la passe 1). Sans le verdict affiché, on ne sait pas lesquels sont des corrections que le rejeu reproduit (attendu, les questions n'ayant pas changé) et lesquels s'écartent d'une décision validée : à relire à la prochaine passe
 
 **Décisions proposées** (à confirmer) :
 
