@@ -178,24 +178,17 @@ class GmailClient:
         self._label_cache[name] = created["id"]
         return created["id"]
 
-    def label_message(self, message_id: str, label_name: str) -> None:
+    def label_message(self, message_id: str, *label_names: str) -> None:
         if not self._service:
             return
-        label_id = self.ensure_label(f"Assistant/{label_name.capitalize()}")
-        if not label_id:
-            return
-        self.add_label(message_id, label_id)
-
-    def add_label(self, message_id: str, label_id: str) -> None:
-        if not self._service:
-            return
+        label_ids = [self.ensure_label(f"Assistant/{name.capitalize()}") for name in label_names]
         (
             self._service.users()
             .messages()
             .modify(
                 userId=self._user_id,
                 id=message_id,
-                body={"addLabelIds": [label_id], "removeLabelIds": ["UNREAD"]},
+                body={"addLabelIds": label_ids, "removeLabelIds": ["UNREAD"]},
             )
             .execute()
         )
