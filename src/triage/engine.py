@@ -115,6 +115,7 @@ class JevClassifier:
             urgency=cls._normalize_urgency(urgency.get("choice")),
             category=cls._normalize_category(category.get("choice")),
             confidence=min(float(urgency.get("confidence", 0.0)), float(category.get("confidence", 0.0))),
+            source="jev",
         )
 
     def classify(self, email: EmailMessage) -> TriageResult:

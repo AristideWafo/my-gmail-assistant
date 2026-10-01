@@ -146,6 +146,8 @@ Only one process may poll a given bot token: Telegram returns 409 to a second po
 
 State lives in the SQLite file at `DB_PATH` (default `data/assistant.db`; `/data/assistant.db` in the image, on the `assistant-data` named volume). It holds subjects, senders and body excerpts, so when the app creates the file it is `0600` (and its directory `0700` if the app creates it). Prefer the named volume: with a bind mount the host directory must be writable by the container's `app` user, and its ownership and mode are yours to manage. See [Backup and restore](#backup-and-restore).
 
+The schema is versioned (`PRAGMA user_version`) and upgraded at startup, one transaction per step. Before upgrading a database that already holds data the app saves its previous state next to it as `assistant.db.pre-v<version>`; delete these copies once the new version has run for a while. A database written by a newer build is refused rather than opened: run that build, or restore an older backup. Each decision records which stage made it (`rule`, `jev` or `heuristic`).
+
 The store also persists alert dedup across restarts: an alerted mail is not alerted again for 24 hours, so a mail you mark unread again after that is processed anew. Retention is 90 days, pruned at startup and then daily: decisions without a verdict, alert markers and reply/send dedup state are deleted; verdicts and the Telegram offset are kept.
 
 ## Backup and restore

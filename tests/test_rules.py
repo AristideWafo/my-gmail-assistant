@@ -12,6 +12,7 @@ class ApplyRulesTests(unittest.TestCase):
             with self.subTest(sender=sender):
                 result = apply_rules(sender)
                 self.assertEqual((result.urgency, result.category, result.confidence), ("low", "alerte_emploi", 1.0))
+                self.assertEqual(result.source, "rule")
 
     def test_substack_including_subdomains_is_newsletter(self):
         for sender in ("bytebytego@substack.com", "x@mail.substack.com"):

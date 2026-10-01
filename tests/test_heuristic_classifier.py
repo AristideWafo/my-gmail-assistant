@@ -28,6 +28,11 @@ class HeuristicClassifierTests(unittest.TestCase):
     def test_implements_classifier_port_and_is_always_configured(self):
         self.assertIsInstance(self.classifier, EmailClassifier)
         self.assertTrue(self.classifier.is_configured)
+
+    def test_every_result_is_attributed_to_the_heuristic(self):
+        for subject in ("urgent deadline", "interview for a position", "unsubscribe here", "hello"):
+            with self.subTest(subject=subject):
+                self.assertEqual(self.classifier.classify(email(subject=subject)).source, "heuristic")
         self.assertEqual(self.classifier.check_connection(), "local heuristic")
 
     def test_newsletter_detected_by_sender(self):

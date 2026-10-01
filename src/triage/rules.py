@@ -30,7 +30,9 @@ DEFAULT_RULES: tuple[SenderRule, ...] = (
 def apply_rules(sender: str, rules: tuple[SenderRule, ...] = DEFAULT_RULES) -> TriageResult | None:
     for rule in rules:
         if rule.pattern.search(sender):
-            return TriageResult(urgency=rule.urgency, category=rule.category, confidence=1.0)
+            return TriageResult(
+                urgency=rule.urgency, category=rule.category, confidence=1.0, source="rule"
+            )
     return None
 
 
