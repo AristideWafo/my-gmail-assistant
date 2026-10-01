@@ -53,10 +53,10 @@ Le scope proposé a été confronté au code. Les écarts retenus :
 S1 ──► P0 ──► P2 ──► P3 ──► P4 ──► P6
         │      ▲      │      │
         │      S2     └──────┴──► P5
-        └──► P1   (piste parallèle, rythmée par les données)
+        └──► P1 ──► L1 ──► L2, L3, L4   (piste parallèle, rythmée par les données)
 ```
 
-S1 et S2 sont les deux lots de la stabilisation ci-dessous. S3 est une règle de passage appliquée entre chaque phase.
+S1 et S2 sont les deux lots de la stabilisation ci-dessous. S3 est une règle de passage appliquée entre chaque phase. L1 à L4 forment la Phase 1bis : L2, L3 et L4 ne démarrent qu'après la validation de L1.
 
 ---
 
@@ -161,6 +161,78 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 - Décision repli Gemini écrite dans ce fichier, chiffres à l'appui
 - Une rafale réelle d'échecs CI produit une seule alerte, et une panne de production reste alertée immédiatement
 - Un désabonnement réel exécuté après confirmation ; aucun sans appui sur le bouton
+
+---
+
+## Phase 1bis — Banc d'essai des questions JEV (piste parallèle)
+
+**Pourquoi** : avec une clé JEV, une hypothèse sur l'état, les questions ou le routage se vérifie en quelques minutes au lieu d'attendre des semaines de verdicts. Une première série (518 appels réels, 50 mails écrits pour l'occasion) a tranché plusieurs points, mais sur des mails de test : il faut le même outil sur les vrais mails notés avant de changer le tri.
+
+**Coût** : faible pour L1, faible à moyen pour L2 à L4.
+
+**Résultats préliminaires** (corpus de test, à confirmer par L1 sur les vrais mails) :
+
+| Hypothèse | Résultat |
+| --- | --- |
+| Empiler les questions coûte cher | Faux. L'état est compté une seule fois ; une question oui/non ajoute 60 à 120 tokens. 7 questions sur un mail de 1000 mots : +17 % de tokens, latence inchangée (0,25 s) |
+| Le routage varie d'un appel à l'autre | Faux. Aucun changement de route sur 50 mails × 3 appels |
+| Une question directe « alerter / garder / archiver » fait mieux qu'urgence + catégorie | Non prouvé. 47/50 contre 45/50, mais erreurs plus graves (mail personnel archivé, fausse alerte) |
+| Deux questions oui/non suffisent | Non. 46/50, −38 % de tokens, instable sur les arnaques, catégorie perdue |
+| Passer « expéditeur automatisé » dans l'état aide | Aucun effet |
+| Décider sur la probabilité cumulée des catégories à archiver | Aucun effet |
+| Début + fin d'un long mail vaut mieux que le début seul | Confirmé sur 2 mails seulement : demande en fin de mail perdue avec le début seul, gardée avec début + fin pour moitié moins de tokens |
+| Questions métier dans le même appel | Rendez-vous 7/7, engagement 2/2, paiement 3/4, sans faux positif. Échéance : se déclenche sur les promos et arnaques, inutilisable sans filtre de catégorie |
+
+Les 5 erreurs du flow actuel sur ce corpus viennent des règles de routage, pas de JEV (voir L4). Coût fixe mesuré : environ 750 tokens par mail pour les définitions des 9 catégories et 3 urgences, puis 1,3 token par mot de corps.
+
+### L1 — Banc d'essai intégré au dépôt
+
+- ⬜ Corpus de test versionné (`src/evaluation/corpus.toml`) : les 50 mails de la première série, chacun avec ses routes acceptables, `needs_reply` attendu et faits métier attendus. Mails inventés uniquement, aucun mail réel dans le dépôt
+- ⬜ Notion de variante dans `src/evaluation` : un nom, une transformation de la requête JEV (état, questions) et une fonction de routage. La variante `current` réutilise `JevClassifier` et `route_for` tels quels
+- ⬜ `python -m src.evaluation lab --source corpus|rated --variants ... --repeats N` :
+  - `corpus` : compare aux routes acceptables du corpus ;
+  - `rated` : rejoue les vrais mails notés (`rated_decisions` + `fetch_message`) et compare aux contraintes déjà définies pour chaque verdict (`EXPECTATIONS`)
+- ⬜ Rapport par variante : décisions correctes, routes qui changent entre deux appels, tokens et latence (médiane, p95), liste des mails mal routés. Pour chaque question oui/non : ratés et faux positifs quand la vérité est connue, sinon taux de oui et liste à contrôler à la main
+- ⬜ Garde de coût : nombre d'appels affiché avant exécution, plafond `--max-calls`
+- ⬜ Même avertissement « non concluant » que le banc existant sous 100 verdicts dont 20 corrections
+
+**Validation de L1** (condition d'entrée de L2, L3 et L4)
+- Sur le corpus, la variante `current` retrouve les chiffres de la première série (45/50, aucun changement de route entre appels)
+- Exécuté sur le VPS avec `--source rated` ; nombre de cas, taux par variante et coût notés ici
+- Décision écrite ici pour chacun des points L2, L3, L4 : lancé, reporté ou abandonné, chiffres à l'appui
+
+### L2 — Questions métier (en attente de L1)
+
+- ⬜ Stockage commun : colonne `decisions.signals` (JSON, probabilité par question), une seule migration au lieu d'une par question
+- ⬜ Même garde que `needs_reply` pour toutes : expéditeur non automatisé et catégorie hors spam / newsletter / promotion / alerte emploi. Sans elle, `has_deadline` répond oui à « offre jusqu'à minuit »
+- ⬜ Une question n'est ajoutée que lorsque la fonction qui la consomme est en cours, chacune derrière son flag :
+  - `asks_for_meeting` → Phase 4 (créneaux, agenda)
+  - `contains_commitment` → Phase 2 (`waiting_for_them` : l'autre a promis de revenir)
+  - `has_payment_due` et `has_deadline` → rappels du récap (Phase 3) et de la Phase 6
+- ⬜ Seuil de chaque question lu sur le banc, pas choisi à l'avance
+- ⬜ Chaque question a son retour utilisateur avant d'être utilisée pour agir (bouton sur l'élément qu'elle produit)
+
+**DoD** : pour chaque question activée, ratés et faux positifs mesurés sur le corpus et contrôlés à la main sur 30 vrais mails, chiffres notés ici.
+
+### L3 — Troncature début + fin (en attente de L1)
+
+- ⬜ Variantes du banc sur les vrais mails de plus de 300 mots : début 1000 mots (actuel), début 700 + fin 300, début 150, début 100 + fin 50
+- ⬜ Prérequis : `fetch_message` renvoie aujourd'hui un corps déjà coupé à 1000 mots (`clean_body`), la fin d'un mail plus long est donc perdue avant le banc. Le banc doit pouvoir demander le corps nettoyé non coupé
+- ⬜ Règle de décision : adopter la variante la moins chère dont l'accord avec les verdicts n'est pas inférieur à l'actuelle et qui ne change aucune route correcte ; sinon ne rien changer
+- ⬜ Si adoptée : `truncate_words` garde le début et la fin, marqueur de coupure visible dans le texte envoyé
+
+**DoD** : au moins 30 vrais mails longs rejoués, économie de tokens et écarts de route notés ici.
+
+### L4 — Trois règles de routage (en attente de L1)
+
+Les deux premières se vérifient sans aucun appel JEV : elles réinterprètent l'urgence, la catégorie et la confiance déjà stockées.
+
+- ⬜ **Archiver `alerte_technique` d'urgence basse et confiante** (succès de CI, mises à jour de dépendances), comme `notification_systeme` aujourd'hui. À compter sur l'historique : mails concernés, et parmi eux ceux qui ont reçu `wrong_archive` ou `missed_urgent`
+- ⬜ **Archiver le spam même quand il se dit urgent**. Aujourd'hui urgence haute + spam reste en boîte par prudence. Risque : un vrai mail urgent pris pour du spam. Garde proposée : seulement au-dessus d'un seuil de confiance sur la catégorie, lu sur le banc
+- ⬜ **Élargir « haute » à une échéance sous 3 jours** (domaine qui expire, paiement à régulariser). Modifie la définition envoyée à JEV : nécessite un rejeu. À mesurer : alertes en plus par semaine, à confronter au plafond de notifications (invariant 5)
+- ⬜ Chaque règle adoptée arrive seule, dans sa PR, avec le nombre de mails de l'historique qu'elle aurait déplacés
+
+**DoD** : pour chaque règle, nombre de mails déplacés sur 90 jours et verdicts contredits notés ici ; aucune règle adoptée si elle contredit un verdict existant.
 
 ---
 
@@ -301,7 +373,8 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 ## Risques ouverts
 
 - **Sauvegarde SQLite toujours absente.** La base va porter les threads, les items et les actions en attente : sa perte coûtera bien plus qu'aujourd'hui. Traité en S1, avant toute migration
-- Les questions JEV s'accumulent (`needs_reply`, `asks_for_meeting`, `has_deadline`, `contains_commitment`, `has_payment_due`) : coût et latence par question à mesurer en Phase 1 avant de les empiler, et chacune doit avoir son propre retour utilisateur pour être évaluée
+- Les questions JEV s'accumulent (`needs_reply`, `asks_for_meeting`, `has_deadline`, `contains_commitment`, `has_payment_due`) : le coût et la latence sont mesurés et faibles (Phase 1bis), le risque restant est la qualité. Chacune doit avoir son filtre de catégorie et son propre retour utilisateur pour être évaluée
+- Les chiffres de la Phase 1bis viennent de mails écrits pour le test : aucune décision de routage ne doit en découler avant le rejeu sur les vrais mails (L1)
 - Un seul poller par token Telegram : n'activer `TELEGRAM_INBOUND_ENABLED` que sur une instance
 - Few-shot : un objet reste du texte choisi par l'expéditeur, rejoué dans chaque classification
 - Few-shot : un exemple ne porte que le domaine de l'expéditeur. Constaté avec deux exemples fictifs : une correction sur un expéditeur `gmail.com` a changé l'urgence d'autres mails `gmail.com` sans rapport. À confirmer sur les vraies corrections avec `python -m src.evaluation run`
@@ -322,4 +395,5 @@ Le code de S1, de la Phase 0 et de la Phase 1 est écrit. Ce qui reste dépend d
 4. À 100 verdicts dont 20 corrections : `python -m src.evaluation run`, puis décider du few-shot et du repli Gemini, chiffres notés ici
 5. `python -m src.evaluation candidates` pour écrire les premières règles et la liste VIP
 6. Activer `NEEDS_REPLY_ENABLED`, puis contrôler pendant une semaine les brouillons créés et le label `Assistant/A_repondre` ; ajuster `NEEDS_REPLY_THRESHOLD` d'après les probabilités stockées
-7. S2 avant le reste de la Phase 2
+7. L1 (banc d'essai des questions JEV), puis décision sur L2, L3 et L4 d'après ses résultats sur les vrais mails
+8. S2 avant le reste de la Phase 2
