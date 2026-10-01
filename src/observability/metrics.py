@@ -64,6 +64,19 @@ class Metrics:
     backup_failures = Counter("backup_failures_total", "Store backups that failed")
 
     @staticmethod
+    def total(metric: Counter | Gauge, without: dict[str, str] | None = None) -> float:
+        """Current value of a metric summed over its label sets, minus those matching `without`."""
+        excluded = (without or {}).items()
+        return sum(
+            sample.value
+            for family in metric.collect()
+            for sample in family.samples
+            # A counter also exposes a `_created` timestamp per label set.
+            if not sample.name.endswith("_created")
+            and not (excluded and excluded <= sample.labels.items())
+        )
+
+    @staticmethod
     def router() -> APIRouter:
         router = APIRouter()
 

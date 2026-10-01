@@ -80,8 +80,8 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 
 - ✅ `sync_history_once` reprend la garde de `poll_once` : un mail en erreur est compté et sauté, et un historique illisible n'empêche plus le démarrage
 - ✅ Délai d'attente sur chaque appel Gemini (`GEMINI_TIMEOUT_SECONDS`, 30 s) : un appel bloqué est abandonné sans nouvel essai, compté dans `llm_errors_total{reason="timeout"}`, et le mail suit le chemin dégradé existant (alerte sans résumé, pas de brouillon)
-- ⬜ Alertes sur les métriques existantes, envoyées sur Telegram : taux de `jev_fallback_total`, `emails_skipped_total`, listener Telegram muet, `llm_errors_total`. Aujourd'hui les tableaux existent mais personne n'est prévenu
-- ⬜ Plafond de dépense LLM quotidien (`llm_cost_usd_total`) avec alerte au dépassement ; nécessaire avant d'ajouter des appels en Phases 2 à 6
+- ✅ Alertes Telegram (`src/health/watch.py`, `HEALTH_ALERT_WINDOW_MINUTES`, `HEALTH_ALERT_MIN_EVENTS`) : replis JEV, mails en échec, erreurs Gemini au-delà d'un seuil sur 15 min ; listener Telegram mort ou muet depuis 10 min. Un message au début du problème, un à la fin. **Limite** : les trois premiers comptent de vrais échecs, donc sans trafic une panne reste muette ; une sonde périodique des connexions les compléterait
+- ✅ Plafond de dépense LLM quotidien (`LLM_DAILY_BUDGET_USD`, désactivé par défaut) : au-delà, Gemini n'est plus appelé jusqu'au lendemain (alertes sans résumé ni brouillon) et un message part sur Telegram. Total du jour gardé en base. **Limite** : seuls les modèles dont le prix est connu du code sont comptés ; JEV ne l'est pas
 - ⬜ Exposition réseau : les ports 8000, 9090 et 3000 sont publiés sur toutes les interfaces, Prometheus et `/metrics` sans authentification, Grafana en `admin`/`admin` si `GRAFANA_ADMIN_PASSWORD` est absent. Lier à `127.0.0.1` ou confirmer le pare-feu du VPS
 - ⬜ Images `prometheus` et `grafana` épinglées à une version au lieu de `latest`
 - ⬜ Déploiement : `docker-compose.yml` construit l'image sur place alors que la release publie une image versionnée sur GHCR. Faire tourner l'image publiée, et écrire la procédure de retour à la version précédente
