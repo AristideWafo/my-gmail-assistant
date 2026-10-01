@@ -1,4 +1,5 @@
 import base64
+import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -12,6 +13,22 @@ from googleapiclient.errors import HttpError
 
 from src.domain import EmailMessage
 from src.gmail.text_cleaning import clean_body, decode_body, extract_domain
+
+_GMAIL_AUTHSERV_ID = "mx.google.com"
+_DMARC_PASS_RE = re.compile(r"\bdmarc=pass\b", re.IGNORECASE)
+
+
+def dmarc_passed(headers: list[dict[str, Any]]) -> bool:
+    """Reads Gmail's own verdict, never one the sender could have written."""
+    for header in headers:
+        if header.get("name", "").lower() != "authentication-results":
+            continue
+        value = header.get("value", "")
+        # Gmail prepends its header, so its verdict is the topmost one carrying its id; any
+        # Authentication-Results below it, or under another id, came with the message.
+        if value.split(";", 1)[0].strip().lower() == _GMAIL_AUTHSERV_ID:
+            return bool(_DMARC_PASS_RE.search(value))
+    return False
 
 
 def build_unread_query(max_age_days: int) -> str:
@@ -214,9 +231,8 @@ class GmailClient:
 
     @classmethod
     def _parse_message(cls, message: dict[str, Any]) -> EmailMessage:
-        headers = {
-            h.get("name", "").lower(): h.get("value", "") for h in message.get("payload", {}).get("headers", [])
-        }
+        header_list = message.get("payload", {}).get("headers", [])
+        headers = {h.get("name", "").lower(): h.get("value", "") for h in header_list}
         sender = parseaddr(headers.get("from", ""))[1] or headers.get("from", "")
         subject = headers.get("subject", "(No subject)")
         snippet = message.get("snippet", "")
@@ -234,6 +250,7 @@ class GmailClient:
             sender_domain=extract_domain(sender),
             received_at=cls._received_at(message),
             message_id_header=headers.get("message-id", ""),
+            dmarc_pass=dmarc_passed(header_list),
         )
 
     @staticmethod

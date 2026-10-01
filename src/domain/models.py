@@ -14,6 +14,8 @@ class EmailMessage:
     sender_domain: str = ""
     received_at: str = ""
     message_id_header: str = ""
+    # True only when the receiving provider itself vouches for the From address.
+    dmarc_pass: bool = False
 
 
 @dataclass

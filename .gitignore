@@ -150,6 +150,9 @@ activemq-data/
 # Environments
 .env
 client_secret*.json
+# Real rules name the user's VIP senders
+config/*.toml
+!config/*.example.toml
 .envrc
 .venv
 env/

@@ -12,6 +12,8 @@ services:
     volumes:
       - assistant-data:/data
       - assistant-backups:/backups
+      # Optional rules file: set TRIAGE_RULES_PATH=/config/triage_rules.toml in .env
+      - ./config:/config:ro
     ports:
       - "8000:8000"
     healthcheck:

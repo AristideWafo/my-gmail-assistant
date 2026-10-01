@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     # 0 disables the chat message sent when fetching mail keeps failing.
     poll_failure_alert_minutes: int = Field(default=10, ge=0)
     low_confidence_threshold: float = 0.50
+    # TOML file of extra deterministic rules and VIP senders; empty keeps the built-in rules only.
+    triage_rules_path: str = ""
     watchdog_enabled: bool = True
     fetch_max_age_days: int = 3
     fetch_query: str = ""

@@ -178,7 +178,7 @@
     },
     {
       "id": 9,
-      "title": "Triage confidence p50 (by urgency)",
+      "title": "JEV confidence p50 (by urgency)",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -192,7 +192,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, sum by (le, urgency) (rate(triage_confidence_bucket[1h])))",
+          "expr": "histogram_quantile(0.5, sum by (le, urgency) (rate(triage_confidence_bucket{source=\"jev\"}[1h])))",
           "legendFormat": "{{urgency}}"
         }
       ]

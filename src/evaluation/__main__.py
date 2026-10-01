@@ -11,6 +11,7 @@ from src.ports import EmailClassifier
 from src.triage.engine import JevClassifier
 from src.triage.few_shot import build_examples
 from src.triage.heuristic import HeuristicClassifier
+from src.triage.rules import load_ruleset
 
 CANDIDATE_WINDOW = timedelta(days=90)
 SAMPLE_EMAIL = EmailMessage(
@@ -59,9 +60,10 @@ def run(args: argparse.Namespace, settings: Settings) -> int:
     finally:
         store.close()
     examples = build_examples(reversed(dataset.training))
+    rules = load_ruleset(settings.triage_rules_path)
     variants = _variants(settings, examples, set(args.variants.split(",")) - {""})
     reports = [
-        evaluate(name, classifier, dataset.cases, settings.low_confidence_threshold)
+        evaluate(name, classifier, dataset.cases, settings.low_confidence_threshold, rules)
         for name, classifier in variants.items()
     ]
     print(format_report(reports, dataset.cases, dataset.missing, dataset.split_at))
