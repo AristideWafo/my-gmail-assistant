@@ -12,6 +12,8 @@ EXPECTATIONS: dict[str, Callable[[str, str], bool]] = {
     "false_spam": lambda route, recorded: route == "reject",
     "missed_urgent": lambda route, recorded: route == "llm",
     "wrong_archive": lambda route, recorded: route != "reject",
+    # Putting a mail forward is not a route: the verdict only rules out the archive.
+    "missed_important": lambda route, recorded: route != "reject",
 }
 
 

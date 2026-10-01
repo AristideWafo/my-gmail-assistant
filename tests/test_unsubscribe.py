@@ -113,14 +113,12 @@ class ArchivedStreakTests(StoreTestCase):
         self.assertEqual(self.store.archived_streak(SENDER, timedelta(days=30)), 0)
 
     def test_a_mail_the_user_wanted_back_breaks_the_streak(self):
-        self.archive(3)
-        # Written directly: the verdict itself is introduced by the review command.
-        self.store._conn.execute(
-            "INSERT INTO feedback (message_id, verdict, created_at) "
-            f"VALUES ('{SENDER}-0', 'wrong_archive', '2026-10-01')"
-        )
+        for verdict in ("wrong_archive", "missed_urgent", "missed_important"):
+            with self.subTest(verdict=verdict):
+                self.archive(3)
+                self.store.record_feedback(f"{SENDER}-0", verdict, origin="review")
 
-        self.assertEqual(self.store.archived_streak(SENDER, timedelta(days=30)), 0)
+                self.assertEqual(self.store.archived_streak(SENDER, timedelta(days=30)), 0)
 
     def test_only_the_window_counts(self):
         self.decide("old-kept", route="label")

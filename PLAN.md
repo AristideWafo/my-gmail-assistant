@@ -53,10 +53,10 @@ Le scope proposé a été confronté au code. Les écarts retenus :
 S1 ──► P0 ──► P2 ──► P3 ──► P4 ──► P6
         │      ▲      │      │
         │      S2     └──────┴──► P5
-        └──► P1 ──► L1 ──► L2, L3, L4   (piste parallèle, rythmée par les données)
+        └──► P1 ──► L1 ──► L2, L3, L4, L5   (piste parallèle, rythmée par les données)
 ```
 
-S1 et S2 sont les deux lots de la stabilisation ci-dessous. S3 est une règle de passage appliquée entre chaque phase. L1 à L4 forment la Phase 1bis : L2, L3 et L4 ne démarrent qu'après la validation de L1.
+S1 et S2 sont les deux lots de la stabilisation ci-dessous. S3 est une règle de passage appliquée entre chaque phase. L1 à L5 forment la Phase 1bis : L2 à L5 ne démarrent qu'après la validation de L1.
 
 ---
 
@@ -120,9 +120,9 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 - ✅ Colonne `decisions.source` (`rule` / `jev` / `heuristic`), portée par `TriageResult`
 - ✅ Verdicts `missed_urgent` (aurait dû alerter) et `wrong_archive` (archivé à tort) ; colonne `feedback.origin` (`alert` / `review`)
 - ✅ `/review [n]` (`src/interactions/review.py`) : échantillon stratifié sur 7 jours, jamais déjà noté, hors décisions de règle. Priorité à la route `reject`, puis aux `label` proches du seuil de confiance. `n` = 5 par défaut, 10 max
-- ✅ Boutons selon la route : `label` → `[OK] [Urgent raté] [Spam]` ; `reject` → `[OK] [À garder] [Urgent raté]`
+- ✅ Boutons selon la route : `label` → `[OK] [À voir] [Urgent raté] [Spam]` ; `reject` → `[OK] [À garder] [À voir] [Urgent raté]`. `[À voir]` (`missed_important`) : le mail méritait d'être mis en avant sans notification ; `[Urgent raté]` : il méritait une alerte immédiate
 - ✅ `/stats` (`src/interactions/stats.py`) : précision et types d'erreur par route et par source, volume de décisions par source sur 30 jours, lus dans SQLite ; `feedback_total{verdict, route}` et panneau Grafana par route
-- ✅ `missed_urgent` ajouté à `_VERDICT_CORRECTIONS` (`high`, catégorie inchangée). `wrong_archive` est mesuré mais pas injecté en few-shot : la bonne catégorie n'est pas connue
+- ✅ `missed_urgent` ajouté à `_VERDICT_CORRECTIONS` (`high`, catégorie inchangée). `wrong_archive` et `missed_important` sont mesurés mais pas injectés en few-shot : ni la bonne catégorie ni une urgence à corriger ne sont connues
 
 **DoD**
 - `/review` et `/stats` documentés dans le README
@@ -243,7 +243,7 @@ Les 9 erreurs de `current`, par verdict :
 | `false_spam` (gardé, tu voulais l'archiver) | 1 | Résumé de discussions d'un réseau social |
 
 - **7 erreurs sur 9 sont des urgences ratées, aucune n'est une fausse alerte.** Le tri est trop prudent sur l'alerte, pas trop bavard. La définition de « haute » envoyée à JEV (à traiter aujourd'hui ou demain) est plus étroite que ce que tu appelles urgent : des choses datées dans les jours qui viennent, et des personnes qui attendent quelque chose de toi
-- **Question ouverte avant tout changement** : « Urgent raté » veut-il dire « j'aurais voulu une alerte immédiate » ou « j'aurais voulu que ce soit mis en avant » ? `/review` n'offre que ce bouton pour dire qu'un mail comptait. Si c'est le second sens, la réponse est un niveau intermédiaire (récap de la Phase 3), pas plus d'alertes
+- **Sens de « Urgent raté », tranché** : « j'aurais voulu que ce soit mis en avant », pas « j'aurais voulu une alerte immédiate ». S'y ajoutent deux règles : une réponse est préparée dès qu'elle est attendue, quelle que soit l'urgence ; la notification Telegram, elle, dépend de l'urgence. La définition de « haute » n'est donc pas élargie : il manque un niveau entre l'alerte et le simple label (lot L5)
 - **Les questions oui/non ne suffisent pas à rattraper ces 7 mails** : `asks_for_meeting` ou `needs_reply` en couvrent 5, mais déclencheraient aussi sur 4 mails validés sans alerte
 - **`needs_reply`** : oui sur 3 mails. Deux sont des urgences ratées (message de recruteur, question d'une personne) : le brouillon silencieux les aurait signalés. Le troisième est un mail validé comme simplement gardé
 - **`direct-action`** : ses erreurs propres sont 5 décisions validées qu'il modifie (4 discussions de revue de code archivées, 1 avis bancaire alerté) et 1 archive validée qu'il garde
@@ -253,7 +253,8 @@ Les 9 erreurs de `current`, par verdict :
 
 - **L2 — reporté.** Chaque question attend la fonction qui la consomme, comme prévu. Acquis : coût faible. À faire avant tout usage : réécrire `has_deadline` et `asks_for_meeting`, qui se déclenchent sur les événements publics et les lettres d'information
 - **L3 — à lancer en premier.** C'est le seul levier de coût significatif. Il lui faut une source `recent` (voir L3) : 37 mails notés ne suffisent pas, et comparer une troncature à la réponse sur le mail entier ne demande aucun verdict
-- **L4 — priorité inversée.** La règle à étudier d'abord est l'élargissement de « haute » : elle vise 7 des 9 erreurs. Elle se teste par une variante du banc sur ces mêmes mails, une fois tranché le sens de « Urgent raté ». Les règles qui élargissent l'archivage passent après : la règle d'archivage existante est déjà contredite par un verdict, à mesurer d'abord sur l'historique
+- **L4 — « haute » n'est pas élargie.** Les 7 urgences ratées demandaient une mise en avant, pas une alerte : elles relèvent du lot L5. Restent pour L4 les règles d'archivage, à mesurer d'abord sur l'historique : la règle existante est déjà contredite par un verdict
+- **L5 — lancé** : niveau « à voir » entre l'alerte et le label
 - **`direct-action` — abandonné** : moins bon sur le corpus en gravité d'erreur, moins bon sur les vrais mails en nombre
 
 ### L2 — Questions métier (en attente de L1)
@@ -286,10 +287,30 @@ Les deux premières se vérifient sans aucun appel JEV : elles réinterprètent 
 - ⬜ **Mesurer d'abord la règle existante** (`notification_systeme` d'urgence basse et confiante → archivé) : nombre de mails archivés par elle sur 90 jours, et parmi eux ceux qui ont reçu `wrong_archive` ou `missed_urgent`. Un avis d'administration archivé à tort a été vu au banc
 - ⬜ **Archiver `alerte_technique` d'urgence basse et confiante** (succès de CI, mises à jour de dépendances), comme `notification_systeme` aujourd'hui. À compter sur l'historique : mails concernés, et parmi eux ceux qui ont reçu `wrong_archive` ou `missed_urgent`
 - ⬜ **Archiver le spam même quand il se dit urgent**. Aujourd'hui urgence haute + spam reste en boîte par prudence. Risque : un vrai mail urgent pris pour du spam. Garde proposée : seulement au-dessus d'un seuil de confiance sur la catégorie, lu sur le banc
-- ⬜ **Élargir « haute »** aux choses datées dans les jours qui viennent (événement, échéance, coupure, migration annoncée) et aux personnes qui attendent une réponse. Prioritaire : 7 des 9 erreurs relevées au banc sont des urgences ratées de ce type, aucune n'est une fausse alerte. À faire dans l'ordre : trancher le sens de « Urgent raté » (alerte immédiate ou mise en avant) ; ajouter une variante du banc avec la définition élargie ; la rejouer sur les mails notés en comptant les urgences rattrapées **et** les alertes ajoutées sur des mails validés sans alerte ; confronter au plafond de notifications (invariant 5)
+- **Élargir « haute » : abandonné.** Les mails datés dans les jours qui viennent et les personnes qui attendent une réponse ne doivent pas sonner : ils sont mis en avant (L5)
 - ⬜ Chaque règle adoptée arrive seule, dans sa PR, avec le nombre de mails de l'historique qu'elle aurait déplacés
 
 **DoD** : pour chaque règle, nombre de mails déplacés sur 90 jours et verdicts contredits notés ici ; aucune règle adoptée si elle contredit un verdict existant.
+
+### L5 — Niveau « à voir » : mettre en avant sans notifier
+
+**Pourquoi** : 7 des 9 erreurs relevées au banc sont des mails gardés que tu voulais voir mis en avant. Le tri ne connaît que trois sorties (alerte, label, archive) et le label seul ne montre rien : un mail traité est marqué lu.
+
+Conception soumise à une relecture critique avant le code. Ce qui en est retenu :
+
+- Un label Gmail ne suffit pas : il faut une liste envoyée une fois par jour, sans son, sinon un rappel pour le lendemain reste invisible
+- Des questions étroites composées par le code, pas une question large : chacune se mesure et se coupe séparément
+- Les questions tournent d'abord sans effet (probabilités stockées), le temps de compter ce qu'elles auraient mis en avant
+- Les verdicts de mise en avant ne deviennent pas des exemples few-shot : un exemple ne porte que le domaine et l'objet, il agirait comme une liste d'expéditeurs
+- `[OK]` sur un mail gardé voulait dire « pas urgent », pas « inutile à voir » : les verdicts existants ne prouvent pas qu'un mail ne devait pas être mis en avant
+
+Lots :
+
+- ✅ Verdict `missed_important` et bouton `[À voir]` dans `/review`, distinct de `[Urgent raté]`. Les verdicts « Urgent raté » déjà donnés par `/review` sont convertis (migration 4, état précédent gardé dans `assistant.db.pre-v4`) : ils cessent d'être envoyés à JEV comme « urgence correcte : haute ». Lecture du banc après conversion : `missed_important` exclut seulement l'archivage
+- ⬜ Brouillon de réponse indépendant de l'urgence
+- ⬜ Questions de mise en avant en mode observation, mesurées au banc
+- ⬜ Mise en avant : label `Assistant/A_voir`, mail sorti de l'archivage
+- ⬜ Liste quotidienne silencieuse sur Telegram, commande à la demande, boutons de verdict
 
 ---
 
@@ -452,6 +473,6 @@ Le code de S1, de la Phase 0 et de la Phase 1 est écrit. Ce qui reste dépend d
 4. À 100 verdicts dont 20 corrections : `python -m src.evaluation run`, puis décider du few-shot et du repli Gemini, chiffres notés ici
 5. `python -m src.evaluation candidates` pour écrire les premières règles et la liste VIP
 6. Activer `NEEDS_REPLY_ENABLED`, puis contrôler pendant une semaine les brouillons créés et le label `Assistant/A_repondre` ; ajuster `NEEDS_REPLY_THRESHOLD` d'après les probabilités stockées
-7. Trancher le sens de « Urgent raté », puis tester au banc une définition élargie de « haute » (L4) ; L3 (troncature, avec la source `recent`) ensuite
+7. L5 (niveau « à voir »), puis L3 (troncature, avec la source `recent`) et L4 (règles d'archivage mesurées sur l'historique)
 8. Continuer `/review` (43 verdicts à ce jour), puis relancer `lab --source rated` à 100 verdicts dont 20 corrections
 9. S2 avant le reste de la Phase 2

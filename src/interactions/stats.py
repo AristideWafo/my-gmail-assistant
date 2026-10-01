@@ -15,6 +15,7 @@ _MISTAKE_LABELS = {
     "false_spam": "spam",
     "missed_urgent": "urgent raté",
     "wrong_archive": "à garder",
+    "missed_important": "à mettre en avant",
 }
 
 

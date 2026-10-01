@@ -61,6 +61,7 @@ class BuildExamplesTests(unittest.TestCase):
     def test_only_verdicts_that_say_what_was_right_become_examples(self):
         self.assertEqual(EXAMPLE_VERDICTS, ("false_urgent", "false_spam", "missed_urgent"))
         self.assertEqual(build_examples([FakeCorrection(verdict="wrong_archive")]), [])
+        self.assertEqual(build_examples([FakeCorrection(verdict="missed_important")]), [])
 
     def test_unknown_and_valid_verdicts_are_skipped(self):
         corrections = [FakeCorrection(verdict="valid"), FakeCorrection(verdict="bogus")]

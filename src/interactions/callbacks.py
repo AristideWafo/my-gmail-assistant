@@ -17,13 +17,15 @@ VERDICT_CODES = {
     "s": "false_spam",
     "m": "missed_urgent",
     "k": "wrong_archive",
+    "i": "missed_important",
 }
 _FEEDBACK_LABELS = (("v", "Valider"), ("u", "Faux-Urgent"), ("s", "Faux-Spam"))
 # What can be wrong depends on what was done: an archived mail may have deserved to stay, a
-# labeled one may be spam; either may have deserved an alert.
+# labeled one may be spam. Either may have deserved more: "À voir" asks for it to be put forward
+# without a notification, "Urgent raté" for an immediate alert.
 _REVIEW_LABELS = {
-    "label": (("v", "OK"), ("m", "Urgent raté"), ("s", "Spam")),
-    "reject": (("v", "OK"), ("k", "À garder"), ("m", "Urgent raté")),
+    "label": (("v", "OK"), ("i", "À voir"), ("m", "Urgent raté"), ("s", "Spam")),
+    "reject": (("v", "OK"), ("k", "À garder"), ("i", "À voir"), ("m", "Urgent raté")),
 }
 
 

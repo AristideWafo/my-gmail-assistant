@@ -122,6 +122,7 @@ class ReviewButtonsTests(unittest.TestCase):
             labeled,
             [
                 Callback("rv", "m1", "valid"),
+                Callback("rv", "m1", "missed_important"),
                 Callback("rv", "m1", "missed_urgent"),
                 Callback("rv", "m1", "false_spam"),
             ],
@@ -131,6 +132,7 @@ class ReviewButtonsTests(unittest.TestCase):
             [
                 Callback("rv", "m1", "valid"),
                 Callback("rv", "m1", "wrong_archive"),
+                Callback("rv", "m1", "missed_important"),
                 Callback("rv", "m1", "missed_urgent"),
             ],
         )
@@ -212,9 +214,9 @@ class ReviewCommandTests(unittest.TestCase):
 
         self.handler.dispatch(CallbackEvent(callback_id="cb", message_id=77, data=data))
 
-        self.assertEqual(self.store.feedback_counts()["missed_urgent"], 1)
+        self.assertEqual(self.store.feedback_counts()["missed_important"], 1)
         row = self.store._conn.execute("SELECT verdict, origin FROM feedback").fetchone()
-        self.assertEqual(tuple(row), ("missed_urgent", "review"))
+        self.assertEqual(tuple(row), ("missed_important", "review"))
         self.chat.clear_buttons.assert_called_once_with(77)
 
     def test_a_rated_mail_does_not_come_back(self):
