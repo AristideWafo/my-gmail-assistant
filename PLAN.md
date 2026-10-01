@@ -85,9 +85,9 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 - 🟡 Exposition réseau : les ports 8000, 9090 et 3000 sont publiés sur `BIND_ADDRESS`, `127.0.0.1` par défaut ; accès distant par tunnel SSH. **Reste à faire** : définir `GRAFANA_ADMIN_PASSWORD` sur le VPS (toujours `admin` par défaut : le rendre obligatoire aurait cassé toutes les commandes `docker compose` tant qu'il n'est pas défini), puis vérifier depuis une autre machine que rien ne répond
 - ✅ Images épinglées : `prom/prometheus:v3.15.0`, `grafana/grafana:13.2.3`
 - 🟡 Déploiement : `docker-compose.yml` fait tourner l'image publiée (`VERSION` dans `.env`), la construction locale passe par `docker-compose.build.yml`. Procédure de retour arrière écrite dans le README, migration de schéma comprise. **Reste à faire** : l'exécuter une fois sur le VPS et noter la durée
-- ⬜ Dépendances de développement déclarées (`requirements-dev.txt`) : la CI installe `ruff` et `pytest` à la main, et le venv local n'a pas `pytest`
-- ⬜ Couverture de tests mesurée en CI, avec un seuil qui ne peut que monter
-- ⬜ Mises à jour de dépendances automatisées (Dependabot ou équivalent) ; versions actuelles figées depuis longtemps, dont le SDK Gemini
+- ✅ Dépendances de développement déclarées (`requirements-dev.txt`, versions figées), utilisées par la CI et la release
+- ✅ Couverture mesurée en CI (`pytest --cov`) : 97,6 % à ce jour, plancher à 97 % (`fail_under`), à relever quand la couverture monte, jamais à baisser
+- ✅ Dependabot (`.github/dependabot.yml`) : Python chaque semaine, GitHub Actions et image de base chaque mois. **À surveiller** : la première salve proposera des sauts importants (SDK Gemini, FastAPI, LangGraph), à fusionner un par un
 - ⬜ `@app.on_event` (déprécié par FastAPI) remplacé par `lifespan` ; version de l'app lue depuis `pyproject.toml` au lieu de `0.1.0` en dur
 - ⬜ Runbook des pannes connues : token Gmail révoqué, 409 Telegram (double poller), quota Gemini, JEV indisponible, base corrompue
 

@@ -17,15 +17,14 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install ruff pytest
+        run: pip install -r requirements-dev.txt
 
       - name: Lint
         run: ruff check .
 
+      # The coverage floor is fail_under in pyproject.toml.
       - name: Test
-        run: pytest -v
+        run: pytest -v --cov
 
       - name: Build image (sanity check only)
         run: docker build -t my-gmail-assistant:ci .
