@@ -92,5 +92,12 @@ class ReplyEvent:
     text: str
 
 
+@dataclass(frozen=True)
+class CommandEvent:
+    message_id: int
+    name: str
+    args: str = ""
+
+
 Button = tuple[str, str]
-ChatEvent = CallbackEvent | ReplyEvent
+ChatEvent = CallbackEvent | ReplyEvent | CommandEvent

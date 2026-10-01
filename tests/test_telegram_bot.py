@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import requests
 from prometheus_client import REGISTRY
 
-from src.domain import CallbackEvent, ReplyEvent
+from src.domain import CallbackEvent, CommandEvent, ReplyEvent
 from src.gateways.telegram_bot import TelegramApiError, TelegramBot, TelegramChannel
 from src.ports import AlertChannel, ChannelDeliveryError, ChatInbox
 
@@ -243,6 +243,51 @@ class GetUpdatesTests(unittest.TestCase):
         bot, _ = make_bot(api_response(updates))
 
         self.assertEqual(bot.get_updates(None), ([], 3))
+
+    def test_parses_commands_with_arguments_and_bot_suffix(self):
+        updates = [
+            reply_update(1, text="/review", reply_to=None),
+            reply_update(2, text="/Review@my_bot  3 \n", reply_to=None),
+            reply_update(3, text="/stats@my_bot", reply_to=None),
+        ]
+        bot, _ = make_bot(api_response(updates))
+
+        events, _ = bot.get_updates(None)
+
+        self.assertEqual(
+            events,
+            [
+                CommandEvent(message_id=99, name="review", args=""),
+                CommandEvent(message_id=99, name="review", args="3"),
+                CommandEvent(message_id=99, name="stats", args=""),
+            ],
+        )
+
+    def test_a_reply_starting_with_a_slash_stays_mail_text(self):
+        bot, _ = make_bot(api_response([reply_update(1, text="/review plus tard")]))
+
+        events, _ = bot.get_updates(None)
+
+        self.assertEqual(
+            events, [ReplyEvent(message_id=99, reply_to_message_id=7, text="/review plus tard")]
+        )
+
+    def test_text_that_only_looks_like_a_command_is_ignored(self):
+        updates = [
+            reply_update(1, text="/", reply_to=None),
+            reply_update(2, text="/!\\ attention", reply_to=None),
+            reply_update(3, text="voir /review", reply_to=None),
+        ]
+        bot, _ = make_bot(api_response(updates))
+
+        self.assertEqual(bot.get_updates(None), ([], 4))
+
+    def test_command_from_an_unauthorized_user_is_rejected(self):
+        bot, _ = make_bot(api_response([reply_update(1, text="/review", reply_to=None, user_id=7)]))
+        before = rejected("unauthorized_user")
+
+        self.assertEqual(bot.get_updates(None), ([], 2))
+        self.assertEqual(rejected("unauthorized_user"), before + 1)
 
     def test_oversized_or_non_string_callback_data_is_skipped(self):
         updates = [callback_update(1, data="é" * 33), callback_update(2, data=12)]

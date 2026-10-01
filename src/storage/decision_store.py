@@ -21,7 +21,14 @@ EXCERPT_CHARS = 300
 _MEMORY = ":memory:"
 _DIR_MODE = 0o700
 _FILE_MODE = 0o600
-PRUNABLE_STATE_PREFIXES = ("reply:", "draft_sent:", "bot_draft:", "unsub:", "unsub_done:")
+PRUNABLE_STATE_PREFIXES = (
+    "reply:",
+    "draft_sent:",
+    "bot_draft:",
+    "unsub:",
+    "unsub_done:",
+    "cmd:",
+)
 
 _DECISION_COLUMNS = (
     "message_id, thread_id, sender, subject, excerpt, urgency, category, confidence, route, "

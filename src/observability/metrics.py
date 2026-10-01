@@ -41,6 +41,9 @@ class Metrics:
     unsubscribes = Counter(
         "unsubscribes_total", "Unsubscribe proposals and their outcomes", ["status"]
     )
+    chat_commands = Counter(
+        "chat_commands_total", "Chat commands received", ["command", "status"]
+    )
     poll_failures = Counter("poll_failures_total", "Polling cycles whose mail fetch failed")
     backup_last_success = Gauge(
         "backup_last_success_timestamp_seconds", "Unix time of the last verified store backup"
@@ -121,6 +124,10 @@ class Metrics:
     @classmethod
     def mark_unsubscribe(cls, status: str) -> None:
         cls.unsubscribes.labels(status=status).inc()
+
+    @classmethod
+    def mark_chat_command(cls, command: str, status: str) -> None:
+        cls.chat_commands.labels(command=command, status=status).inc()
 
     @classmethod
     def mark_poll_failure(cls) -> None:
