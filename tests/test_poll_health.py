@@ -117,6 +117,15 @@ class PollOnceObservabilityTests(unittest.TestCase):
 
         ctx.prune_if_due.assert_called_once_with()
 
+    def test_each_poll_backs_up_before_pruning(self):
+        ctx = make_ctx()
+        ctx.mail.fetch_unread.return_value = []
+
+        poll_once(ctx)
+
+        maintenance = [call[0] for call in ctx.mock_calls if call[0].endswith("_if_due")]
+        self.assertEqual(maintenance, ["backup_if_due", "prune_if_due"])
+
     def test_failing_email_is_counted_and_still_beats(self):
         ctx = make_ctx()
         ctx.mail.fetch_unread.return_value = [MagicMock(id="1")]

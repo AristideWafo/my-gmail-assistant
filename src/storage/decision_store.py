@@ -5,6 +5,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from src.domain import VERDICTS, Correction, DecisionRecord, EmailMessage, TriageResult
+from src.errors import BackupError
 
 EXCERPT_CHARS = 300
 
@@ -215,6 +216,19 @@ class SqliteDecisionStore:
             ).rowcount
         return deleted
 
+    def backup(self, destination: str) -> None:
+        _create_private_file(destination)
+        target = sqlite3.connect(destination)
+        try:
+            with self._lock:
+                self._conn.backup(target)
+            # A copy of a damaged database must fail here, not be trusted on restore day.
+            verdict = _integrity_verdict(target)
+        finally:
+            target.close()
+        if verdict != "ok":
+            raise BackupError(f"backup failed its integrity check: {verdict}")
+
     def close(self) -> None:
         with self._lock:
             self._conn.close()
@@ -235,6 +249,10 @@ class SqliteDecisionStore:
 
     def _cutoff(self, age: timedelta) -> str:
         return (self._clock() - age).isoformat()
+
+
+def _integrity_verdict(conn: sqlite3.Connection) -> str:
+    return conn.execute("PRAGMA integrity_check").fetchone()[0]
 
 
 def _create_private_file(path: str) -> None:

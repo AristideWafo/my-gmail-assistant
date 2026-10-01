@@ -38,6 +38,11 @@ class Metrics:
         "chat_replies_total", "Outcomes of Telegram replies turned into Gmail drafts", ["status"]
     )
 
+    backup_last_success = Gauge(
+        "backup_last_success_timestamp_seconds", "Unix time of the last verified store backup"
+    )
+    backup_failures = Counter("backup_failures_total", "Store backups that failed")
+
     @staticmethod
     def router() -> APIRouter:
         router = APIRouter()
@@ -99,6 +104,13 @@ class Metrics:
     @classmethod
     def mark_chat_reply(cls, status: str) -> None:
         cls.chat_replies.labels(status=status).inc()
+
+    @classmethod
+    def mark_backup(cls, succeeded: bool) -> None:
+        if succeeded:
+            cls.backup_last_success.set_to_current_time()
+        else:
+            cls.backup_failures.inc()
 
     @classmethod
     def mark_poll_success(cls) -> None:

@@ -20,6 +20,7 @@ CORE_MODULES = [
     ROOT / "src" / "workflow.py",
     ROOT / "src" / "gateways" / "alerts.py",
     *sorted((ROOT / "src" / "interactions").glob("*.py")),
+    *sorted((ROOT / "src" / "maintenance").glob("*.py")),
 ]
 ADAPTER_MODULES = (
     "src.gmail",

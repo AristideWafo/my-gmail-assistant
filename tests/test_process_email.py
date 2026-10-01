@@ -10,6 +10,7 @@ from src.bootstrap import build_components
 from src.config import Settings
 from src.domain import EmailMessage, TriageResult
 from src.expiring_set import ExpiringSet
+from src.observability.metrics import Metrics
 from tests.fakes import FakeChat, fake_components
 
 
@@ -337,4 +338,65 @@ class PruneTests(unittest.TestCase):
 
     def test_retention_is_90_days(self):
         self.assertEqual(RETENTION.days, 90)
+
+
+class BackupTests(unittest.TestCase):
+    def make_ctx(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        ctx = ApplicationContext(make_settings(backup_dir=tmp.name))
+        ctx.backups = MagicMock()
+        return ctx
+
+    def test_disabled_without_a_backup_directory(self):
+        ctx = ApplicationContext(make_settings())
+
+        self.assertIsNone(ctx.backups)
+        ctx.backup_if_due()  # must not raise
+
+    def test_configured_directory_and_retention_reach_the_rotation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ctx = ApplicationContext(make_settings(backup_dir=directory, backup_keep=3))
+            with self.assertLogs("gmail-assistant", level="INFO"):
+                ctx.backup_if_due()
+
+            self.assertEqual(len(os.listdir(directory)), 1)
+            self.assertEqual(ctx.backups._keep, 3)
+
+    def test_backs_up_at_startup_then_at_most_once_a_day(self):
+        ctx = self.make_ctx()
+
+        with patch("main.monotonic", side_effect=[1000.0, 1000.0 + 3600, 1000.0 + 86400]):
+            with self.assertLogs("gmail-assistant", level="INFO"):
+                ctx.backup_if_due()
+            ctx.backup_if_due()
+            with self.assertLogs("gmail-assistant", level="INFO"):
+                ctx.backup_if_due()
+
+        self.assertEqual(ctx.backups.run.call_count, 2)
+
+    def test_failure_is_logged_counted_and_not_retried_before_the_interval(self):
+        ctx = self.make_ctx()
+        ctx.backups.run.side_effect = RuntimeError("disk full")
+        before = Metrics.backup_failures._value.get()
+
+        with patch("main.monotonic", side_effect=[0.0, 60.0]):
+            with self.assertLogs("gmail-assistant", level="ERROR"):
+                ctx.backup_if_due()
+            ctx.backup_if_due()
+
+        ctx.backups.run.assert_called_once()
+        self.assertEqual(Metrics.backup_failures._value.get(), before + 1)
+
+    def test_backup_and_prune_keep_separate_schedules(self):
+        ctx = self.make_ctx()
+        ctx.store = MagicMock()
+        ctx.store.prune.return_value = 0
+
+        with patch("main.monotonic", return_value=5.0):
+            ctx.backup_if_due()
+            ctx.prune_if_due()
+
+        ctx.backups.run.assert_called_once()
+        ctx.store.prune.assert_called_once()
 

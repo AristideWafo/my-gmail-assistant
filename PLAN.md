@@ -70,8 +70,9 @@ S1 et S2 sont les deux lots de la stabilisation ci-dessous. S3 est une règle de
 
 La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avant.
 
-- ⬜ Sauvegarde quotidienne de la base (`sqlite3 .backup`) hors du volume, avec rotation
-- ⬜ Restauration testée une fois de bout en bout, procédure écrite dans le README
+- ✅ Sauvegarde quotidienne vérifiée (`BACKUP_DIR`, `BACKUP_KEEP`, `src/maintenance/backup.py`) sur un volume distinct, avec rotation ; métriques `backup_last_success_timestamp_seconds` et `backup_failures_total`
+- 🟡 Copie hors de l'hôte : le volume de sauvegarde est sur le même disque que la base ; commande documentée, planification à mettre en place sur le VPS
+- 🟡 Restauration : procédure écrite dans le README et couverte par un test automatisé (copie → réouverture → verdicts présents). Reste à l'exécuter une fois sur le VPS
 - ⬜ Alerte de panne silencieuse : `poll_once` signale la boucle comme vivante même quand `fetch_unread` échoue (voulu, pour éviter un redémarrage en boucle). Un refresh token révoqué arrête donc le tri sans aucun signal. Envoyer un message Telegram quand aucun poll n'a réussi depuis `POLL_FAILURE_ALERT_MINUTES`, puis un second au retour à la normale
 - ⬜ Distinguer « aucun mail » de « échec » : après épuisement des tentatives sur 429, `_execute_with_backoff` renvoie `None`, converti en liste vide et compté comme un poll réussi
 
