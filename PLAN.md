@@ -201,23 +201,30 @@ Les 5 erreurs du flow actuel sur ce corpus viennent des règles de routage, pas 
 - ✅ Exécuté sur le VPS avec `docker compose exec assistant python -m src.evaluation lab --source rated` (v0.11.0) : résultats ci-dessous
 - ⬜ Décision écrite ici pour chacun des points L2, L3, L4 : lancé, reporté ou abandonné, chiffres à l'appui. Décisions proposées ci-dessous, à confirmer
 
-**Résultats sur les vrais mails notés** (17 verdicts, 1 décidé par une règle et écarté, 16 rejoués, 48 appels ; **non concluant** : moins de 100 verdicts dont 20 corrections)
+**Résultats sur les vrais mails notés** — **non concluants** : moins de 100 verdicts dont 20 corrections
 
-| Variante | Routes conformes au verdict | Tokens par mail | Latence médiane |
-| --- | --- | --- | --- |
-| `current` | 10/16 | 2 431 | 0,24 s |
-| `direct-action` | 10/16 | 2 432 | 0,25 s |
-| `signals` | 11/16 | 2 872 | 0,25 s |
+| | Passe 1 | Passe 2 |
+| --- | --- | --- |
+| Verdicts en base | 17 | 43 |
+| Décidés par une règle, écartés | 1 | 6 |
+| Mails rejoués | 16 | 37 |
+| `current`, routes conformes au verdict | 10/16 | 28/37 |
+| `direct-action` | 10/16 | 24/37 |
+| `signals` | 11/16 | 28/37 |
+| Tokens par mail (`current` / `signals`) | 2 431 / 2 872 | 2 375 / 2 816 |
+| Latence médiane | 0,24 s | 0,24 s |
 
 Ce que ces chiffres montrent, et ce qu'ils ne montrent pas :
 
-- **Le coût réel est 2,6 fois celui du corpus** (2 431 tokens contre 936) : les vrais mails sont longs, proches du plafond de 1000 mots. Le corps pèse environ 70 % du coût, la troncature (L3) est donc le premier levier. La latence ne bouge pas
-- **Les questions oui/non ajoutent 18 % de tokens** (441 par mail) sur de vrais mails, sans effet sur la latence
-- **Le routage n'est pas parfaitement stable sur de vrais mails** : `current` et `signals` posent les mêmes questions de routage et diffèrent sur un mail (10 contre 11). L'écart entre variantes est donc du bruit à cette taille d'échantillon
-- **`direct-action` n'apporte rien** : même score, et ses deux erreurs propres sont des archivages de discussions de revue de code, plus graves que les erreurs de `current` (mails gardés à tort). Même constat que sur le corpus
-- **`asks_for_meeting` et `has_deadline` répondent oui aux webinaires et événements promotionnels** (4 des 6 « rendez-vous », 2 des 2 « échéances »). Le filtre de catégorie est indispensable, et l'énoncé doit exclure les événements publics
-- **`needs_reply`** : oui sur 2 mails sur 16, donc pas une copie de l'urgence. À contrôler à la main
-- **`has_payment_due` et `contains_commitment`** : aucun oui, rien à en conclure
+- **Le coût réel est 2,5 fois celui du corpus** (2 375 tokens contre 936) : les vrais mails sont longs, proches du plafond de 1000 mots. Le corps pèse environ 70 % du coût, la troncature (L3) est donc le premier levier. La latence ne bouge pas
+- **Les questions oui/non ajoutent 19 % de tokens** (441 par mail) sur de vrais mails, sans effet sur la latence
+- **Bruit entre deux appels : environ un mail.** `current` et `signals` posent les mêmes questions de routage ; ils diffèrent d'un mail à la passe 1 et sont identiques à la passe 2
+- **`direct-action` fait moins bien** : 24/37 contre 28/37. Ses erreurs propres sont quatre archivages de discussions de revue de code et une alerte sur un avis bancaire automatique. Même constat que sur le corpus
+- **`has_deadline` est inutilisable tel quel** : 5 oui sur 37, tous sur des lettres d'information, des événements ou une mise à jour de conditions d'utilisation
+- **`asks_for_meeting` confond rendez-vous et événements publics** : 9 oui, dont au moins 5 webinaires ou événements. Le filtre de catégorie est indispensable et l'énoncé doit exclure les événements publics
+- **`contains_commitment`** : un seul oui, sur un avis bancaire automatique. **`has_payment_due`** : aucun oui
+- **`needs_reply`** : oui sur 3 mails sur 37, donc pas une copie de l'urgence. À contrôler à la main
+- **Une des erreurs de `current` est un archivage** : un avis d'une administration, classé notification d'urgence basse, est archivé alors que le verdict demandait autre chose. La règle d'archivage existante se trompe donc déjà au moins une fois sur 37 (voir L4)
 
 Limites de l'outil apparues à l'usage :
 
@@ -227,10 +234,10 @@ Limites de l'outil apparues à l'usage :
 
 **Décisions proposées** (à confirmer) :
 
-- **L2 — reporté.** Chaque question attend la fonction qui la consomme, comme prévu. Acquis : coût faible, mais énoncés à revoir pour exclure webinaires et promotions
-- **L3 — à lancer en premier.** C'est le seul levier de coût significatif. Il lui faut une source `recent` (voir L3) : 16 mails notés ne suffisent pas, et comparer une troncature à la réponse sur le mail entier ne demande aucun verdict
-- **L4 — à lancer pour les deux règles vérifiables sur l'historique**, sans appel JEV. La troisième (« haute » à 3 jours) reste en attente de verdicts
-- **`direct-action` — abandonné** sauf résultat contraire à 100 verdicts
+- **L2 — reporté.** Chaque question attend la fonction qui la consomme, comme prévu. Acquis : coût faible. À faire avant tout usage : réécrire `has_deadline` et `asks_for_meeting`, qui se déclenchent sur les événements publics et les lettres d'information
+- **L3 — à lancer en premier.** C'est le seul levier de coût significatif. Il lui faut une source `recent` (voir L3) : 37 mails notés ne suffisent pas, et comparer une troncature à la réponse sur le mail entier ne demande aucun verdict
+- **L4 — à lancer avec prudence.** Les deux règles vérifiables sur l'historique élargissent l'archivage, alors que la règle existante est déjà contredite par un verdict. L4 commence donc par mesurer la règle existante
+- **`direct-action` — abandonné** : moins bon sur le corpus en gravité d'erreur, moins bon sur les vrais mails en nombre
 
 ### L2 — Questions métier (en attente de L1)
 
@@ -259,6 +266,7 @@ Limites de l'outil apparues à l'usage :
 
 Les deux premières se vérifient sans aucun appel JEV : elles réinterprètent l'urgence, la catégorie et la confiance déjà stockées.
 
+- ⬜ **Mesurer d'abord la règle existante** (`notification_systeme` d'urgence basse et confiante → archivé) : nombre de mails archivés par elle sur 90 jours, et parmi eux ceux qui ont reçu `wrong_archive` ou `missed_urgent`. Un avis d'administration archivé à tort a été vu au banc
 - ⬜ **Archiver `alerte_technique` d'urgence basse et confiante** (succès de CI, mises à jour de dépendances), comme `notification_systeme` aujourd'hui. À compter sur l'historique : mails concernés, et parmi eux ceux qui ont reçu `wrong_archive` ou `missed_urgent`
 - ⬜ **Archiver le spam même quand il se dit urgent**. Aujourd'hui urgence haute + spam reste en boîte par prudence. Risque : un vrai mail urgent pris pour du spam. Garde proposée : seulement au-dessus d'un seuil de confiance sur la catégorie, lu sur le banc
 - ⬜ **Élargir « haute » à une échéance sous 3 jours** (domaine qui expire, paiement à régulariser). Modifie la définition envoyée à JEV : nécessite un rejeu. À mesurer : alertes en plus par semaine, à confronter au plafond de notifications (invariant 5)
@@ -428,5 +436,5 @@ Le code de S1, de la Phase 0 et de la Phase 1 est écrit. Ce qui reste dépend d
 5. `python -m src.evaluation candidates` pour écrire les premières règles et la liste VIP
 6. Activer `NEEDS_REPLY_ENABLED`, puis contrôler pendant une semaine les brouillons créés et le label `Assistant/A_repondre` ; ajuster `NEEDS_REPLY_THRESHOLD` d'après les probabilités stockées
 7. Confirmer les décisions proposées en Phase 1bis, puis L3 (troncature, avec la source `recent`) et les deux règles de L4 vérifiables sur l'historique
-8. Relancer `lab --source rated` à 100 verdicts dont 20 corrections
+8. Continuer `/review` (43 verdicts à ce jour), puis relancer `lab --source rated` à 100 verdicts dont 20 corrections
 9. S2 avant le reste de la Phase 2
