@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Protocol, runtime_checkable
 
-from src.domain import Correction, DecisionRecord, EmailMessage, TriageResult
+from src.domain import Correction, DecisionRecord, EmailMessage, FeedbackTally, TriageResult
 
 
 @runtime_checkable
@@ -27,6 +27,10 @@ class DecisionStore(Protocol):
         ...
 
     def feedback_counts(self) -> dict[str, int]: ...
+
+    def feedback_breakdown(self) -> list[FeedbackTally]: ...
+
+    def decision_counts_by_source(self, max_age: timedelta) -> dict[str, int]: ...
 
     def mark_alerted(self, message_id: str) -> None: ...
 

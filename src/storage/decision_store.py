@@ -10,6 +10,7 @@ from src.domain import (
     Correction,
     DecisionRecord,
     EmailMessage,
+    FeedbackTally,
     TriageResult,
 )
 from src.errors import BackupError
@@ -162,6 +163,24 @@ class SqliteDecisionStore:
         counts = dict.fromkeys(VERDICTS, 0)
         counts.update({row["verdict"]: row["n"] for row in rows})
         return counts
+
+    def feedback_breakdown(self) -> list[FeedbackTally]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT d.route, d.source, f.verdict, COUNT(*) AS n "
+                "FROM feedback f JOIN decisions d ON d.message_id = f.message_id "
+                "GROUP BY d.route, d.source, f.verdict ORDER BY d.route, d.source, f.verdict"
+            ).fetchall()
+        return [FeedbackTally(row["route"], row["source"], row["verdict"], row["n"]) for row in rows]
+
+    def decision_counts_by_source(self, max_age: timedelta) -> dict[str, int]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT source, COUNT(*) AS n FROM decisions WHERE created_at >= ? "
+                "GROUP BY source ORDER BY n DESC, source",
+                (self._cutoff(max_age),),
+            ).fetchall()
+        return {row["source"]: row["n"] for row in rows}
 
     def mark_alerted(self, message_id: str) -> None:
         with self._lock, self._conn:
