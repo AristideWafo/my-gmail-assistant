@@ -21,6 +21,8 @@ class TriageResult:
     urgency: str
     category: str
     confidence: float
+    # Which stage decided: "rule", "jev" or "heuristic".
+    source: str = ""
 
 
 @dataclass
@@ -44,6 +46,7 @@ class DecisionRecord:
     created_at: str
     chat_message_id: int | None = None
     message_id_header: str = ""
+    source: str = ""
 
 
 @dataclass(frozen=True)

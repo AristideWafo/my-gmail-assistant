@@ -1,0 +1,76 @@
+import sqlite3
+
+from src.errors import SchemaVersionError
+
+# Append only: a database remembers how many of these it has applied (PRAGMA user_version), so
+# editing a released script would leave existing databases on a different schema than new ones.
+MIGRATIONS: tuple[str, ...] = (
+    # IF NOT EXISTS: databases created before versioning already hold these tables at version 0.
+    """
+    CREATE TABLE IF NOT EXISTS decisions (
+        message_id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        sender TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        excerpt TEXT NOT NULL,
+        urgency TEXT NOT NULL,
+        category TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        route TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        chat_message_id INTEGER,
+        message_id_header TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_decisions_chat_message_id ON decisions (chat_message_id);
+    CREATE TABLE IF NOT EXISTS feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id TEXT NOT NULL UNIQUE,
+        verdict TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS alerted (
+        message_id TEXT PRIMARY KEY,
+        alerted_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS kv_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """,
+    """
+    ALTER TABLE decisions ADD COLUMN source TEXT NOT NULL DEFAULT '';
+    ALTER TABLE feedback ADD COLUMN origin TEXT NOT NULL DEFAULT 'alert';
+    """,
+)
+LATEST_VERSION = len(MIGRATIONS)
+
+
+def schema_version(conn: sqlite3.Connection) -> int:
+    return conn.execute("PRAGMA user_version").fetchone()[0]
+
+
+def needs_safety_copy(conn: sqlite3.Connection) -> bool:
+    """True when a migration is about to rewrite a database that already holds tables."""
+    if schema_version(conn) >= LATEST_VERSION:
+        return False
+    return conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone() is not None
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    current = schema_version(conn)
+    if current > LATEST_VERSION:
+        raise SchemaVersionError(
+            f"database is at schema version {current}, this build only knows up to "
+            f"{LATEST_VERSION}; run a newer build or restore an older backup"
+        )
+    for version in range(current + 1, LATEST_VERSION + 1):
+        try:
+            # One transaction per step, version included: a crash leaves the step fully applied
+            # or not at all, never half a schema with a stale version.
+            conn.executescript(
+                f"BEGIN;\n{MIGRATIONS[version - 1]}\nPRAGMA user_version = {version};\nCOMMIT;"
+            )
+        except sqlite3.Error:
+            conn.rollback()
+            raise

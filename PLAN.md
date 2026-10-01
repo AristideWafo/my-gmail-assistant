@@ -115,9 +115,9 @@ La Phase 0 introduit les migrations de schéma : la sauvegarde doit exister avan
 
 **Coût** : moyen.
 
-- ⬜ Migrations de schéma versionnées (`PRAGMA user_version`) ; aujourd'hui seul `CREATE TABLE IF NOT EXISTS` existe, et chaque phase suivante ajoute des tables
+- ✅ Migrations de schéma versionnées (`PRAGMA user_version`, `src/storage/migrations.py`) : une transaction par étape, copie `assistant.db.pre-v<N>` avant toute montée de version d'une base non vide, base plus récente que le code refusée
 - ⬜ `CommandEvent` dans `src/domain`, analyse des messages `/commande` dans `src/gateways/telegram_bot.py`, routeur dans `src/interactions/`
-- ⬜ Colonne `decisions.source` (`rule` / `jev` / `heuristic`), portée par `TriageResult`
+- ✅ Colonne `decisions.source` (`rule` / `jev` / `heuristic`), portée par `TriageResult`
 - ⬜ Verdicts `missed_urgent` (aurait dû alerter) et `wrong_archive` (archivé à tort) ; colonne `feedback.origin` (`alert` / `review`)
 - ⬜ `/review [n]` : échantillon stratifié sur 7 jours, jamais déjà noté, hors décisions de règle. Priorité à la route `reject`, puis aux `label` proches du seuil de confiance. `n` = 5 par défaut, 10 max
 - ⬜ Boutons selon la route : `label` → `[OK] [Urgent raté] [Spam]` ; `reject` → `[OK] [À garder] [Urgent raté]`

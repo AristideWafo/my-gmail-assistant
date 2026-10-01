@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from src.domain import VERDICTS, Correction, DecisionRecord, EmailMessage, TriageResult
 from src.errors import BackupError
+from src.storage.migrations import LATEST_VERSION, migrate, needs_safety_copy
 
 EXCERPT_CHARS = 300
 
@@ -14,42 +15,9 @@ _DIR_MODE = 0o700
 _FILE_MODE = 0o600
 PRUNABLE_STATE_PREFIXES = ("reply:", "draft_sent:", "bot_draft:")
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS decisions (
-    message_id TEXT PRIMARY KEY,
-    thread_id TEXT NOT NULL,
-    sender TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    excerpt TEXT NOT NULL,
-    urgency TEXT NOT NULL,
-    category TEXT NOT NULL,
-    confidence REAL NOT NULL,
-    route TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    chat_message_id INTEGER,
-    message_id_header TEXT NOT NULL DEFAULT ''
-);
-CREATE INDEX IF NOT EXISTS idx_decisions_chat_message_id ON decisions (chat_message_id);
-CREATE TABLE IF NOT EXISTS feedback (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_id TEXT NOT NULL UNIQUE,
-    verdict TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS alerted (
-    message_id TEXT PRIMARY KEY,
-    alerted_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS kv_state (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-"""
-
 _DECISION_COLUMNS = (
     "message_id, thread_id, sender, subject, excerpt, urgency, category, confidence, route, "
-    "created_at, chat_message_id, message_id_header"
+    "created_at, chat_message_id, message_id_header, source"
 )
 
 
@@ -64,24 +32,25 @@ class SqliteDecisionStore:
         # Shared by the polling thread and the Telegram listener; self._lock serializes access.
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        with self._lock:
-            if path != _MEMORY:
-                self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.executescript(_SCHEMA)
-            self._conn.commit()
+        if path != _MEMORY:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            if needs_safety_copy(self._conn):
+                # A migration rewrites the only copy of the verdicts: keep the previous state.
+                self.backup(f"{path}.pre-v{LATEST_VERSION}")
+        migrate(self._conn)
 
     def record_decision(self, email: EmailMessage, triage: TriageResult, route: str) -> None:
         excerpt = (email.body or email.snippet or "")[:EXCERPT_CHARS]
         with self._lock, self._conn:
             self._conn.execute(
                 f"INSERT INTO decisions ({_DECISION_COLUMNS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?) "
                 "ON CONFLICT(message_id) DO UPDATE SET "
                 "thread_id = excluded.thread_id, sender = excluded.sender, "
                 "subject = excluded.subject, excerpt = excluded.excerpt, "
                 "urgency = excluded.urgency, category = excluded.category, "
                 "confidence = excluded.confidence, route = excluded.route, "
-                "message_id_header = excluded.message_id_header",
+                "message_id_header = excluded.message_id_header, source = excluded.source",
                 (
                     email.id,
                     email.thread_id,
@@ -94,6 +63,7 @@ class SqliteDecisionStore:
                     route,
                     self._now(),
                     getattr(email, "message_id_header", "") or "",
+                    triage.source,
                 ),
             )
 

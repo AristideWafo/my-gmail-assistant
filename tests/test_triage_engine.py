@@ -67,6 +67,7 @@ class JevClassifierTests(unittest.TestCase):
             result = client.classify(self.email)
 
         self.assertEqual((result.urgency, result.category, result.confidence), ("medium", "offre_emploi", 0.8))
+        self.assertEqual(result.source, "jev")
 
     def test_classify_accepts_spam_category(self):
         client = JevClassifier(api_url="https://jev.example/triage", api_key="k")
