@@ -25,6 +25,7 @@ from src.health import (
 )
 from src.interactions import InteractionHandler
 from src.interactions.listener import run_listener
+from src.maintenance import BackupRotation
 from src.observability import Metrics
 from src.workflow import EmailWorkflow
 
@@ -36,7 +37,7 @@ LISTENER_JOIN_TIMEOUT_SECONDS = 5
 # A mail re-marked unread after this window is processed (and alerted) again.
 ALERTED_TTL_SECONDS = 24 * 3600
 RETENTION = timedelta(days=90)
-PRUNE_INTERVAL_SECONDS = 24 * 3600
+MAINTENANCE_INTERVAL_SECONDS = 24 * 3600
 
 
 class ApplicationContext:
@@ -64,7 +65,12 @@ class ApplicationContext:
         # Backs up the persisted flag: if both mark_alerted and the label fail, the mail must not
         # be re-alerted every cycle.
         self.recently_alerted = ExpiringSet(ALERTED_TTL_SECONDS)
-        self._last_prune: float | None = None
+        self.backups = (
+            BackupRotation(self.store, settings.backup_dir, settings.backup_keep)
+            if settings.backup_dir
+            else None
+        )
+        self._last_maintenance: dict[str, float] = {}
 
     def connection_probes(self):
         return connection_probes(self.components)
@@ -139,17 +145,35 @@ class ApplicationContext:
         except Exception:
             logger.exception("Failed to %s for email %s; continuing", description, email_id)
 
-    def prune_if_due(self) -> None:
-        now = monotonic()
-        if self._last_prune is not None and now - self._last_prune < PRUNE_INTERVAL_SECONDS:
+    def backup_if_due(self) -> None:
+        if self.backups is None or not self._maintenance_due("backup"):
             return
-        self._last_prune = now
+        try:
+            path = self.backups.run()
+        except Exception:
+            logger.exception("Failed to back up the decision store; will retry tomorrow")
+            Metrics.mark_backup(succeeded=False)
+            return
+        Metrics.mark_backup(succeeded=True)
+        logger.info("Backed up the decision store to %s", path)
+
+    def prune_if_due(self) -> None:
+        if not self._maintenance_due("prune"):
+            return
         try:
             deleted = self.store.prune(RETENTION)
         except Exception:
             logger.exception("Failed to prune the decision store; will retry tomorrow")
             return
         logger.info("Pruned %d expired row(s) from the decision store", deleted)
+
+    def _maintenance_due(self, task: str) -> bool:
+        now = monotonic()
+        last = self._last_maintenance.get(task)
+        if last is not None and now - last < MAINTENANCE_INTERVAL_SECONDS:
+            return False
+        self._last_maintenance[task] = now
+        return True
 
     def _resolve_inbound(self) -> bool:
         if not self.settings.telegram_inbound_enabled:
@@ -215,6 +239,8 @@ def poll_once(ctx: ApplicationContext) -> None:
     # exception raised out of here would kill polling forever with zero log line - the task just
     # dies silently and nothing is ever processed again until the container restarts. Every
     # failure must therefore be caught and logged right here, never allowed to propagate.
+    # Backup first, so the copy still holds what the prune is about to delete.
+    ctx.backup_if_due()
     ctx.prune_if_due()
     try:
         emails = ctx.mail.fetch_unread()

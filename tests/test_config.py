@@ -29,5 +29,16 @@ class SettingsAllowedUserIdsTests(unittest.TestCase):
             Settings(_env_file=None, telegram_allowed_user_ids="me")
 
 
+class SettingsBackupTests(unittest.TestCase):
+    def test_backups_are_off_by_default_and_keep_a_week(self):
+        settings = Settings(_env_file=None)
+
+        self.assertEqual((settings.backup_dir, settings.backup_keep), ("", 7))
+
+    def test_keeping_no_backup_fails_at_startup(self):
+        with self.assertRaises(ValidationError):
+            Settings(_env_file=None, backup_keep=0)
+
+
 if __name__ == "__main__":
     unittest.main()

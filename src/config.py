@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     sync_history: bool = False
     gmail_user_id: str = "me"
     db_path: str = "data/assistant.db"
+    # Empty disables backups.
+    backup_dir: str = ""
+    backup_keep: int = Field(default=7, ge=1)
     # Only one process may long-poll a bot token; a second poller gets HTTP 409 from Telegram.
     telegram_inbound_enabled: bool = False
     # Comma-separated; mandatory for inbound in group chats, where anyone could press buttons.

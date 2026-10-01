@@ -16,6 +16,7 @@ main.py
     ├── gateways/       # Telegram bot (alerts + inbound polling), Discord webhook
     ├── interactions/   # Telegram buttons and replies -> feedback, Gmail drafts
     ├── storage/        # SQLite decisions, feedback, alert dedup, bot state
+    ├── maintenance/    # Daily verified backups of the store, with rotation
     └── observability/  # /metrics endpoint (Prometheus counters + latency + token usage)
 ```
 
@@ -141,9 +142,30 @@ Only one process may poll a given bot token: Telegram returns 409 to a second po
 
 **Who may act.** Updates are accepted only from `TELEGRAM_CHAT_ID` *and* from an allowed user. In a private chat the chat id is your user id, so nothing else is needed. For a group or channel chat set `TELEGRAM_ALLOWED_USER_IDS` (comma-separated numeric user ids); without it the listener refuses to start, logs an error and alerts are sent without buttons. Posts made anonymously as the group or a channel are always refused. Rejected updates are only logged at DEBUG and counted in `telegram_inbound_rejected_total{reason}` (`foreign_chat`, `unauthorized_user`, `malformed`). Listener health: `telegram_poll_errors_total` and `telegram_last_poll_timestamp_seconds`. Discord stays outbound-only (buttons there need a public HTTPS Interactions endpoint).
 
-State lives in the SQLite file at `DB_PATH` (default `data/assistant.db`; `/data/assistant.db` in the image, on the `assistant-data` named volume). It holds subjects, senders and body excerpts, so when the app creates the file it is `0600` (and its directory `0700` if the app creates it). Prefer the named volume: with a bind mount the host directory must be writable by the container's `app` user, and its ownership and mode are yours to manage. Back it up with `sqlite3 assistant.db ".backup backup.db"`, or stop the container and copy `assistant.db` together with its `-wal` and `-shm` files.
+State lives in the SQLite file at `DB_PATH` (default `data/assistant.db`; `/data/assistant.db` in the image, on the `assistant-data` named volume). It holds subjects, senders and body excerpts, so when the app creates the file it is `0600` (and its directory `0700` if the app creates it). Prefer the named volume: with a bind mount the host directory must be writable by the container's `app` user, and its ownership and mode are yours to manage. See [Backup and restore](#backup-and-restore).
 
 The store also persists alert dedup across restarts: an alerted mail is not alerted again for 24 hours, so a mail you mark unread again after that is processed anew. Retention is 90 days, pruned at startup and then daily: decisions without a verdict, alert markers and reply/send dedup state are deleted; verdicts and the Telegram offset are kept.
+
+## Backup and restore
+
+With `BACKUP_DIR` set (`/backups` in `docker-compose.yml`, on the `assistant-backups` volume; empty disables it), the assistant copies the database at startup and then once a day to `assistant-YYYY-MM-DD.db`, keeping the `BACKUP_KEEP` most recent files (default `7`). Each copy is taken with SQLite's online backup, so it is consistent while the app runs, and is only kept if it passes `PRAGMA integrity_check`; a failed run leaves the previous copy untouched. Files are `0600`. Watch `backup_last_success_timestamp_seconds` and `backup_failures_total`.
+
+The backup volume sits on the same disk as the database: it protects against a corrupted file or a bad migration, not against losing the host. Copy it elsewhere on a schedule of your own:
+
+```bash
+docker cp my-gmail-assistant:/backups ./assistant-backups
+```
+
+To restore a copy:
+
+```bash
+docker compose stop assistant
+docker compose run --rm --no-deps assistant sh -c \
+  'cp /backups/assistant-2026-10-01.db /data/assistant.db && rm -f /data/assistant.db-wal /data/assistant.db-shm'
+docker compose start assistant
+```
+
+The stale `-wal` and `-shm` files belong to the replaced database and must go with it. Mails processed after the restored copy was taken lose their verdicts and alert dedup, so an unread urgent mail from that window can be alerted again.
 
 ## Docker deployment
 
