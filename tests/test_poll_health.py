@@ -190,6 +190,29 @@ class PollOnceObservabilityTests(unittest.TestCase):
         self.assertEqual(ctx.health.beat.call_count, 2)
 
 
+    def test_history_sync_skips_a_failing_email_and_goes_on(self):
+        ctx = make_ctx()
+        ctx.mail.fetch_history.return_value = [MagicMock(id="1"), MagicMock(id="2")]
+        ctx.process_email.side_effect = [RuntimeError("boom"), None]
+        before = Metrics.emails_skipped._value.get()
+
+        with self.assertLogs("gmail-assistant", level="ERROR"):
+            sync_history_once(ctx)
+
+        self.assertEqual(ctx.process_email.call_count, 2)
+        self.assertEqual(Metrics.emails_skipped._value.get(), before + 1)
+        self.assertEqual(ctx.health.beat.call_count, 2)
+
+    def test_history_that_cannot_be_fetched_does_not_stop_the_startup(self):
+        ctx = make_ctx()
+        ctx.mail.fetch_history.side_effect = RuntimeError("gmail down")
+
+        with self.assertLogs("gmail-assistant", level="ERROR"):
+            sync_history_once(ctx)
+
+        ctx.process_email.assert_not_called()
+
+
 class RouteMetricsTests(unittest.TestCase):
     def test_mark_route_counts_route_and_observes_confidence(self):
         before = Metrics.routes.labels(route="label")._value.get()
