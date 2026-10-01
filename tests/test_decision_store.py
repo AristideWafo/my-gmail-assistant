@@ -191,6 +191,25 @@ class DecisionStoreTests(unittest.TestCase):
         self.assertEqual([record.message_id for record in records], ["first", "second"])
         self.assertEqual(records[0].signals, {"personal_event": 0.9})
 
+    def test_put_forward_pending_are_recent_unrated_mails_put_forward_oldest_first(self):
+        def decide(message_id, put_forward=True):
+            triage = TriageResult("low", "personnel", 0.9, "jev")
+            self.store.record_decision(make_email(message_id), triage, "label", put_forward)
+            self.now += timedelta(minutes=1)
+
+        self.now = datetime(2025, 12, 20, tzinfo=UTC)
+        decide("old")
+        self.now = datetime(2026, 1, 1, tzinfo=UTC)
+        decide("first")
+        decide("plain", put_forward=False)
+        decide("rated")
+        self.store.record_feedback("rated", "false_important", origin="list")
+        decide("second")
+
+        pending = self.store.put_forward_pending(timedelta(days=7))
+
+        self.assertEqual([record.message_id for record in pending], ["first", "second"])
+
     def test_feedback_origin_is_stored_and_validated(self):
         self.store.record_decision(make_email(), make_triage(), "label")
 

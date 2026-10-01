@@ -146,6 +146,16 @@ class RatedCasesTests(unittest.TestCase):
 
         self.assertEqual([item.expected_forward for item in cases], [True, None, None])
 
+    def test_verdicts_given_on_a_mail_put_forward_say_whether_it_deserved_it(self):
+        rated = [
+            Case(email("seen"), "valid", "label", "2026-01-01", put_forward=True),
+            Case(email("noise"), "false_important", "label", "2026-01-01", put_forward=True),
+        ]
+
+        cases, _ = cases_from_rated(rated, RuleSet())
+
+        self.assertEqual([item.expected_forward for item in cases], [True, False])
+
     def test_rated_mail_name_keeps_one_line_and_a_bounded_subject(self):
         subject = "Tr\xa0: COUPURE\nEAU " + "x" * 80
         cases, _ = cases_from_rated(

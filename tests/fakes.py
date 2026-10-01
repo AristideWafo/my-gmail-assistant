@@ -24,6 +24,9 @@ class FakeMail:
     def fetch_message(self, message_id: str) -> EmailMessage | None:
         return next((email for email in self.unread if email.id == message_id), None)
 
+    def in_inbox(self, message_id: str) -> bool:
+        return message_id not in self.archived
+
     def archive_message(self, message_id: str) -> None:
         self.archived.append(message_id)
 
@@ -94,7 +97,11 @@ class FakeChat:
         return [], offset
 
     def send_message(
-        self, text: str, buttons: list[list[Button]] | None = None, reply_to: int | None = None
+        self,
+        text: str,
+        buttons: list[list[Button]] | None = None,
+        reply_to: int | None = None,
+        silent: bool = False,
     ) -> int:
         return 1
 

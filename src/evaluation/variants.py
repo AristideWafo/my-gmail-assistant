@@ -7,7 +7,6 @@ from src.triage.engine import NEEDS_REPLY_QUESTION, JevClassifier
 from src.workflow import attention_reasons, route_for, route_with_attention
 
 Answers = dict[str, dict]
-# Probability from which a yes/no answer counts as yes in the lab.
 SIGNAL_THRESHOLD = 0.5
 
 ROUTE_OF_ACTION = {"alert": "llm", "keep": "label", "archive": "reject"}
@@ -60,7 +59,6 @@ SIGNAL_QUESTIONS = {
         "No promise of a future action by the sender",
     ),
 }
-# Every yes/no question a test mail may state the truth for.
 KNOWN_QUESTIONS = {**SIGNAL_QUESTIONS, **ATTENTION_QUESTIONS}
 
 
