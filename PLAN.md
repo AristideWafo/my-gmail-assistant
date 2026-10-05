@@ -281,13 +281,15 @@ Les 9 erreurs de `current`, par verdict :
 
 **DoD** : au moins 30 vrais mails longs rejoués, économie de tokens et écarts de route notés ici.
 
-### L4 — Trois règles de routage (en attente de L1)
+### L4 — Règles d'archivage
 
-Les deux premières se vérifient sans aucun appel JEV : elles réinterprètent l'urgence, la catégorie et la confiance déjà stockées.
+Elles se vérifient sans aucun appel JEV : elles réinterprètent l'urgence, la catégorie et la confiance déjà stockées.
 
+- ✅ `python -m src.evaluation routing-rules [--days 90]` : pour la règle en production et pour chaque candidate, nombre de mails concernés ou déplacés, verdicts qui l'approuvent, et liste des mails dont le verdict la contredit. Décisions de règle et de liste VIP écartées
+- ⬜ À lancer sur le VPS, résultat à noter ici avant toute adoption
 - ⬜ **Mesurer d'abord la règle existante** (`notification_systeme` d'urgence basse et confiante → archivé) : nombre de mails archivés par elle sur 90 jours, et parmi eux ceux qui ont reçu `wrong_archive` ou `missed_urgent`. Un avis d'administration archivé à tort a été vu au banc
 - ⬜ **Archiver `alerte_technique` d'urgence basse et confiante** (succès de CI, mises à jour de dépendances), comme `notification_systeme` aujourd'hui. À compter sur l'historique : mails concernés, et parmi eux ceux qui ont reçu `wrong_archive` ou `missed_urgent`
-- ⬜ **Archiver le spam même quand il se dit urgent**. Aujourd'hui urgence haute + spam reste en boîte par prudence. Risque : un vrai mail urgent pris pour du spam. Garde proposée : seulement au-dessus d'un seuil de confiance sur la catégorie, lu sur le banc
+- ⬜ **Archiver le spam même quand il se dit urgent**. Aujourd'hui urgence haute + spam reste en boîte par prudence. Risque : un vrai mail urgent pris pour du spam. Garde proposée : seulement au-dessus d'un seuil de confiance sur la catégorie, lu sur le banc. Limite de la mesure : la base ne garde que la plus faible des deux confiances (urgence, catégorie), l'audit est donc plus strict que la règle proposée
 - **Élargir « haute » : abandonné.** Les mails datés dans les jours qui viennent et les personnes qui attendent une réponse ne doivent pas sonner : ils sont mis en avant (L5)
 - ⬜ Chaque règle adoptée arrive seule, dans sa PR, avec le nombre de mails de l'historique qu'elle aurait déplacés
 
