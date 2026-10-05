@@ -29,6 +29,7 @@ from src.interactions.listener import run_listener
 from src.interactions.unsubscribe import UnsubscribeProposer
 from src.maintenance import BackupRotation
 from src.observability import Metrics
+from src.scheduling import DailyJob
 from src.triage.rules import load_ruleset
 from src.workflow import EmailWorkflow, attention_reasons
 
@@ -57,10 +58,17 @@ class ApplicationContext:
             list(self.components.channels), feedback_buttons=self.inbound_enabled
         )
         self.interactions = (
-            InteractionHandler(self.store, self.chat, self.mail, self.components.unsubscriber)
+            InteractionHandler(
+                self.store,
+                self.chat,
+                self.mail,
+                self.components.unsubscriber,
+                settings.attention_threshold if settings.attention_mode == "on" else None,
+            )
             if self.chat is not None
             else None
         )
+        self.put_forward_job = self._build_put_forward_job()
         self.unsubscribes = self._build_unsubscribe_proposer()
         self.workflow = EmailWorkflow(
             self.components.classifier,
@@ -231,6 +239,29 @@ class ApplicationContext:
             return
         logger.info("Pruned %d expired row(s) from the decision store", deleted)
 
+    def send_put_forward_list_if_due(self) -> None:
+        if self.put_forward_job is None:
+            return
+        try:
+            if not self.put_forward_job.claim():
+                return
+            sent = self.interactions.put_forward.send_daily(interactive=self.inbound_enabled)
+        except Exception:
+            logger.exception("Failed to send the list of mails put forward; will retry")
+            return
+        logger.info("Sent the daily list of mails put forward: %d mail(s)", sent)
+
+    def _build_put_forward_job(self) -> DailyJob | None:
+        settings = self.settings
+        if settings.attention_mode != "on" or settings.attention_list_hour < 0:
+            return None
+        if self.chat is None or not self.chat.is_configured:
+            logger.warning("ATTENTION_LIST_HOUR ignored: no chat inbox is configured")
+            return None
+        return DailyJob(
+            "put_forward_list", settings.attention_list_hour, settings.tzinfo, self.store
+        )
+
     def _maintenance_due(self, task: str) -> bool:
         now = monotonic()
         last = self._last_maintenance.get(task)
@@ -320,6 +351,7 @@ def poll_once(ctx: ApplicationContext) -> None:
     # Backup first, so the copy still holds what the prune is about to delete.
     ctx.backup_if_due()
     ctx.prune_if_due()
+    ctx.send_put_forward_list_if_due()
     try:
         emails = ctx.mail.fetch_unread()
     except Exception as exc:

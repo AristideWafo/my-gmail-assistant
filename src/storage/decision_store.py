@@ -183,6 +183,17 @@ class SqliteDecisionStore:
             ).fetchall()
         return [_to_record(row) for row in rows]
 
+    def put_forward_pending(self, max_age: timedelta) -> list[DecisionRecord]:
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {_DECISION_COLUMNS} FROM decisions "
+                "WHERE put_forward = 1 AND created_at >= ? "
+                "AND message_id NOT IN (SELECT message_id FROM feedback) "
+                "ORDER BY created_at, rowid",
+                (self._cutoff(max_age),),
+            ).fetchall()
+        return [_to_record(row) for row in rows]
+
     def feedback_counts(self) -> dict[str, int]:
         with self._lock:
             rows = self._conn.execute(

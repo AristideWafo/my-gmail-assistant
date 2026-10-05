@@ -16,6 +16,7 @@ _MISTAKE_LABELS = {
     "missed_urgent": "urgent raté",
     "wrong_archive": "à garder",
     "missed_important": "à mettre en avant",
+    "false_important": "mis en avant à tort",
 }
 
 

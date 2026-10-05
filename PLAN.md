@@ -45,7 +45,7 @@ Le scope proposé a été confronté au code. Les écarts retenus :
 3. **Chaque fonctionnalité derrière un flag d'env, désactivé par défaut**, comme `JEV_FEW_SHOT_ENABLED`.
 4. **Tout composant externe derrière un port** (`src/ports`), choisi dans `src/bootstrap.py`.
 5. **Budget de notifications** : heures calmes et plafond quotidien de messages proactifs ; seules les alertes urgentes y échappent.
-6. **Fuseau explicite** (`TIMEZONE`) pour tout ce qui est horaire. Le stockage reste en UTC.
+6. **Fuseau explicite** (`TIMEZONE`, en place depuis la liste quotidienne) pour tout ce qui est horaire. Le stockage reste en UTC.
 
 ## Dépendances
 
@@ -315,7 +315,10 @@ Lots :
   - Deux mails du corpus à mettre en avant sont aujourd'hui archivés (billet d'un événement, avis de travaux) par la règle « notification d'urgence basse » : la mise en avant devra les sortir de l'archivage
   - **Limite** : questions et mails de test ont le même auteur. Seul le mode observation sur les vrais mails dit le volume réel ; cible : 3 mails par jour au plus
 - ✅ Mise en avant (`ATTENTION_MODE=on`) : un mail non urgent qui a au moins une raison reçoit le label `Assistant/A_voir`, sans notification, et reste en boîte même si la règle « notification d'urgence basse » l'aurait archivé. Décision stockée (`decisions.put_forward`). Au banc, les deux mails du corpus archivés à tort sont rattrapés : 63/68 contre 61/68, aucune route correcte modifiée. **Reste à faire** : passer de `shadow` à `on` au vu du volume réel
-- ⬜ Liste quotidienne silencieuse sur Telegram, commande à la demande, boutons de verdict
+- ✅ Liste quotidienne (`ATTENTION_LIST_HOUR`, `TIMEZONE`) : une fois par jour, sans son, les mails mis en avant depuis la liste précédente, 5 au plus (le reste le lendemain), rien si rien de nouveau. `/avoir` liste à la demande ce qui attend encore sur 7 jours. Un mail sort de la liste quand il est noté ou qu'il a quitté la boîte de réception dans Gmail
+- ✅ Boutons `[Vu] [Pas utile]` : `[Pas utile]` est le verdict `false_important` (origine `list`), seule source de contre-exemples pour la mise en avant
+- ✅ `DailyJob` (`src/scheduling`) : exécution une fois par jour local, dernière exécution dans `kv_state`. C'est le planificateur prévu en Phase 3, à réutiliser pour les récaps
+- ⬜ À faire sur le VPS : `ATTENTION_MODE=shadow` quelques jours, lire `python -m src.evaluation attention`, puis `on` et `ATTENTION_LIST_HOUR` si le volume convient (cible : 3 mails par jour au plus)
 
 ---
 
@@ -354,7 +357,7 @@ Lots :
 
 - ⬜ Table `action_items` : source (`thread` / `alert` / `manual`), titre, échéance, statut. Bouton `[📌 À faire]` sur les alertes
 - ⬜ Définition de « fait » : réponse envoyée dans le thread, mail archivé par toi, ou `[Fait]`
-- ⬜ Planificateur (`src/scheduling/`) : heure locale, dernière exécution persistée dans `kv_state`. Un redémarrage ne doit ni doubler ni sauter un envoi ; un créneau manqué de plus d'une heure est sauté
+- 🟡 Planificateur (`src/scheduling/`) : heure locale, dernière exécution persistée dans `kv_state`. Un redémarrage ne doit ni doubler ni sauter un envoi. `DailyJob` existe (liste des mails mis en avant) ; reste la règle « un créneau manqué de plus d'une heure est sauté », inutile pour cette liste
 - ⬜ Un moteur de digest, trois gabarits :
   - matin : urgents non traités, threads `waiting_for_me`, items du jour
   - soir : fait / pas fait / apparu aujourd'hui
@@ -478,6 +481,6 @@ Le code de S1, de la Phase 0 et de la Phase 1 est écrit. Ce qui reste dépend d
 4. À 100 verdicts dont 20 corrections : `python -m src.evaluation run`, puis décider du few-shot et du repli Gemini, chiffres notés ici
 5. `python -m src.evaluation candidates` pour écrire les premières règles et la liste VIP
 6. Activer `NEEDS_REPLY_ENABLED`, puis contrôler pendant une semaine les brouillons créés et le label `Assistant/A_repondre` ; ajuster `NEEDS_REPLY_THRESHOLD` d'après les probabilités stockées
-7. L5 (niveau « à voir »), puis L3 (troncature, avec la source `recent`) et L4 (règles d'archivage mesurées sur l'historique)
+7. L5 est codé : passer `ATTENTION_MODE=shadow`, lire `python -m src.evaluation attention` après quelques jours, puis `on` avec `ATTENTION_LIST_HOUR`. Ensuite L3 (troncature, avec la source `recent`) et L4 (règles d'archivage mesurées sur l'historique)
 8. Continuer `/review` (43 verdicts à ce jour), puis relancer `lab --source rated` à 100 verdicts dont 20 corrections
 9. S2 avant le reste de la Phase 2

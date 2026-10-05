@@ -51,10 +51,25 @@ def cases_from_rated(cases: Iterable[Case], rules: RuleSet) -> tuple[list[LabCas
         if rules.classify(case.email) is not None:
             decided_by_rule += 1
             continue
-        # Only this verdict speaks about putting forward: "OK" on a kept mail meant "not urgent".
-        wanted = True if case.verdict == "missed_important" else None
-        kept.append(LabCase(_describe(case), case.email, case.satisfied_by, expected_forward=wanted))
+        kept.append(
+            LabCase(
+                _describe(case), case.email, case.satisfied_by, expected_forward=_wanted(case)
+            )
+        )
     return kept, decided_by_rule
+
+
+def _wanted(case: Case) -> bool | None:
+    """Whether the verdict says the mail was to put forward; most verdicts do not say."""
+    if case.verdict == "missed_important":
+        return True
+    if case.verdict == "false_important":
+        return False
+    # "OK" on a mail that was put forward approves it; on any other kept mail it only meant
+    # "not urgent".
+    if case.verdict == "valid" and case.put_forward:
+        return True
+    return None
 
 
 def _describe(case: Case) -> str:

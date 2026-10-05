@@ -55,6 +55,7 @@ class ExpectationTests(unittest.TestCase):
             ("missed_urgent", "label"): {"llm"},
             ("wrong_archive", "reject"): {"llm", "label"},
             ("missed_important", "label"): {"llm", "label"},
+            ("false_important", "label"): {"label", "reject"},
         }
         for (verdict, recorded), accepted in expected.items():
             with self.subTest(verdict=verdict):
@@ -216,6 +217,36 @@ class FetchMessageTests(unittest.TestCase):
 
     def test_unconfigured_client_returns_none(self):
         self.assertIsNone(GmailClient("", "", "").fetch_message("m1"))
+
+
+class InInboxTests(unittest.TestCase):
+    def make_client(self):
+        client = GmailClient(client_id="", client_secret="", refresh_token="")
+        client._service = MagicMock()
+        return client, client._service.users().messages().get().execute
+
+    def test_reads_the_inbox_label_without_downloading_the_message(self):
+        client, execute = self.make_client()
+
+        execute.return_value = {"id": "m1", "labelIds": ["INBOX", "Label_3"]}
+        self.assertTrue(client.in_inbox("m1"))
+        execute.return_value = {"id": "m1", "labelIds": ["Label_3"]}
+        self.assertFalse(client.in_inbox("m1"))
+
+        get = client._service.users().messages().get
+        self.assertEqual(get.call_args.kwargs["format"], "minimal")
+
+    def test_a_deleted_message_is_out_and_other_errors_propagate(self):
+        client, execute = self.make_client()
+        execute.side_effect = HttpError(resp=MagicMock(status=404), content=b"gone")
+        self.assertFalse(client.in_inbox("m1"))
+
+        execute.side_effect = HttpError(resp=MagicMock(status=500), content=b"boom")
+        with self.assertRaises(HttpError):
+            client.in_inbox("m1")
+
+    def test_unconfigured_client_cannot_tell_and_says_in(self):
+        self.assertTrue(GmailClient("", "", "").in_inbox("m1"))
 
 
 class StoreQueriesTests(unittest.TestCase):
