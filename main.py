@@ -17,10 +17,16 @@ from src.config import Settings
 from src.expiring_set import ExpiringSet
 from src.gateways.alerts import AlertGateway
 from src.health import (
+    BudgetedAnalyzer,
+    HealthWatch,
     OutageNotifier,
     PollHealth,
+    SpendTracker,
     StartupCheckMode,
+    budget_check,
+    counter_checks,
     format_status_report,
+    listener_check,
     run_startup_checks,
     run_watchdog,
 )
@@ -70,9 +76,15 @@ class ApplicationContext:
         )
         self.put_forward_job = self._build_put_forward_job()
         self.unsubscribes = self._build_unsubscribe_proposer()
+        self.spend = SpendTracker(
+            self.store,
+            lambda: Metrics.total(Metrics.llm_cost_usd),
+            settings.llm_daily_budget_usd,
+            settings.tzinfo,
+        )
         self.workflow = EmailWorkflow(
             self.components.classifier,
-            self.components.analyzer,
+            BudgetedAnalyzer(self.components.analyzer, self.spend),
             settings.low_confidence_threshold,
             load_ruleset(settings.triage_rules_path),
             settings.needs_reply_threshold if settings.needs_reply_enabled else None,
@@ -84,6 +96,7 @@ class ApplicationContext:
         )
         self.stopping = threading.Event()
         self.listener: threading.Thread | None = None
+        self.health_watch = self._build_health_watch()
         # Backs up the persisted flag: if both mark_alerted and the label fail, the mail must not
         # be re-alerted every cycle.
         self.recently_alerted = ExpiringSet(ALERTED_TTL_SECONDS)
@@ -228,6 +241,25 @@ class ApplicationContext:
             return
         logger.info("Pruned %d expired row(s) from the decision store", deleted)
 
+    def _build_health_watch(self) -> HealthWatch | None:
+        settings = self.settings
+        if settings.health_alert_window_minutes <= 0:
+            return None
+        checks = counter_checks(
+            settings.health_alert_window_minutes * 60, settings.health_alert_min_events
+        )
+        if self.inbound_enabled:
+            checks.append(
+                listener_check(lambda: self.listener is not None and self.listener.is_alive())
+            )
+        if settings.llm_daily_budget_usd > 0:
+            checks.append(budget_check(self.spend))
+        return HealthWatch(checks, self.alerts.send_text)
+
+    def check_health(self) -> None:
+        if self.health_watch is not None:
+            self.health_watch.run()
+
     def send_put_forward_list_if_due(self) -> None:
         if self.put_forward_job is None:
             return
@@ -341,6 +373,7 @@ def poll_once(ctx: ApplicationContext) -> None:
     ctx.backup_if_due()
     ctx.prune_if_due()
     ctx.send_put_forward_list_if_due()
+    ctx.check_health()
     try:
         emails = ctx.mail.fetch_unread()
     except Exception as exc:

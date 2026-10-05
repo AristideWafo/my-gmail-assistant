@@ -192,6 +192,22 @@ To add an implementation:
 
 A failing mail fetch (revoked refresh token, Gmail outage, exhausted rate-limit retries) does not trip the watchdog: restarting would not fix it. Instead, once fetching has failed for `POLL_FAILURE_ALERT_MINUTES` (default `10`, `0` disables), the assistant sends one message to the chat naming the error type and HTTP status, and a second one with the outage duration when fetching works again. The message is retried every cycle until delivered. `RefreshError` means the Gmail refresh token is no longer valid: generate a new one (see above) and restart. Failed cycles are counted in `poll_failures_total`.
 
+### Alerts when something degrades
+
+The dashboards showed these failures; nobody was told. At each polling cycle the assistant now checks them and sends a Telegram message when one starts, and another when it is over:
+
+| Check | Problem when | Effect on mail |
+| --- | --- | --- |
+| JEV | `HEALTH_ALERT_MIN_EVENTS` (default 3) heuristic fallbacks over `HEALTH_ALERT_WINDOW_MINUTES` (default 15) | triage goes on, less precise |
+| Mail processing | as many mails skipped over the window | they stay unread and are retried |
+| Gemini | as many failed calls over the window (budget skips excluded) | alerts go out without summary or draft |
+| Telegram listener | listener thread dead, or no successful poll for 10 minutes (only with `TELEGRAM_INBOUND_ENABLED`) | buttons and commands stop, alerts still arrive |
+| LLM budget | the day's estimated spend reached `LLM_DAILY_BUDGET_USD` | see below |
+
+`HEALTH_ALERT_WINDOW_MINUTES=0` turns the checks off. A message that could not be delivered is tried again at the next cycle. The first three count real failures, so they need traffic: an outage of JEV on a day with two mails stays silent. The recovery message means "no more failure over the window", not that the service was probed.
+
+**Daily LLM budget.** `LLM_DAILY_BUDGET_USD` (default `0`, no cap) is a cap on the estimated cost of Gemini calls per local day (`TIMEZONE`). Once reached, Gemini is no longer called until the next day: urgent alerts still go out, without summary or draft, and each skipped call is counted in `llm_errors_total{reason="budget"}`. The day's total is kept in the database, so a restart does not reset it. The estimate comes from `llm_cost_usd_total`, which only knows the models listed in `PRICING_PER_MILLION_TOKENS` (`src/llm/gemini.py`): with another model, or for JEV whose price is not known to the app, the cap sees nothing.
+
 ## Startup connection checks
 
 At startup the app probes every configured connection (Gmail, Gemini, JEV, Telegram, Discord) with read-only calls and logs one line per service (`OK`, `FAILED` or `SKIPPED` when not configured). No message is sent; secrets never appear in the logs. `STARTUP_CHECKS` controls the behavior:

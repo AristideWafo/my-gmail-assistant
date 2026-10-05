@@ -16,10 +16,10 @@ from main import (
 )
 from src.bootstrap import build_components
 from src.config import Settings
-from src.domain import EmailMessage, TriageResult
+from src.domain import EmailMessage, LLMAnalysis, TriageResult
 from src.expiring_set import ExpiringSet
 from src.observability.metrics import Metrics
-from tests.fakes import FakeChat, fake_components
+from tests.fakes import FakeChat, FakeClassifier, fake_components
 
 
 def make_settings(**overrides) -> Settings:
@@ -361,6 +361,76 @@ class DailyListTests(unittest.TestCase):
             poll_once(ctx)
 
         ctx.mail.fetch_unread.assert_called_once()
+
+
+class HealthWiringTests(unittest.TestCase):
+    def context(self, chat=None, **settings):
+        settings = make_settings(**settings)
+        components = fake_components(chat=chat or FakeChat())
+        self.addCleanup(components.store.close)
+        return ApplicationContext(settings, components)
+
+    def check_names(self, **settings):
+        watch = self.context(**settings).health_watch
+        return None if watch is None else [check.name for check in watch._checks]
+
+    def test_failure_counters_are_watched_by_default(self):
+        self.assertEqual(self.check_names(), ["jev_fallback", "emails_skipped", "llm_errors"])
+
+    def test_a_zero_window_turns_the_watch_off(self):
+        self.assertIsNone(self.check_names(health_alert_window_minutes=0))
+
+    def test_listener_and_budget_are_watched_only_when_they_exist(self):
+        names = self.check_names(telegram_inbound_enabled=True, llm_daily_budget_usd=0.5)
+
+        self.assertEqual(names[-2:], ["chat_listener", "llm_budget"])
+
+    def test_problems_are_sent_to_the_chat(self):
+        ctx = self.context()
+        ctx.alerts = MagicMock()
+        ctx.health_watch = ApplicationContext._build_health_watch(ctx)
+        ctx.health_watch._checks[0].problem()
+        for _ in range(3):
+            Metrics.mark_jev_fallback()
+
+        ctx.check_health()
+
+        self.assertIn("JEV ne répond pas", ctx.alerts.send_text.call_args.args[0])
+
+    def test_over_budget_the_analyzer_is_not_called_and_the_alert_still_goes_out(self):
+        analyzer = MagicMock()
+        settings = make_settings(llm_daily_budget_usd=0.5)
+        components = fake_components(
+            analyzer=analyzer, classifier=FakeClassifier(TriageResult("high", "personnel", 0.9))
+        )
+        self.addCleanup(components.store.close)
+        ctx = ApplicationContext(settings, components)
+        ctx.alerts = MagicMock()
+        ctx.alerts.send_urgent_alert.return_value = None
+        Metrics.llm_cost_usd.labels(kind="analysis").inc(0.6)
+
+        with self.assertLogs("src.health.spend", level="WARNING"):
+            ctx.process_email(make_email())
+
+        analyzer.analyze.assert_not_called()
+        summary = ctx.alerts.send_urgent_alert.call_args.args[2]
+        self.assertIn("(résumé indisponible)", summary)
+
+    def test_without_a_budget_the_analyzer_is_called_whatever_was_spent(self):
+        analyzer = MagicMock()
+        analyzer.analyze.return_value = LLMAnalysis(summary="sum")
+        components = fake_components(
+            analyzer=analyzer, classifier=FakeClassifier(TriageResult("high", "personnel", 0.9))
+        )
+        self.addCleanup(components.store.close)
+        ctx = ApplicationContext(make_settings(), components)
+        ctx.alerts = MagicMock()
+        ctx.alerts.send_urgent_alert.return_value = None
+        Metrics.llm_cost_usd.labels(kind="analysis").inc(50)
+
+        ctx.process_email(make_email())
+
+        analyzer.analyze.assert_called_once()
 
 
 class AttentionShadowTests(unittest.TestCase):
