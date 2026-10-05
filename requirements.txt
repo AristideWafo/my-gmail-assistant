@@ -8,4 +8,4 @@ pydantic==2.9.2
 pydantic-settings==2.5.2
 requests==2.32.3
 tzdata==2026.4
-uvicorn==0.30.6
+uvicorn==0.54.0
