@@ -1,7 +1,10 @@
+# Ports are published on BIND_ADDRESS, 127.0.0.1 by default: /metrics and Prometheus have no
+# authentication. Reach them through an SSH tunnel, or set BIND_ADDRESS=0.0.0.0 in .env only
+# behind a firewall and with GRAFANA_ADMIN_PASSWORD set.
 services:
   assistant:
-    build: .
-    image: my-gmail-assistant:${VERSION:-local}
+    # The image the release workflow publishes. Pin VERSION in .env: it is also how you roll back.
+    image: ghcr.io/aristidewafo/my-gmail-assistant:${VERSION:-latest}
     container_name: my-gmail-assistant
     restart: unless-stopped
     env_file:
@@ -15,7 +18,7 @@ services:
       # Optional rules file: set TRIAGE_RULES_PATH=/config/triage_rules.toml in .env
       - ./config:/config:ro
     ports:
-      - "8000:8000"
+      - "${BIND_ADDRESS:-127.0.0.1}:8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
       interval: 30s
@@ -29,7 +32,7 @@ services:
           cpus: "1.0"
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.15.0
     container_name: gmail-assistant-prometheus
     restart: unless-stopped
     command:
@@ -38,7 +41,7 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "9090:9090"
+      - "${BIND_ADDRESS:-127.0.0.1}:9090:9090"
     deploy:
       resources:
         limits:
@@ -46,13 +49,13 @@ services:
           cpus: "0.5"
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.2.3
     container_name: gmail-assistant-grafana
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     ports:
-      - "3000:3000"
+      - "${BIND_ADDRESS:-127.0.0.1}:3000:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro

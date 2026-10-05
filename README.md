@@ -276,18 +276,43 @@ A verdict is read as a constraint on the route: `valid` expects the same route, 
 
 ## Docker deployment
 
-Build and run the assistant, Prometheus, and Grafana:
+`docker-compose.yml` runs the image the release workflow publishes (`ghcr.io/aristidewafo/my-gmail-assistant`), with Prometheus and Grafana pinned to a version:
 
 ```bash
-docker compose up --build -d
+docker compose pull
+docker compose up -d
 ```
 
-Useful endpoints:
+- **Version.** `VERSION` in `.env` chooses the image tag (default `latest`). Pin it to a release (`VERSION=0.12.0`) so that a restart never changes the code that runs, and upgrade by raising it, then `docker compose pull assistant && docker compose up -d assistant`.
+- **From a checkout** (development, or a change not released yet): `docker compose -f docker-compose.yml -f docker-compose.build.yml up --build -d`. `./install.sh --docker` does this.
+- **Network exposure.** The ports are published on `BIND_ADDRESS`, `127.0.0.1` by default: `/metrics` and Prometheus have no authentication. From another machine use an SSH tunnel, e.g. `ssh -L 3000:localhost:3000 user@host`. Set `BIND_ADDRESS=0.0.0.0` only behind a firewall, and with `GRAFANA_ADMIN_PASSWORD` set.
+- **Upgrading Prometheus or Grafana** is a change of the pinned tag in `docker-compose.yml`, on purpose: `latest` moved them at any restart.
+
+### Rolling back
+
+```bash
+# .env: VERSION=<previous release>
+docker compose pull assistant
+docker compose up -d assistant
+```
+
+If the release you leave upgraded the database schema, the older build refuses to open it (see the log line about a newer schema). Restore the copy the upgrade left next to the database, then start the older version:
+
+```bash
+docker compose stop assistant
+docker compose run --rm --no-deps assistant sh -c \
+  'ls /data/assistant.db.pre-v* && cp /data/assistant.db.pre-v<N> /data/assistant.db && rm -f /data/assistant.db-wal /data/assistant.db-shm'
+docker compose up -d assistant
+```
+
+`<N>` is the schema version the newer release brought. Verdicts and decisions recorded since the upgrade are lost with it; a daily backup taken before the upgrade (see [Backup and restore](#backup-and-restore)) is the alternative.
+
+Useful endpoints (from the host itself, or through a tunnel):
 
 - Assistant health: `http://localhost:8000/healthz`
 - Metrics: `http://localhost:8000/metrics`
 - Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000` — pre-provisioned with the Prometheus datasource and a "Gmail Assistant" dashboard (processed emails, triage latency, JEV fallback rate, LLM tokens and cost, feedback by route and verdict, Telegram replies and Telegram listener health). Login `admin` / `GRAFANA_ADMIN_PASSWORD` (defaults to `admin` if unset — set it in `.env`).
+- Grafana: `http://localhost:3000` — pre-provisioned with the Prometheus datasource and a "Gmail Assistant" dashboard (processed emails, triage latency, JEV fallback rate, LLM tokens and cost, feedback by route and verdict, Telegram replies and Telegram listener health). Login `admin` / `GRAFANA_ADMIN_PASSWORD` (defaults to `admin` if unset — set it in `.env`; mandatory if you ever change `BIND_ADDRESS`).
 
 ## CI/CD
 
