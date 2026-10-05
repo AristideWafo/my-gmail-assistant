@@ -4,7 +4,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
 from datetime import timedelta
 from time import monotonic, perf_counter
 
@@ -37,6 +37,7 @@ from src.maintenance import BackupRotation
 from src.observability import Metrics
 from src.scheduling import DailyJob
 from src.triage.rules import load_ruleset
+from src.version import app_version
 from src.workflow import EmailWorkflow, attention_reasons
 
 logging.basicConfig(level=logging.INFO)
@@ -365,7 +366,7 @@ class ApplicationContext:
 
 
 def poll_once(ctx: ApplicationContext) -> None:
-    # asyncio.create_task's result is never awaited or retrieved (see startup_event), so an
+    # asyncio.create_task's result is never awaited or retrieved (see _start), so an
     # exception raised out of here would kill polling forever with zero log line - the task just
     # dies silently and nothing is ever processed again until the container restarts. Every
     # failure must therefore be caught and logged right here, never allowed to propagate.
@@ -426,13 +427,62 @@ def terminate_process(reason: str) -> None:
     os._exit(1)
 
 
+async def _start(app: FastAPI, ctx: ApplicationContext) -> None:
+    settings = ctx.settings
+    logger.info("Starting my-gmail-assistant %s", app.version)
+    app.state.connection_checks = await asyncio.to_thread(
+        run_startup_checks, ctx.connection_probes(), StartupCheckMode(settings.startup_checks)
+    )
+    # send_text already logs and swallows delivery failures (AlertGateway._safe_send); this
+    # only guards against an unexpected error in report formatting itself.
+    try:
+        await asyncio.to_thread(
+            ctx.alerts.send_text, format_status_report(app.state.connection_checks)
+        )
+    except Exception:
+        logger.exception("Failed to send startup status report to chat")
+
+    if settings.sync_history:
+        logger.info("Syncing Gmail history...")
+        await asyncio.to_thread(sync_history_once, ctx)
+
+    ctx.start_telegram_listener()
+    ctx.health.beat()
+    app.state.polling_task = asyncio.create_task(polling_loop(ctx))
+    if settings.watchdog_enabled:
+        app.state.watchdog_task = asyncio.create_task(
+            run_watchdog(ctx.health, app.state.polling_task.done, terminate_process)
+        )
+
+
+async def _stop(app: FastAPI, ctx: ApplicationContext) -> None:
+    ctx.stopping.set()
+    # Either task is missing when the startup failed before creating it.
+    for name in ("polling_task", "watchdog_task"):
+        task = getattr(app.state, name, None)
+        if task:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+    await asyncio.to_thread(ctx.close)
+
+
 def create_app(sync_history: bool | None = None) -> FastAPI:
     settings = Settings()
     if sync_history is not None:
         settings.sync_history = sync_history
 
     ctx = ApplicationContext(settings)
-    app = FastAPI(title="my-gmail-assistant", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        try:
+            await _start(app, ctx)
+            yield
+        finally:
+            await _stop(app, ctx)
+
+    app = FastAPI(title="my-gmail-assistant", version=app_version(), lifespan=lifespan)
     app.state.ctx = ctx
     app.include_router(Metrics.router())
 
@@ -443,42 +493,6 @@ def create_app(sync_history: bool | None = None) -> FastAPI:
         if problem:
             return JSONResponse({"status": "unhealthy", "reason": problem}, status_code=503)
         return {"status": "ok"}
-
-    @app.on_event("startup")
-    async def startup_event():
-        app.state.connection_checks = await asyncio.to_thread(
-            run_startup_checks, ctx.connection_probes(), StartupCheckMode(settings.startup_checks)
-        )
-        # send_text already logs and swallows delivery failures (AlertGateway._safe_send); this
-        # only guards against an unexpected error in report formatting itself.
-        try:
-            await asyncio.to_thread(
-                ctx.alerts.send_text, format_status_report(app.state.connection_checks)
-            )
-        except Exception:
-            logger.exception("Failed to send startup status report to chat")
-
-        if settings.sync_history:
-            logger.info("Syncing Gmail history...")
-            await asyncio.to_thread(sync_history_once, ctx)
-
-        ctx.start_telegram_listener()
-        ctx.health.beat()
-        app.state.polling_task = asyncio.create_task(polling_loop(ctx))
-        if settings.watchdog_enabled:
-            app.state.watchdog_task = asyncio.create_task(
-                run_watchdog(ctx.health, app.state.polling_task.done, terminate_process)
-            )
-
-    @app.on_event("shutdown")
-    async def shutdown_event():
-        ctx.stopping.set()
-        for task in (app.state.polling_task, getattr(app.state, "watchdog_task", None)):
-            if task:
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
-        await asyncio.to_thread(ctx.close)
 
     return app
 
