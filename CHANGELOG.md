@@ -1,6 +1,147 @@
 # CHANGELOG
 
 
+## v0.17.1 (2026-10-05)
+
+### Bug Fixes
+
+- Guard the history sync per mail and give Gemini calls a deadline
+  ([#83](https://github.com/AristideWafo/my-gmail-assistant/pull/83),
+  [`a1b6951`](https://github.com/AristideWafo/my-gmail-assistant/commit/a1b6951268690c898c5e38e34d9051bc42a858b9))
+
+* docs: read the lab misroutes by verdict
+
+With verdicts shown, the nine mails the production questions misroute are all corrections replayed
+  identically: seven missed alerts, one wrong archive, one mail kept that should have been archived.
+  No false alert.
+
+The plan now puts widening the "high" definition first in L4, after settling what the missed-urgent
+  verdict is meant to say, and corrects the earlier reading of the meeting question.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+* feat(feedback): tell "put it forward" apart from "should have alerted"
+
+/review had a single button, "Urgent raté", for every mail that deserved more than a label. Asked
+  what he meant by it, the user answered "put it forward", not "ring". The new verdict
+  missed_important ([À voir]) carries that meaning; missed_urgent keeps the meaning of an immediate
+  alert.
+
+Migration 4 turns the review verdicts already given with the single button into missed_important, so
+  few-shot stops teaching the classifier that those mails are urgent. The previous state stays in
+  the pre-v4 copy.
+
+A sender whose archived mail was wanted back under any of the three verdicts is no longer proposed
+  for unsubscription.
+
+* feat(triage): prepare a reply draft whenever one is expected, urgent or not
+
+Preparing a reply and notifying are now two separate decisions: the Telegram alert still depends on
+  urgency alone, the draft on whether a reply is expected. An urgent mail was drafted only for three
+  categories; with NEEDS_REPLY_ENABLED it is also drafted, and labeled Assistant/A_repondre, when
+  JEV says a person expects a reply.
+
+The category rule stays next to the model's answer, so a mail decided without the question (rule,
+  VIP, fallback) or just under the threshold keeps the draft it always had.
+
+Drafts are now written for more kinds of mail, invitations included, so the prompt forbids deciding
+  for the author: no acceptance, refusal, date or amount; a holding reply when the answer is not in
+  the mail.
+
+* feat(triage): ask the attention questions in observation mode
+
+Seven of the nine mistakes found by the lab were mails the user wanted put forward: an event he is
+  registered for, a planned outage, something to do before a date, a person waiting.
+  ATTENTION_MODE=shadow adds three narrow yes/no questions to the JEV call (personal_event,
+  service_change, personal_deadline) and asks whether a reply is expected. The answers are stored in
+  decisions.signals and counted; nothing else changes yet.
+
+Narrow questions rather than one broad one, so each can be measured and dropped on its own. Bulk
+  categories are gated out; automated senders are not, since outage notices and platform-relayed
+  messages come from them.
+
+`python -m src.evaluation attention` reads the stored answers and says how many mails a day would be
+  put forward. The lab gets an `attention` variant and 18 more test mails.
+
+* feat(triage): put forward the mails worth seeing, without a notification (#64)
+
+* fix(triage): treat French no-reply addresses as automated senders
+
+A reply draft was written to ne-pas-repondre@ addresses, and their repeated alerts were not grouped.
+
+* feat(triage): put forward the mails worth seeing, without a notification
+
+ATTENTION_MODE=on acts on the attention answers. A mail that is not urgent and has at least one
+  reason gets the Gmail label Assistant/A_voir and stays in the inbox even when the low-urgency
+  notification rule would have archived it: event tickets and works notices were archived by that
+  rule. Bulk categories are archived as before; urgent mails are alerted as before.
+
+The decision is stored in decisions.put_forward, for the daily list that comes next.
+
+---------
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+* feat(chat): send a silent daily list of the mails put forward
+
+A Gmail label alone shows little, since a processed mail is marked read: an event reminder for
+  tomorrow would stay unseen. Once a day, at ATTENTION_LIST_HOUR in TIMEZONE, the assistant sends
+  without sound the mails put forward since the previous list, at most five, each with its reason
+  and [Vu] / [Pas utile]. Nothing is sent on a day with nothing new. /avoir lists on demand what
+  still waits over seven days.
+
+A mail leaves the list once rated or once it left the Gmail inbox. [Pas utile] is stored as the
+  verdict false_important, the only source of negative examples for putting forward.
+
+DailyJob keeps the last run day in kv_state, so a restart neither repeats nor skips the list; it is
+  the scheduler the recaps will reuse.
+
+* fix(gmail): apply every label of a mail in the single call that commits it
+
+Adding a label also removes UNREAD, which is what stops a mail from being fetched again. The reply
+  and put-forward labels were added in calls of their own, before the category or urgent label: once
+  one of them had succeeded the mail was no longer unread, so a failure of the last call left it
+  without its main label and never retried.
+
+label_message now takes every label of the mail and sends one change. A failure leaves the mail
+  untouched and unread for the next cycle; the draft and alert guards already keep that retry from
+  drafting or alerting twice.
+
+* feat(evaluation): measure shorter bodies on real long mails in the lab
+
+The body is about 70 % of what a real mail costs to classify, and production sends its first 1000
+  words. The lab can now say what a shorter body would change:
+
+- `--source recent` takes the latest long mails, which have no verdict. A first pass of `current`
+  gives each mail a reference route; every variant is scored on how often it agrees with it, and the
+  `current` row is the noise between two identical calls. - Cut variants keep the start, or the
+  start and the end around a visible mark: head-700-tail-300, head-150, head-100-tail-50. - The lab
+  fetches real mails uncut (fetch_message(full_body=True)), so a variant that keeps the end has an
+  end to keep. Production is unchanged.
+
+* feat(evaluation): audit the archive rules on stored decisions
+
+`python -m src.evaluation routing-rules` replays the archive rule in production and two candidates
+  on the urgency, category and confidence already stored, and confronts each with the verdicts: how
+  many mails it applies to or would move, how many verdicts agree, which ones disagree. No
+  classifier call is made.
+
+The rule in production was already contradicted once in the lab (an administration notice archived),
+  so it is measured before any rule that would archive more.
+
+* fix(startup): skip a failing mail during the history sync
+
+The history sync ran process_email without the guard poll_once has, and inside the startup event:
+  one mail in error, or a Gmail failure while listing, kept the app from ever starting to poll.
+
+* fix(gemini): give every call a deadline
+
+No Gemini call had a timeout: a stalled request held the polling thread until the watchdog restarted
+  the container, with every mail waiting behind it. A call is now abandoned after
+  GEMINI_TIMEOUT_SECONDS (30 by default), without a retry, and the mail takes the degraded path that
+  already exists for a Gemini outage.
+
+
 ## v0.17.0 (2026-10-05)
 
 ### Features
