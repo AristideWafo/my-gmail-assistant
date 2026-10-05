@@ -1,6 +1,6 @@
 [project]
 name = "my-gmail-assistant"
-version = "0.12.0"
+version = "0.13.0"
 description = "Modular AI email triage assistant (FastAPI + LangGraph)"
 readme = "README.md"
 requires-python = ">=3.11"
