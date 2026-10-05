@@ -1,6 +1,366 @@
 # CHANGELOG
 
 
+## v0.15.1 (2026-10-05)
+
+### Bug Fixes
+
+- **gmail**: Apply every label of a mail in the single call that commits it
+  ([#80](https://github.com/AristideWafo/my-gmail-assistant/pull/80),
+  [`21f0bed`](https://github.com/AristideWafo/my-gmail-assistant/commit/21f0bed37dfc095456e357812fd4a2f741a9b69e))
+
+* docs: read the lab misroutes by verdict
+
+With verdicts shown, the nine mails the production questions misroute are all corrections replayed
+  identically: seven missed alerts, one wrong archive, one mail kept that should have been archived.
+  No false alert.
+
+The plan now puts widening the "high" definition first in L4, after settling what the missed-urgent
+  verdict is meant to say, and corrects the earlier reading of the meeting question.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+* feat(feedback): tell "put it forward" apart from "should have alerted"
+
+/review had a single button, "Urgent raté", for every mail that deserved more than a label. Asked
+  what he meant by it, the user answered "put it forward", not "ring". The new verdict
+  missed_important ([À voir]) carries that meaning; missed_urgent keeps the meaning of an immediate
+  alert.
+
+Migration 4 turns the review verdicts already given with the single button into missed_important, so
+  few-shot stops teaching the classifier that those mails are urgent. The previous state stays in
+  the pre-v4 copy.
+
+A sender whose archived mail was wanted back under any of the three verdicts is no longer proposed
+  for unsubscription.
+
+* feat(triage): prepare a reply draft whenever one is expected, urgent or not
+
+Preparing a reply and notifying are now two separate decisions: the Telegram alert still depends on
+  urgency alone, the draft on whether a reply is expected. An urgent mail was drafted only for three
+  categories; with NEEDS_REPLY_ENABLED it is also drafted, and labeled Assistant/A_repondre, when
+  JEV says a person expects a reply.
+
+The category rule stays next to the model's answer, so a mail decided without the question (rule,
+  VIP, fallback) or just under the threshold keeps the draft it always had.
+
+Drafts are now written for more kinds of mail, invitations included, so the prompt forbids deciding
+  for the author: no acceptance, refusal, date or amount; a holding reply when the answer is not in
+  the mail.
+
+* feat(triage): ask the attention questions in observation mode
+
+Seven of the nine mistakes found by the lab were mails the user wanted put forward: an event he is
+  registered for, a planned outage, something to do before a date, a person waiting.
+  ATTENTION_MODE=shadow adds three narrow yes/no questions to the JEV call (personal_event,
+  service_change, personal_deadline) and asks whether a reply is expected. The answers are stored in
+  decisions.signals and counted; nothing else changes yet.
+
+Narrow questions rather than one broad one, so each can be measured and dropped on its own. Bulk
+  categories are gated out; automated senders are not, since outage notices and platform-relayed
+  messages come from them.
+
+`python -m src.evaluation attention` reads the stored answers and says how many mails a day would be
+  put forward. The lab gets an `attention` variant and 18 more test mails.
+
+* feat(triage): put forward the mails worth seeing, without a notification (#64)
+
+* fix(triage): treat French no-reply addresses as automated senders
+
+A reply draft was written to ne-pas-repondre@ addresses, and their repeated alerts were not grouped.
+
+* feat(triage): put forward the mails worth seeing, without a notification
+
+ATTENTION_MODE=on acts on the attention answers. A mail that is not urgent and has at least one
+  reason gets the Gmail label Assistant/A_voir and stays in the inbox even when the low-urgency
+  notification rule would have archived it: event tickets and works notices were archived by that
+  rule. Bulk categories are archived as before; urgent mails are alerted as before.
+
+The decision is stored in decisions.put_forward, for the daily list that comes next.
+
+---------
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+* feat(chat): send a silent daily list of the mails put forward
+
+A Gmail label alone shows little, since a processed mail is marked read: an event reminder for
+  tomorrow would stay unseen. Once a day, at ATTENTION_LIST_HOUR in TIMEZONE, the assistant sends
+  without sound the mails put forward since the previous list, at most five, each with its reason
+  and [Vu] / [Pas utile]. Nothing is sent on a day with nothing new. /avoir lists on demand what
+  still waits over seven days.
+
+A mail leaves the list once rated or once it left the Gmail inbox. [Pas utile] is stored as the
+  verdict false_important, the only source of negative examples for putting forward.
+
+DailyJob keeps the last run day in kv_state, so a restart neither repeats nor skips the list; it is
+  the scheduler the recaps will reuse.
+
+* fix(gmail): apply every label of a mail in the single call that commits it
+
+Adding a label also removes UNREAD, which is what stops a mail from being fetched again. The reply
+  and put-forward labels were added in calls of their own, before the category or urgent label: once
+  one of them had succeeded the mail was no longer unread, so a failure of the last call left it
+  without its main label and never retried.
+
+label_message now takes every label of the mail and sends one change. A failure leaves the mail
+  untouched and unread for the next cycle; the draft and alert guards already keep that retry from
+  drafting or alerting twice.
+
+
+## v0.15.0 (2026-10-05)
+
+### Features
+
+- **chat**: Send a silent daily list of the mails put forward
+  ([#79](https://github.com/AristideWafo/my-gmail-assistant/pull/79),
+  [`3c3ca40`](https://github.com/AristideWafo/my-gmail-assistant/commit/3c3ca40da8e6704366831ae4a778b2c32281081e))
+
+* docs: read the lab misroutes by verdict
+
+With verdicts shown, the nine mails the production questions misroute are all corrections replayed
+  identically: seven missed alerts, one wrong archive, one mail kept that should have been archived.
+  No false alert.
+
+The plan now puts widening the "high" definition first in L4, after settling what the missed-urgent
+  verdict is meant to say, and corrects the earlier reading of the meeting question.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+* feat(feedback): tell "put it forward" apart from "should have alerted"
+
+/review had a single button, "Urgent raté", for every mail that deserved more than a label. Asked
+  what he meant by it, the user answered "put it forward", not "ring". The new verdict
+  missed_important ([À voir]) carries that meaning; missed_urgent keeps the meaning of an immediate
+  alert.
+
+Migration 4 turns the review verdicts already given with the single button into missed_important, so
+  few-shot stops teaching the classifier that those mails are urgent. The previous state stays in
+  the pre-v4 copy.
+
+A sender whose archived mail was wanted back under any of the three verdicts is no longer proposed
+  for unsubscription.
+
+* feat(triage): prepare a reply draft whenever one is expected, urgent or not
+
+Preparing a reply and notifying are now two separate decisions: the Telegram alert still depends on
+  urgency alone, the draft on whether a reply is expected. An urgent mail was drafted only for three
+  categories; with NEEDS_REPLY_ENABLED it is also drafted, and labeled Assistant/A_repondre, when
+  JEV says a person expects a reply.
+
+The category rule stays next to the model's answer, so a mail decided without the question (rule,
+  VIP, fallback) or just under the threshold keeps the draft it always had.
+
+Drafts are now written for more kinds of mail, invitations included, so the prompt forbids deciding
+  for the author: no acceptance, refusal, date or amount; a holding reply when the answer is not in
+  the mail.
+
+* feat(triage): ask the attention questions in observation mode
+
+Seven of the nine mistakes found by the lab were mails the user wanted put forward: an event he is
+  registered for, a planned outage, something to do before a date, a person waiting.
+  ATTENTION_MODE=shadow adds three narrow yes/no questions to the JEV call (personal_event,
+  service_change, personal_deadline) and asks whether a reply is expected. The answers are stored in
+  decisions.signals and counted; nothing else changes yet.
+
+Narrow questions rather than one broad one, so each can be measured and dropped on its own. Bulk
+  categories are gated out; automated senders are not, since outage notices and platform-relayed
+  messages come from them.
+
+`python -m src.evaluation attention` reads the stored answers and says how many mails a day would be
+  put forward. The lab gets an `attention` variant and 18 more test mails.
+
+* feat(triage): put forward the mails worth seeing, without a notification (#64)
+
+* fix(triage): treat French no-reply addresses as automated senders
+
+A reply draft was written to ne-pas-repondre@ addresses, and their repeated alerts were not grouped.
+
+* feat(triage): put forward the mails worth seeing, without a notification
+
+ATTENTION_MODE=on acts on the attention answers. A mail that is not urgent and has at least one
+  reason gets the Gmail label Assistant/A_voir and stays in the inbox even when the low-urgency
+  notification rule would have archived it: event tickets and works notices were archived by that
+  rule. Bulk categories are archived as before; urgent mails are alerted as before.
+
+The decision is stored in decisions.put_forward, for the daily list that comes next.
+
+---------
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+* feat(chat): send a silent daily list of the mails put forward
+
+A Gmail label alone shows little, since a processed mail is marked read: an event reminder for
+  tomorrow would stay unseen. Once a day, at ATTENTION_LIST_HOUR in TIMEZONE, the assistant sends
+  without sound the mails put forward since the previous list, at most five, each with its reason
+  and [Vu] / [Pas utile]. Nothing is sent on a day with nothing new. /avoir lists on demand what
+  still waits over seven days.
+
+A mail leaves the list once rated or once it left the Gmail inbox. [Pas utile] is stored as the
+  verdict false_important, the only source of negative examples for putting forward.
+
+DailyJob keeps the last run day in kv_state, so a restart neither repeats nor skips the list; it is
+  the scheduler the recaps will reuse.
+
+
+## v0.14.0 (2026-10-05)
+
+### Features
+
+- **triage**: Put forward the mails worth seeing, without a notification
+  ([#78](https://github.com/AristideWafo/my-gmail-assistant/pull/78),
+  [`2eb4b81`](https://github.com/AristideWafo/my-gmail-assistant/commit/2eb4b81503e13405c23e10f34ea32f7854e8a864))
+
+* docs: read the lab misroutes by verdict
+
+With verdicts shown, the nine mails the production questions misroute are all corrections replayed
+  identically: seven missed alerts, one wrong archive, one mail kept that should have been archived.
+  No false alert.
+
+The plan now puts widening the "high" definition first in L4, after settling what the missed-urgent
+  verdict is meant to say, and corrects the earlier reading of the meeting question.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+* feat(feedback): tell "put it forward" apart from "should have alerted"
+
+/review had a single button, "Urgent raté", for every mail that deserved more than a label. Asked
+  what he meant by it, the user answered "put it forward", not "ring". The new verdict
+  missed_important ([À voir]) carries that meaning; missed_urgent keeps the meaning of an immediate
+  alert.
+
+Migration 4 turns the review verdicts already given with the single button into missed_important, so
+  few-shot stops teaching the classifier that those mails are urgent. The previous state stays in
+  the pre-v4 copy.
+
+A sender whose archived mail was wanted back under any of the three verdicts is no longer proposed
+  for unsubscription.
+
+* feat(triage): prepare a reply draft whenever one is expected, urgent or not
+
+Preparing a reply and notifying are now two separate decisions: the Telegram alert still depends on
+  urgency alone, the draft on whether a reply is expected. An urgent mail was drafted only for three
+  categories; with NEEDS_REPLY_ENABLED it is also drafted, and labeled Assistant/A_repondre, when
+  JEV says a person expects a reply.
+
+The category rule stays next to the model's answer, so a mail decided without the question (rule,
+  VIP, fallback) or just under the threshold keeps the draft it always had.
+
+Drafts are now written for more kinds of mail, invitations included, so the prompt forbids deciding
+  for the author: no acceptance, refusal, date or amount; a holding reply when the answer is not in
+  the mail.
+
+* feat(triage): ask the attention questions in observation mode
+
+Seven of the nine mistakes found by the lab were mails the user wanted put forward: an event he is
+  registered for, a planned outage, something to do before a date, a person waiting.
+  ATTENTION_MODE=shadow adds three narrow yes/no questions to the JEV call (personal_event,
+  service_change, personal_deadline) and asks whether a reply is expected. The answers are stored in
+  decisions.signals and counted; nothing else changes yet.
+
+Narrow questions rather than one broad one, so each can be measured and dropped on its own. Bulk
+  categories are gated out; automated senders are not, since outage notices and platform-relayed
+  messages come from them.
+
+`python -m src.evaluation attention` reads the stored answers and says how many mails a day would be
+  put forward. The lab gets an `attention` variant and 18 more test mails.
+
+* feat(triage): put forward the mails worth seeing, without a notification (#64)
+
+* fix(triage): treat French no-reply addresses as automated senders
+
+A reply draft was written to ne-pas-repondre@ addresses, and their repeated alerts were not grouped.
+
+* feat(triage): put forward the mails worth seeing, without a notification
+
+ATTENTION_MODE=on acts on the attention answers. A mail that is not urgent and has at least one
+  reason gets the Gmail label Assistant/A_voir and stays in the inbox even when the low-urgency
+  notification rule would have archived it: event tickets and works notices were archived by that
+  rule. Bulk categories are archived as before; urgent mails are alerted as before.
+
+The decision is stored in decisions.put_forward, for the daily list that comes next.
+
+---------
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+## v0.13.0 (2026-10-05)
+
+### Documentation
+
+- Read the lab misroutes by verdict
+  ([#60](https://github.com/AristideWafo/my-gmail-assistant/pull/60),
+  [`276a368`](https://github.com/AristideWafo/my-gmail-assistant/commit/276a36885a257581d45deb28e340894c0ac65293))
+
+With verdicts shown, the nine mails the production questions misroute are all corrections replayed
+  identically: seven missed alerts, one wrong archive, one mail kept that should have been archived.
+  No false alert.
+
+The plan now puts widening the "high" definition first in L4, after settling what the missed-urgent
+  verdict is meant to say, and corrects the earlier reading of the meeting question.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+### Features
+
+- **feedback**: Tell "put it forward" apart from "should have alerted"
+  ([#61](https://github.com/AristideWafo/my-gmail-assistant/pull/61),
+  [`3865dc7`](https://github.com/AristideWafo/my-gmail-assistant/commit/3865dc7113e24a57c63d30802dead844c541c9a5))
+
+/review had a single button, "Urgent raté", for every mail that deserved more than a label. Asked
+  what he meant by it, the user answered "put it forward", not "ring". The new verdict
+  missed_important ([À voir]) carries that meaning; missed_urgent keeps the meaning of an immediate
+  alert.
+
+Migration 4 turns the review verdicts already given with the single button into missed_important, so
+  few-shot stops teaching the classifier that those mails are urgent. The previous state stays in
+  the pre-v4 copy.
+
+A sender whose archived mail was wanted back under any of the three verdicts is no longer proposed
+  for unsubscription.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- **triage**: Ask the attention questions in observation mode
+  ([#63](https://github.com/AristideWafo/my-gmail-assistant/pull/63),
+  [`3d45565`](https://github.com/AristideWafo/my-gmail-assistant/commit/3d4556551443ada2b708f3070a2754d4328fbb4b))
+
+Seven of the nine mistakes found by the lab were mails the user wanted put forward: an event he is
+  registered for, a planned outage, something to do before a date, a person waiting.
+  ATTENTION_MODE=shadow adds three narrow yes/no questions to the JEV call (personal_event,
+  service_change, personal_deadline) and asks whether a reply is expected. The answers are stored in
+  decisions.signals and counted; nothing else changes yet.
+
+Narrow questions rather than one broad one, so each can be measured and dropped on its own. Bulk
+  categories are gated out; automated senders are not, since outage notices and platform-relayed
+  messages come from them.
+
+`python -m src.evaluation attention` reads the stored answers and says how many mails a day would be
+  put forward. The lab gets an `attention` variant and 18 more test mails.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+- **triage**: Prepare a reply draft whenever one is expected, urgent or not
+  ([#62](https://github.com/AristideWafo/my-gmail-assistant/pull/62),
+  [`c5c726c`](https://github.com/AristideWafo/my-gmail-assistant/commit/c5c726c2c1ce2b01da83bab19ef3001465923eef))
+
+Preparing a reply and notifying are now two separate decisions: the Telegram alert still depends on
+  urgency alone, the draft on whether a reply is expected. An urgent mail was drafted only for three
+  categories; with NEEDS_REPLY_ENABLED it is also drafted, and labeled Assistant/A_repondre, when
+  JEV says a person expects a reply.
+
+The category rule stays next to the model's answer, so a mail decided without the question (rule,
+  VIP, fallback) or just under the threshold keeps the draft it always had.
+
+Drafts are now written for more kinds of mail, invitations included, so the prompt forbids deciding
+  for the author: no acceptance, refusal, date or amount; a holding reply when the answer is not in
+  the mail.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+
 ## v0.12.0 (2026-10-01)
 
 ### Documentation
