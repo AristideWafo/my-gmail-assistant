@@ -73,6 +73,8 @@ class AutomatedSenderTests(unittest.TestCase):
             "no-reply@x.io",
             "donotreply@x.io",
             "newsletter@brand.com",
+            "ne-pas-repondre@banque.example",
+            "Service clients <nepasrepondre@eaux.example>",
         ):
             with self.subTest(sender=sender):
                 self.assertTrue(is_automated_sender(sender))

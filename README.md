@@ -128,7 +128,7 @@ An urgent mail is drafted when a reply is expected **or**, as before, when it is
 
 ## Mails to put forward: observation mode
 
-Some mails are neither urgent nor ordinary: an event you are registered for, a planned outage of something you use, something to do before a date, a person waiting for an answer. With `ATTENTION_MODE=shadow` (default `off`), the JEV call that classifies a mail also asks three yes/no questions, and whether a reply is expected:
+Some mails are neither urgent nor ordinary: an event you are registered for, a planned outage of something you use, something to do before a date, a person waiting for an answer. With `ATTENTION_MODE=shadow` or `on` (default `off`), the JEV call that classifies a mail also asks three yes/no questions, and whether a reply is expected:
 
 | Question | Says yes to | Says no to |
 | --- | --- | --- |
@@ -136,12 +136,23 @@ Some mails are neither urgent nor ordinary: an event you are registered for, a p
 | `service_change` | a dated outage, maintenance, migration or removal of a service you use | terms updates needing no action, product news |
 | `personal_deadline` | something you must provide, pay, renew or confirm before a date | sales offers ending soon, enrolment deadlines of advertised things |
 
-In this mode the answers are **stored and counted, nothing else changes**: no label, no message, no change of route. It exists to measure, on your real mail, how many mails the questions would put forward before they are allowed to do it.
+In `shadow` mode the answers are **stored and counted, nothing else changes**: no label, no message, no change of route. It exists to measure, on your real mail, how many mails the questions would put forward before they are allowed to do it.
 
 - A mail classified as spam, newsletter, promotion or job alert is never counted, whatever the answers. Automated senders are counted: outage notices come from them, and so do messages a platform relays for a person.
 - `ATTENTION_THRESHOLD` (default `0.5`) is the probability from which an answer counts as yes.
 - Read the result with `docker compose exec assistant python -m src.evaluation attention [--days 14]`: number of mails per day that would be put forward, reasons, and the list. No JEV call is made. Counted live in `attention_signals_total{signal}`.
 - Cost, measured on the test mails: 526 more tokens per mail for the four questions (942 to 1468), latency unchanged (0.25 s to 0.26 s).
+
+### Putting them forward
+
+`ATTENTION_MODE=on` acts on the answers. A mail that is not urgent and has at least one reason (one of the three questions, or a person waiting for a reply):
+
+- gets the Gmail label `Assistant/A_voir`, next to its category label, with no notification;
+- is **kept in the inbox** even when the "low-urgency notification" rule would have archived it. Spam, newsletters, promotions and job alerts are archived as before, whatever the answers.
+
+Urgent mails are unchanged: they are alerted. A mail labeled `Assistant/A_repondre` is also labeled `Assistant/A_voir`; a person's message relayed from a `noreply` address gets `A_voir` only, since no reply can be drafted to it. The decision is stored (`decisions.put_forward`) and counted in `mails_put_forward_total`.
+
+Switch from `shadow` to `on` once `python -m src.evaluation attention` shows a volume you are willing to look at every day.
 
 ## Choosing / adding implementations
 
