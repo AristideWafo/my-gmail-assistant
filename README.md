@@ -47,6 +47,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+To work on the code, install `requirements-dev.txt` instead: it adds `pytest`, `pytest-cov` and `ruff` at the versions CI uses. Then `ruff check .` and `pytest --cov`; the run fails below the coverage floor set in `pyproject.toml` (`fail_under`).
+
 2. Configure environment:
 
 ```bash
@@ -316,7 +318,8 @@ Useful endpoints (from the host itself, or through a tunnel):
 
 ## CI/CD
 
-- `.github/workflows/ci.yml`: lint (ruff) + tests (pytest) + Docker build sanity check on every PR and push to `prod`.
+- `.github/workflows/ci.yml`: lint (ruff) + tests (pytest) with a coverage floor (`fail_under` in `pyproject.toml`, to be raised when coverage rises and never lowered) + Docker build sanity check on every PR and push to `prod`.
+- `.github/dependabot.yml`: weekly pull requests for Python dependencies (test and lint tools grouped), monthly for GitHub Actions, the Docker base image (patch versions of Python only) and the pinned Prometheus and Grafana images. Their commits are prefixed `chore`, so a bump alone cuts no release.
 - `.github/workflows/release.yml`: on push to `prod`, runs [python-semantic-release](https://python-semantic-release.readthedocs.io/) against [Conventional Commits](https://www.conventionalcommits.org/) to bump `pyproject.toml`, update `CHANGELOG.md`, tag (`vX.Y.Z`) and cut a GitHub Release; on a new release it builds and pushes the Docker image to `ghcr.io/<repo>:<version>` and `:latest`.
 
 Commit convention (drives the version bump):
