@@ -54,6 +54,7 @@ class ExpectationTests(unittest.TestCase):
             ("false_spam", "llm"): {"reject"},
             ("missed_urgent", "label"): {"llm"},
             ("wrong_archive", "reject"): {"llm", "label"},
+            ("missed_important", "label"): {"llm", "label"},
         }
         for (verdict, recorded), accepted in expected.items():
             with self.subTest(verdict=verdict):

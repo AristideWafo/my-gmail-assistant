@@ -126,6 +126,77 @@ class StoreMigrationTests(unittest.TestCase):
             SqliteDecisionStore(self.path)
 
 
+class LegacyMissedUrgentTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = os.path.join(tmp.name, "assistant.db")
+
+    def make_version_3_database(self, feedback: list[tuple[str, str, str]]):
+        conn = sqlite3.connect(self.path)
+        conn.executescript("".join(MIGRATIONS[:3]) + "PRAGMA user_version = 3;")
+        for message_id, verdict, origin in feedback:
+            conn.execute(
+                "INSERT INTO decisions (message_id, thread_id, sender, subject, excerpt, "
+                "urgency, category, confidence, route, created_at, source) "
+                "VALUES (?, 't', 'a@b.com', 'Hi', 'b', 'low', 'personnel', 0.9, 'label', "
+                "'2026-01-01', 'jev')",
+                (message_id,),
+            )
+            conn.execute(
+                "INSERT INTO feedback (message_id, verdict, created_at, origin) "
+                "VALUES (?, ?, '2026-01-02', ?)",
+                (message_id, verdict, origin),
+            )
+        conn.commit()
+        conn.close()
+
+    def test_review_verdicts_given_with_the_single_button_become_missed_important(self):
+        self.make_version_3_database(
+            [
+                ("kept", "missed_urgent", "review"),
+                ("fine", "valid", "review"),
+                ("archived", "wrong_archive", "review"),
+                ("alerted", "false_urgent", "alert"),
+            ]
+        )
+
+        store = SqliteDecisionStore(self.path)
+        self.addCleanup(store.close)
+
+        verdicts = {rated.record.message_id: rated.verdict for rated in store.rated_decisions()}
+        self.assertEqual(
+            verdicts,
+            {
+                "kept": "missed_important",
+                "fine": "valid",
+                "archived": "wrong_archive",
+                "alerted": "false_urgent",
+            },
+        )
+        self.assertEqual(store.recent_corrections(8, ("missed_urgent",)), [])
+
+    def test_the_previous_verdicts_stay_in_the_safety_copy(self):
+        self.make_version_3_database([("kept", "missed_urgent", "review")])
+
+        SqliteDecisionStore(self.path).close()
+
+        previous = sqlite3.connect(f"{self.path}.pre-v{LATEST_VERSION}")
+        self.addCleanup(previous.close)
+        self.assertEqual(
+            previous.execute("SELECT verdict FROM feedback").fetchone()[0], "missed_urgent"
+        )
+
+    def test_a_verdict_given_after_the_upgrade_keeps_its_meaning(self):
+        store = SqliteDecisionStore(self.path)
+        self.addCleanup(store.close)
+        store.record_decision(make_email(), TriageResult("low", "personnel", 0.9, "jev"), "label")
+
+        store.record_feedback("m1", "missed_urgent", origin="review")
+
+        self.assertEqual(store.feedback_counts()["missed_urgent"], 1)
+
+
 class DecisionSourceTests(unittest.TestCase):
     def setUp(self):
         self.store = SqliteDecisionStore(":memory:")

@@ -1,6 +1,13 @@
 from dataclasses import dataclass, field
 
-VERDICTS = ("valid", "false_urgent", "false_spam", "missed_urgent", "wrong_archive")
+VERDICTS = (
+    "valid",
+    "false_urgent",
+    "false_spam",
+    "missed_urgent",
+    "wrong_archive",
+    "missed_important",
+)
 FEEDBACK_ORIGINS = ("alert", "review")
 
 
