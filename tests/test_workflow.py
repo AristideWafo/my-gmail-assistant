@@ -1,9 +1,9 @@
 import unittest
 
-from src.domain import EmailMessage, LLMAnalysis, TriageResult
+from src.domain import DecisionRecord, EmailMessage, LLMAnalysis, TriageResult
 from src.ports import EmailAnalyzer, EmailClassifier
 from src.triage import HeuristicClassifier
-from src.workflow import EmailWorkflow, expects_reply
+from src.workflow import EmailWorkflow, attention_reasons, expects_reply
 
 
 class FixedClassifier:
@@ -215,6 +215,41 @@ class ExpectsReplyTests(unittest.TestCase):
                 triage = TriageResult("medium", category, 0.9, "jev", needs_reply)
 
                 self.assertEqual(expects_reply(reply_email(sender), triage, threshold), expected)
+
+
+class AttentionReasonsTests(unittest.TestCase):
+    def reasons(self, category="notification_systeme", needs_reply=None, threshold=0.5, **signals):
+        triage = TriageResult("medium", category, 0.9, "jev", needs_reply, signals)
+        return attention_reasons(triage, threshold)
+
+    def test_questions_at_or_above_the_threshold_are_the_reasons(self):
+        self.assertEqual(
+            self.reasons(personal_event=0.97, service_change=0.5, personal_deadline=0.49),
+            ("personal_event", "service_change"),
+        )
+
+    def test_a_person_waiting_for_an_answer_is_a_reason(self):
+        self.assertEqual(self.reasons("offre_emploi", needs_reply=0.94), ("needs_reply",))
+        self.assertEqual(self.reasons("offre_emploi", needs_reply=0.2), ())
+
+    def test_nothing_asked_means_no_reason(self):
+        self.assertEqual(self.reasons(), ())
+
+    def test_bulk_and_scam_categories_are_never_put_forward(self):
+        for category in ("spam", "newsletter", "promotion", "alerte_emploi"):
+            with self.subTest(category=category):
+                self.assertEqual(self.reasons(category, needs_reply=0.9, personal_deadline=0.9), ())
+
+    def test_threshold_is_configurable(self):
+        self.assertEqual(self.reasons(service_change=0.57, threshold=0.6), ())
+
+    def test_a_stored_decision_gives_the_same_reasons(self):
+        record = DecisionRecord(
+            "m1", "t", "a@b.com", "s", "e", "low", "notification_systeme", 0.9, "reject",
+            "2026-10-01", needs_reply=0.1, signals={"service_change": 0.99},
+        )
+
+        self.assertEqual(attention_reasons(record, 0.5), ("service_change",))
 
 
 class ReplyDraftTests(unittest.TestCase):

@@ -6,8 +6,9 @@ from pathlib import Path
 from src.domain import EmailMessage
 from src.errors import ConfigurationError
 from src.evaluation.dataset import Case
-from src.evaluation.variants import SIGNAL_QUESTIONS
+from src.evaluation.variants import KNOWN_QUESTIONS
 from src.gmail.text_cleaning import extract_domain
+from src.triage.attention import ATTENTION_QUESTIONS
 from src.triage.rules import RuleSet
 
 CORPUS_PATH = Path(__file__).with_name("corpus.toml")
@@ -27,6 +28,8 @@ class LabCase:
     expected_signals: frozenset[str] | None = None
     # Invented mails say "tomorrow" relative to a fixed day, so that day is sent as today.
     today: str = ""
+    # Whether the mail should be put forward; None when nobody said.
+    expected_forward: bool | None = None
 
 
 def load_corpus(path: Path = CORPUS_PATH) -> list[LabCase]:
@@ -48,7 +51,9 @@ def cases_from_rated(cases: Iterable[Case], rules: RuleSet) -> tuple[list[LabCas
         if rules.classify(case.email) is not None:
             decided_by_rule += 1
             continue
-        kept.append(LabCase(_describe(case), case.email, case.satisfied_by))
+        # Only this verdict speaks about putting forward: "OK" on a kept mail meant "not urgent".
+        wanted = True if case.verdict == "missed_important" else None
+        kept.append(LabCase(_describe(case), case.email, case.satisfied_by, expected_forward=wanted))
     return kept, decided_by_rule
 
 
@@ -70,7 +75,7 @@ def _to_case(mail: dict, path: Path) -> LabCase:
     if not routes or not routes <= ROUTES:
         raise ConfigurationError(f"{where} has routes {sorted(routes)}; valid: {sorted(ROUTES)}")
     facts = frozenset(mail["facts"])
-    if not facts <= set(SIGNAL_QUESTIONS) - {"needs_reply"}:
+    if not facts <= set(KNOWN_QUESTIONS) - {"needs_reply"}:
         raise ConfigurationError(f"{where} has unknown fact(s) {sorted(facts)}")
     email = EmailMessage(
         id=mail["name"],
@@ -83,4 +88,5 @@ def _to_case(mail: dict, path: Path) -> LabCase:
         received_at=CORPUS_RECEIVED_AT,
     )
     expected = facts | ({"needs_reply"} if mail["needs_reply"] else frozenset())
-    return LabCase(mail["name"], email, routes.__contains__, expected, CORPUS_TODAY)
+    forward = bool(mail["needs_reply"] or facts & set(ATTENTION_QUESTIONS))
+    return LabCase(mail["name"], email, routes.__contains__, expected, CORPUS_TODAY, forward)

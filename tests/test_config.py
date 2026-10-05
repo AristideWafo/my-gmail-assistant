@@ -49,5 +49,17 @@ class SettingsBackupTests(unittest.TestCase):
             Settings(_env_file=None, backup_keep=0)
 
 
+class SettingsAttentionTests(unittest.TestCase):
+    def test_off_by_default_with_an_even_threshold(self):
+        settings = Settings(_env_file=None)
+
+        self.assertEqual((settings.attention_mode, settings.attention_threshold), ("off", 0.5))
+
+    def test_unknown_mode_or_threshold_out_of_range_fails_at_startup(self):
+        for overrides in ({"attention_mode": "loud"}, {"attention_threshold": 1.5}):
+            with self.subTest(overrides), self.assertRaises(ValidationError):
+                Settings(_env_file=None, **overrides)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -233,6 +233,33 @@ class ReplyExpectedTests(unittest.TestCase):
         self.assertEqual(threshold(needs_reply_enabled=True, needs_reply_threshold=0.7), 0.7)
 
 
+class AttentionShadowTests(unittest.TestCase):
+    def process(self, **settings):
+        ctx = make_context("reject", **settings)
+        ctx.workflow.run.return_value["triage"] = TriageResult(
+            "low", "notification_systeme", 0.9, "jev", 0.1, {"service_change": 0.99}
+        )
+        counter = Metrics.attention_signals.labels(signal="service_change")
+        before = counter._value.get()
+
+        ctx.process_email(make_email())
+
+        return ctx, counter._value.get() - before
+
+    def test_shadow_mode_counts_the_reason_and_changes_nothing_else(self):
+        ctx, counted = self.process(attention_mode="shadow")
+
+        self.assertEqual(counted, 1)
+        ctx.mail.archive_message.assert_called_once_with("m1")
+        ctx.mail.label_message.assert_not_called()
+        ctx.alerts.send_urgent_alert.assert_not_called()
+
+    def test_nothing_is_counted_when_the_mode_is_off(self):
+        _, counted = self.process()
+
+        self.assertEqual(counted, 0)
+
+
 class DecisionPersistenceTests(unittest.TestCase):
     def test_every_processed_mail_is_recorded_with_its_route(self):
         for route in ("label", "reject", "llm"):

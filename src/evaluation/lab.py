@@ -34,6 +34,7 @@ class LabReport:
     latencies: list[float] = field(default_factory=list)
     errors: int = 0
     signals: dict[str, SignalReport] = field(default_factory=dict)
+    forward: SignalReport | None = None
 
 
 def planned_calls(variants: Sequence[Variant], cases: Sequence[LabCase], repeats: int) -> int:
@@ -52,6 +53,7 @@ def run_variant(
         variant.name,
         variant.description,
         signals={name: SignalReport() for name in variant.signals},
+        forward=SignalReport() if variant.put_forward else None,
     )
     routes: dict[str, list[str | None]] = {case.name: [] for case in cases}
     for repeat in range(repeats):
@@ -70,6 +72,7 @@ def run_variant(
             routes[case.name].append(route)
             if repeat == 0 and answers is not None:
                 _record_signals(report, case, answers)
+                _record_forward(report, variant, case, answers)
         report.runs.append(tally)
     for case in cases:
         seen = routes[case.name]
@@ -108,16 +111,31 @@ def _record_signals(report: LabReport, case: LabCase, answers: dict) -> None:
     for name, signal in report.signals.items():
         probability = JevClassifier.parse_probability(answers.get(name))
         said_yes = probability is not None and probability >= SIGNAL_THRESHOLD
-        if said_yes:
-            signal.yes.append(case.name)
-        if case.expected_signals is None:
-            continue
-        signal.with_truth += 1
-        expected = name in case.expected_signals
-        if expected and not said_yes:
-            signal.missed.append(case.name)
-        elif said_yes and not expected:
-            signal.unexpected.append(case.name)
+        expected = None if case.expected_signals is None else name in case.expected_signals
+        _tally(signal, case.name, said_yes, expected)
+
+
+def _record_forward(report: LabReport, variant: Variant, case: LabCase, answers: dict) -> None:
+    if report.forward is None:
+        return
+    try:
+        said_yes = variant.put_forward(answers, SIGNAL_THRESHOLD)
+    except (KeyError, ValueError, TypeError):
+        # Already counted as an unusable answer when the route was computed.
+        return
+    _tally(report.forward, case.name, said_yes, case.expected_forward)
+
+
+def _tally(signal: SignalReport, name: str, said_yes: bool, expected: bool | None) -> None:
+    if said_yes:
+        signal.yes.append(name)
+    if expected is None:
+        return
+    signal.with_truth += 1
+    if expected and not said_yes:
+        signal.missed.append(name)
+    elif said_yes and not expected:
+        signal.unexpected.append(name)
 
 
 def format_lab_report(reports: Sequence[LabReport], case_count: int) -> str:
@@ -142,11 +160,11 @@ def format_lab_report(reports: Sequence[LabReport], case_count: int) -> str:
         for row in table
     ]
     for report in reports:
-        lines += _details(report)
+        lines += _details(report, case_count)
     return "\n".join(lines)
 
 
-def _details(report: LabReport) -> list[str]:
+def _details(report: LabReport, cases: int) -> list[str]:
     lines = ["", f"[{report.variant}] {report.description}".rstrip()]
     lines.append(f"  misrouted ({len(report.misrouted)}): {_listed(report.misrouted)}")
     if report.unstable:
@@ -157,19 +175,32 @@ def _details(report: LabReport) -> list[str]:
             "sender filter:"
         )
     for name, signal in report.signals.items():
-        if signal.with_truth:
-            lines.append(
-                f"  {name}: {len(signal.missed)} missed, {len(signal.unexpected)} unexpected "
-                f"on {signal.with_truth} mails"
-            )
-            if signal.missed:
-                lines.append(f"    missed: {_listed(signal.missed)}")
-            if signal.unexpected:
-                lines.append(f"    unexpected: {_listed(signal.unexpected)}")
-        else:
-            lines.append(f"  {name}: yes on {len(signal.yes)} mails, to check by hand")
-            if signal.yes:
-                lines.append(f"    {_listed(signal.yes)}")
+        lines += _signal_lines(name, signal, cases)
+    if report.forward is not None:
+        lines.append(
+            f"  put forward at {SIGNAL_THRESHOLD}, after the category filter (one of the "
+            "questions above said yes):"
+        )
+        lines += _signal_lines("put forward", report.forward, cases)
+    return lines
+
+
+def _signal_lines(name: str, signal: SignalReport, cases: int) -> list[str]:
+    lines = []
+    if signal.with_truth:
+        lines.append(
+            f"  {name}: {len(signal.missed)} missed, {len(signal.unexpected)} unexpected "
+            f"on {signal.with_truth} mails whose answer is known"
+        )
+        if signal.missed:
+            lines.append(f"    missed: {_listed(signal.missed)}")
+        if signal.unexpected:
+            lines.append(f"    unexpected: {_listed(signal.unexpected)}")
+    # Listed whenever some mails have no known answer: those can only be checked by hand.
+    if signal.with_truth < cases:
+        lines.append(f"  {name}: yes on {len(signal.yes)} of {cases} mails, to check by hand")
+        if signal.yes:
+            lines.append(f"    {_listed(signal.yes)}")
     return lines
 
 
