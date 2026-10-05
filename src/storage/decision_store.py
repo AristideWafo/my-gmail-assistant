@@ -35,7 +35,7 @@ PRUNABLE_STATE_PREFIXES = (
 
 _DECISION_COLUMNS = (
     "message_id, thread_id, sender, subject, excerpt, urgency, category, confidence, route, "
-    "created_at, chat_message_id, message_id_header, source, needs_reply, signals"
+    "created_at, chat_message_id, message_id_header, source, needs_reply, signals, put_forward"
 )
 _DECISION_FIELDS = tuple(name.strip() for name in _DECISION_COLUMNS.split(","))
 _PREFIXED_DECISION_COLUMNS = ", ".join(f"d.{name}" for name in _DECISION_FIELDS)
@@ -59,19 +59,22 @@ class SqliteDecisionStore:
                 self.backup(f"{path}.pre-v{LATEST_VERSION}")
         migrate(self._conn)
 
-    def record_decision(self, email: EmailMessage, triage: TriageResult, route: str) -> None:
+    def record_decision(
+        self, email: EmailMessage, triage: TriageResult, route: str, put_forward: bool = False
+    ) -> None:
         excerpt = (email.body or email.snippet or "")[:EXCERPT_CHARS]
         with self._lock, self._conn:
             self._conn.execute(
                 f"INSERT INTO decisions ({_DECISION_COLUMNS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(message_id) DO UPDATE SET "
                 "thread_id = excluded.thread_id, sender = excluded.sender, "
                 "subject = excluded.subject, excerpt = excluded.excerpt, "
                 "urgency = excluded.urgency, category = excluded.category, "
                 "confidence = excluded.confidence, route = excluded.route, "
                 "message_id_header = excluded.message_id_header, source = excluded.source, "
-                "needs_reply = excluded.needs_reply, signals = excluded.signals",
+                "needs_reply = excluded.needs_reply, signals = excluded.signals, "
+                "put_forward = excluded.put_forward",
                 (
                     email.id,
                     email.thread_id,
@@ -87,6 +90,7 @@ class SqliteDecisionStore:
                     triage.source,
                     triage.needs_reply,
                     json.dumps(triage.signals, sort_keys=True) if triage.signals else None,
+                    int(put_forward),
                 ),
             )
 
@@ -344,6 +348,7 @@ class SqliteDecisionStore:
 def _to_record(row: sqlite3.Row) -> DecisionRecord:
     fields = {name: row[name] for name in _DECISION_FIELDS}
     fields["signals"] = _decode_signals(fields["signals"])
+    fields["put_forward"] = bool(fields["put_forward"])
     return DecisionRecord(**fields)
 
 

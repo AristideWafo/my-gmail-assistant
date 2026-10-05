@@ -20,6 +20,7 @@ class TriageState(TypedDict, total=False):
     route: str
     entities: dict[str, Any]
     reply_expected: bool
+    attention: tuple[str, ...]
 
 
 NON_ALERTABLE_CATEGORIES = {"spam", "newsletter", "promotion", "alerte_emploi"}
@@ -65,6 +66,21 @@ def attention_reasons(
     return tuple(name for name, probability in answers.items() if probability >= threshold)
 
 
+def route_with_attention(
+    triage: TriageResult, low_confidence_threshold: float, attention_threshold: float | None
+) -> str:
+    route = route_for(triage, low_confidence_threshold)
+    # A mail worth seeing must stay in the inbox. Bulk categories are never worth seeing, so this
+    # only undoes the archiving of low-urgency notifications: event tickets, works notices.
+    if (
+        route == "reject"
+        and attention_threshold is not None
+        and attention_reasons(triage, attention_threshold)
+    ):
+        return "label"
+    return route
+
+
 class EmailWorkflow:
     def __init__(
         self,
@@ -73,6 +89,7 @@ class EmailWorkflow:
         low_confidence_threshold: float = 0.50,
         rules: RuleSet | None = None,
         needs_reply_threshold: float | None = None,
+        attention_threshold: float | None = None,
     ):
         self.classifier = classifier
         self.analyzer = analyzer
@@ -80,6 +97,8 @@ class EmailWorkflow:
         self.rules = rules or RuleSet()
         # None leaves drafts to the category rule of urgent mails, as before the reply question.
         self.needs_reply_threshold = needs_reply_threshold
+        # None keeps the attention answers without acting on them (off, or observation mode).
+        self.attention_threshold = attention_threshold
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -145,9 +164,14 @@ class EmailWorkflow:
 
     def _label_node(self, state: TriageState) -> dict[str, Any]:
         email = state["email"]
+        result: dict[str, Any] = {"route": "label"}
+        if self.attention_threshold is not None:
+            reasons = attention_reasons(state["triage"], self.attention_threshold)
+            if reasons:
+                result["attention"] = reasons
         if not expects_reply(email, state["triage"], self.needs_reply_threshold):
-            return {"route": "label"}
-        result: dict[str, Any] = {"route": "label", "reply_expected": True}
+            return result
+        result["reply_expected"] = True
         try:
             draft = self.analyzer.analyze(email, want_draft=True, want_entities=False).draft
         except Exception:
@@ -160,4 +184,6 @@ class EmailWorkflow:
         return result
 
     def _route_after_triage(self, state: TriageState) -> str:
-        return route_for(state["triage"], self.low_confidence_threshold)
+        return route_with_attention(
+            state["triage"], self.low_confidence_threshold, self.attention_threshold
+        )

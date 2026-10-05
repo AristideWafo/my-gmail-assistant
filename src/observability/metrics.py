@@ -51,6 +51,9 @@ class Metrics:
         "Mails a question gave a reason to put forward, after the category gate",
         ["signal"],
     )
+    put_forward = Counter(
+        "mails_put_forward_total", "Mails kept in the inbox and labeled as worth seeing"
+    )
     chat_commands = Counter(
         "chat_commands_total", "Chat commands received", ["command", "status"]
     )
@@ -142,6 +145,10 @@ class Metrics:
     @classmethod
     def mark_attention(cls, signal: str) -> None:
         cls.attention_signals.labels(signal=signal).inc()
+
+    @classmethod
+    def mark_put_forward(cls) -> None:
+        cls.put_forward.inc()
 
     @classmethod
     def mark_chat_command(cls, command: str, status: str) -> None:

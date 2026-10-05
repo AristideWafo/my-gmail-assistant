@@ -14,7 +14,9 @@ from src.domain import (
 
 @runtime_checkable
 class DecisionStore(Protocol):
-    def record_decision(self, email: EmailMessage, triage: TriageResult, route: str) -> None: ...
+    def record_decision(
+        self, email: EmailMessage, triage: TriageResult, route: str, put_forward: bool = False
+    ) -> None: ...
 
     def get(self, message_id: str) -> DecisionRecord | None: ...
 

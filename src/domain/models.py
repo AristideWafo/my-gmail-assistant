@@ -65,6 +65,8 @@ class DecisionRecord:
     source: str = ""
     needs_reply: float | None = None
     signals: dict[str, float] = field(default_factory=dict)
+    # The mail was labeled as worth seeing when it was processed.
+    put_forward: bool = False
 
 
 @dataclass(frozen=True)

@@ -248,6 +248,40 @@ class SignalsColumnTests(unittest.TestCase):
                 self.assertEqual(store.get("m1").signals, {})
 
 
+class PutForwardColumnTests(unittest.TestCase):
+    def test_version_5_database_is_upgraded_and_its_rows_were_not_put_forward(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "assistant.db")
+        conn = sqlite3.connect(path)
+        conn.executescript("".join(MIGRATIONS[:5]) + "PRAGMA user_version = 5;")
+        conn.execute(
+            "INSERT INTO decisions (message_id, thread_id, sender, subject, excerpt, urgency, "
+            "category, confidence, route, created_at, source) "
+            "VALUES ('m1', 't1', 'a@b.com', 'Hi', 'b', 'low', 'personnel', 0.9, 'label', "
+            "'2026-01-01', 'jev')"
+        )
+        conn.commit()
+        conn.close()
+
+        store = SqliteDecisionStore(path)
+        self.addCleanup(store.close)
+
+        self.assertEqual(schema_version(store._conn), LATEST_VERSION)
+        self.assertFalse(store.get("m1").put_forward)
+
+    def test_flag_is_stored_and_follows_a_reclassification(self):
+        store = SqliteDecisionStore(":memory:")
+        self.addCleanup(store.close)
+        triage = TriageResult("low", "personnel", 0.9, "jev")
+
+        store.record_decision(make_email(), triage, "label", put_forward=True)
+        self.assertIs(store.get("m1").put_forward, True)
+
+        store.record_decision(make_email(), triage, "label")
+        self.assertIs(store.get("m1").put_forward, False)
+
+
 class DecisionSourceTests(unittest.TestCase):
     def setUp(self):
         self.store = SqliteDecisionStore(":memory:")

@@ -252,6 +252,84 @@ class AttentionReasonsTests(unittest.TestCase):
         self.assertEqual(attention_reasons(record, 0.5), ("service_change",))
 
 
+class PutForwardTests(unittest.TestCase):
+    def run_workflow(self, triage, attention_threshold=0.5, needs_reply_threshold=None):
+        self.analyzer = FakeAnalyzer()
+        workflow = EmailWorkflow(
+            FixedClassifier(triage),
+            self.analyzer,
+            needs_reply_threshold=needs_reply_threshold,
+            attention_threshold=attention_threshold,
+        )
+        return workflow.run(reply_email("messages-noreply@netpro.example"))
+
+    def test_a_notification_worth_seeing_is_kept_instead_of_archived(self):
+        triage = TriageResult(
+            "low", "notification_systeme", 0.9, "jev", 0.02, {"service_change": 0.99}
+        )
+
+        result = self.run_workflow(triage)
+
+        self.assertEqual(result["route"], "label")
+        self.assertEqual(result["attention"], ("service_change",))
+        self.assertEqual(self.analyzer.calls, [])
+
+    def test_the_same_mail_is_archived_while_the_mode_only_observes(self):
+        triage = TriageResult(
+            "low", "notification_systeme", 0.9, "jev", 0.02, {"service_change": 0.99}
+        )
+
+        result = self.run_workflow(triage, attention_threshold=None)
+
+        self.assertEqual(result["route"], "reject")
+        self.assertNotIn("attention", result)
+
+    def test_bulk_mail_is_archived_whatever_the_answers(self):
+        triage = TriageResult("low", "promotion", 0.9, "jev", 0.9, {"personal_deadline": 0.95})
+
+        self.assertEqual(self.run_workflow(triage)["route"], "reject")
+
+    def test_a_labeled_mail_without_any_reason_is_not_put_forward(self):
+        triage = TriageResult("medium", "personnel", 0.9, "jev", 0.1, {"personal_event": 0.2})
+
+        result = self.run_workflow(triage)
+
+        self.assertEqual(result["route"], "label")
+        self.assertNotIn("attention", result)
+
+    def test_an_urgent_mail_is_alerted_not_put_forward(self):
+        triage = TriageResult("high", "personnel", 0.9, "jev", 0.1, {"personal_event": 0.97})
+
+        result = self.run_workflow(triage)
+
+        self.assertEqual(result["route"], "llm")
+        self.assertNotIn("attention", result)
+
+    def test_a_relayed_message_is_put_forward_without_a_draft(self):
+        triage = TriageResult("medium", "offre_emploi", 0.9, "jev", 0.94)
+
+        result = self.run_workflow(triage, needs_reply_threshold=0.5)
+
+        self.assertEqual(result["attention"], ("needs_reply",))
+        self.assertNotIn("reply_expected", result)
+        self.assertEqual(self.analyzer.calls, [])
+
+    def test_a_person_waiting_gets_both_the_draft_and_the_attention(self):
+        analyzer = FakeAnalyzer()
+        workflow = EmailWorkflow(
+            FixedClassifier(TriageResult("medium", "personnel", 0.9, "jev", 0.94)),
+            analyzer,
+            needs_reply_threshold=0.5,
+            attention_threshold=0.5,
+        )
+
+        result = workflow.run(reply_email())
+
+        self.assertEqual(result["attention"], ("needs_reply",))
+        self.assertTrue(result["reply_expected"])
+        self.assertEqual(result["draft"], "draft for Le livre")
+
+
 class ReplyDraftTests(unittest.TestCase):
     def run_workflow(self, triage, analyzer=None, threshold=0.5):
         self.analyzer = analyzer or FakeAnalyzer()
