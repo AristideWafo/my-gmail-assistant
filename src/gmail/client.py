@@ -12,7 +12,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from src.domain import EmailMessage
-from src.gmail.text_cleaning import clean_body, decode_body, extract_domain
+from src.gmail.text_cleaning import MAX_BODY_WORDS, clean_body, decode_body, extract_domain
 
 _GMAIL_AUTHSERV_ID = "mx.google.com"
 _DMARC_PASS_RE = re.compile(r"\bdmarc=pass\b", re.IGNORECASE)
@@ -85,7 +85,9 @@ class GmailClient:
             return []
         return self._list_and_parse(query=None, max_results=max_results, max_retries=max_retries)
 
-    def fetch_message(self, message_id: str, max_retries: int = 5) -> EmailMessage | None:
+    def fetch_message(
+        self, message_id: str, full_body: bool = False, max_retries: int = 5
+    ) -> EmailMessage | None:
         if not self._service:
             return None
         request = self._service.users().messages().get(
@@ -97,7 +99,7 @@ class GmailClient:
             if getattr(getattr(exc, "resp", None), "status", None) == 404:
                 return None
             raise
-        return self._parse_message(message)
+        return self._parse_message(message, full_body)
 
     def in_inbox(self, message_id: str, max_retries: int = 5) -> bool:
         if not self._service:
@@ -237,7 +239,7 @@ class GmailClient:
         return html_data, True
 
     @classmethod
-    def _parse_message(cls, message: dict[str, Any]) -> EmailMessage:
+    def _parse_message(cls, message: dict[str, Any], full_body: bool = False) -> EmailMessage:
         header_list = message.get("payload", {}).get("headers", [])
         headers = {h.get("name", "").lower(): h.get("value", "") for h in header_list}
         sender = parseaddr(headers.get("from", ""))[1] or headers.get("from", "")
@@ -245,7 +247,9 @@ class GmailClient:
         snippet = message.get("snippet", "")
 
         body_data, is_html = cls._extract_body(message.get("payload", {}))
-        body = clean_body(decode_body(body_data), is_html)
+        body = clean_body(
+            decode_body(body_data), is_html, max_words=None if full_body else MAX_BODY_WORDS
+        )
 
         return EmailMessage(
             id=message.get("id", ""),
