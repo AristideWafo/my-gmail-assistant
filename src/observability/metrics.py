@@ -44,7 +44,7 @@ class Metrics:
         "unsubscribes_total", "Unsubscribe proposals and their outcomes", ["status"]
     )
     reply_drafts = Counter(
-        "reply_drafts_total", "Non-urgent mails flagged as awaiting a reply", ["status"]
+        "reply_drafts_total", "Mails flagged as awaiting a reply, with or without a draft", ["status"]
     )
     chat_commands = Counter(
         "chat_commands_total", "Chat commands received", ["command", "status"]

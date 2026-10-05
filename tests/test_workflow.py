@@ -261,12 +261,49 @@ class ReplyDraftTests(unittest.TestCase):
         self.assertEqual(result["route"], "reject")
         self.assertEqual(self.analyzer.calls, [])
 
-    def test_urgent_mail_keeps_the_alert_path(self):
-        result = self.run_workflow(TriageResult("high", "personnel", 0.9, "jev", 0.93))
+    def test_urgent_mail_expecting_a_reply_is_alerted_drafted_and_flagged(self):
+        result = self.run_workflow(TriageResult("high", "notification_systeme", 0.9, "jev", 0.93))
 
         self.assertEqual(result["route"], "llm")
-        self.assertNotIn("reply_expected", result)
+        self.assertTrue(result["reply_expected"])
+        self.assertEqual(result["draft"], "draft for Le livre")
+        self.assertIn("summary", result)
         self.assertEqual(self.analyzer.calls, [(True, False)])
+
+    def test_urgent_mail_is_drafted_on_its_category_when_the_model_did_not_ask_for_a_reply(self):
+        for name, triage, threshold in (
+            ("under the threshold", TriageResult("high", "personnel", 0.9, "jev", 0.45), 0.5),
+            ("question not asked", TriageResult("high", "personnel", 1.0, "vip"), 0.5),
+            ("feature off", TriageResult("high", "personnel", 0.9, "jev", 0.93), None),
+        ):
+            with self.subTest(name):
+                result = self.run_workflow(triage, threshold=threshold)
+
+                self.assertEqual(result["draft"], "draft for Le livre")
+                self.assertNotIn("reply_expected", result)
+
+    def test_urgent_mail_expecting_no_reply_outside_draftable_categories_gets_no_draft(self):
+        result = self.run_workflow(TriageResult("high", "alerte_technique", 0.9, "jev", 0.1))
+
+        self.assertEqual(result["route"], "llm")
+        self.assertNotIn("draft", result)
+        self.assertEqual(self.analyzer.calls, [(False, False)])
+
+    def test_urgent_bulk_or_automated_mail_is_never_drafted_whatever_it_asks(self):
+        for triage, sender in (
+            (TriageResult("high", "alerte_technique", 0.9, "jev", 0.93), "notifications@github.com"),
+            (TriageResult("high", "notification_systeme", 0.9, "jev", 0.93), "no-reply@bank.example"),
+        ):
+            with self.subTest(sender=sender):
+                self.analyzer = FakeAnalyzer()
+                workflow = EmailWorkflow(
+                    FixedClassifier(triage), self.analyzer, needs_reply_threshold=0.5
+                )
+
+                result = workflow.run(reply_email(sender))
+
+                self.assertNotIn("draft", result)
+                self.assertNotIn("reply_expected", result)
 
 
 if __name__ == "__main__":
