@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 
 VERDICTS = (
     "valid",
@@ -28,6 +29,38 @@ class EmailMessage:
     list_unsubscribe: str = ""
     list_unsubscribe_post: str = ""
 
+
+
+@dataclass(frozen=True)
+class ThreadMessage:
+    """What a follow-up needs to know about one message of a thread: never its body."""
+
+    id: str
+    sender: str
+    to: tuple[str, ...]
+    cc: tuple[str, ...]
+    sent_at: datetime
+    subject: str = ""
+    message_id_header: str = ""
+    # The mailbox owner wrote it: Gmail's SENT label, or one of the owner's sending addresses.
+    from_me: bool = False
+    # An auto-reply, a bulk or list mail, or a bounce, as its headers declare it.
+    automated: bool = False
+    # A delivery failure report: the message never reached its recipients.
+    bounce: bool = False
+
+
+@dataclass(frozen=True)
+class ThreadSnapshot:
+    thread_id: str
+    history_id: str
+    messages: tuple[ThreadMessage, ...]
+
+
+@dataclass(frozen=True)
+class ThreadRef:
+    thread_id: str
+    history_id: str
 
 @dataclass
 class TriageResult:

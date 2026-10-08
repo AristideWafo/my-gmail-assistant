@@ -13,6 +13,9 @@ from .models import (
     RatedDecision,
     ReplyEvent,
     RuleCandidate,
+    ThreadMessage,
+    ThreadRef,
+    ThreadSnapshot,
     TriageResult,
 )
 
@@ -31,5 +34,8 @@ __all__ = [
     "RatedDecision",
     "ReplyEvent",
     "RuleCandidate",
+    "ThreadMessage",
+    "ThreadRef",
+    "ThreadSnapshot",
     "TriageResult",
 ]

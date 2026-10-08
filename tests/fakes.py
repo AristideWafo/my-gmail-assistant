@@ -1,7 +1,17 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from src.bootstrap import Components
-from src.domain import Button, ChatEvent, EmailMessage, LLMAnalysis, TriageResult
+from src.domain import (
+    Button,
+    ChatEvent,
+    EmailMessage,
+    LLMAnalysis,
+    ThreadRef,
+    ThreadSnapshot,
+    TriageResult,
+)
 from src.storage import SqliteDecisionStore
 
 
@@ -11,6 +21,10 @@ class FakeMail:
     unread: list[EmailMessage] = field(default_factory=list)
     labels: list[tuple[str, str]] = field(default_factory=list)
     archived: list[str] = field(default_factory=list)
+    addresses: frozenset[str] = frozenset({"me@example.com"})
+    threads: list[ThreadSnapshot] = field(default_factory=list)
+    texts: dict[str, str] = field(default_factory=dict)
+    answered_elsewhere: set[str] = field(default_factory=set)
 
     def check_connection(self) -> str:
         return "fake mail"
@@ -34,12 +48,34 @@ class FakeMail:
         self.labels.extend((message_id, name) for name in label_names)
 
     def create_draft(
-        self, thread_id: str, to: str, subject: str, body: str, in_reply_to: str = ""
+        self,
+        thread_id: str,
+        to: str,
+        subject: str,
+        body: str,
+        in_reply_to: str = "",
+        cc: Sequence[str] = (),
+        references: Sequence[str] = (),
     ) -> str | None:
         return "draft-1"
 
     def send_draft(self, draft_id: str) -> bool:
         return True
+
+    def my_addresses(self) -> frozenset[str]:
+        return self.addresses
+
+    def sent_threads(self, newer_than_days: int, limit: int) -> list[ThreadRef]:
+        return [ThreadRef(snapshot.thread_id, snapshot.history_id) for snapshot in self.threads][:limit]
+
+    def thread_snapshot(self, thread_id: str) -> ThreadSnapshot | None:
+        return next((s for s in self.threads if s.thread_id == thread_id), None)
+
+    def sent_text(self, message_id: str) -> str:
+        return self.texts.get(message_id, "")
+
+    def has_message_from(self, address: str, after: datetime) -> bool:
+        return address in self.answered_elsewhere
 
 
 @dataclass
