@@ -22,6 +22,7 @@ The first log line of a start is `Starting my-gmail-assistant <version>`, follow
 | Telegram: "Budget LLM du jour atteint" | [LLM budget reached](#llm-budget-reached) |
 | Telegram: "N traitements de mail en échec" | [Mails skipped](#mails-skipped) |
 | Grafana: `followup_refresh_errors_total` rising, log `Could not list sent threads` | [Follow-up refresh failing](#follow-up-refresh-failing) |
+| Telegram: "Envoi incertain" after [Envoyer] on a follow-up | [Follow-up send uncertain](#follow-up-send-uncertain) |
 | Container restarts in a loop, log: `SchemaVersionError` | [Database newer than the build](#database-newer-than-the-build) |
 | Container restarts in a loop, log: `sqlite3.DatabaseError` or "malformed" | [Database corrupted](#database-corrupted) |
 | Nothing arrives at all, no message either | [Total silence](#total-silence) |
@@ -85,6 +86,12 @@ The first log line of a start is `Starting my-gmail-assistant <version>`, follow
 - **Effect.** The states of the followed threads are not updated: an answer that came meanwhile is not seen until a refresh succeeds. In `shadow` mode nothing is sent, so only the measurement is late.
 - **Check.** A `403` on `step="list"` right after enabling the mode points at the token's scope: `users.settings.sendAs.list` needs `gmail.modify`, which `token_setup` asks for. A `429` is the Gmail quota: lower `FOLLOW_UP_MAX_THREADS` or raise `FOLLOW_UP_REFRESH_MINUTES`.
 - **Fix.** `FOLLOW_UP_MODE=off` stops it at once; the threads already followed are kept for when it is turned back on.
+
+## Follow-up send uncertain
+
+- **Sign.** After [Envoyer] on a follow-up, the answer "Envoi incertain : vérifie tes Envoyés dans Gmail avant de renvoyer."; log `Failed to send the follow-up of thread <id>`; `followup_proposals_total{outcome="send_failed"}`.
+- **Cause.** The draft was created, then Gmail failed or timed out on the send. Gmail may have sent it anyway.
+- **Fix.** Look in Gmail's Sent folder. If the follow-up is not there, the draft is in Drafts: send it from Gmail. The bot never retries on its own: the send was claimed before Gmail was called, and the offer's buttons are removed.
 
 ## Database newer than the build
 

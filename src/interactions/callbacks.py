@@ -11,6 +11,7 @@ CANCEL = "cancel"
 UNSUBSCRIBE = "unsub"
 KEEP = "keep"
 FOLLOW_UP = "fu"
+FOLLOW_UP_ACTION = "fa"
 CALLBACK_DATA_MAX_BYTES = 64
 
 VERDICT_CODES = {
@@ -36,6 +37,11 @@ _PUT_FORWARD_LABELS = (("v", "Vu"), ("n", "Pas utile"))
 # Verdicts on a follow-up, not on a mail: they rate a thread, kept apart from VERDICT_CODES.
 FOLLOW_UP_VERDICTS = {"u": "useful", "n": "not_useful"}
 _FOLLOW_UP_LABELS = (("u", "Relance utile"), ("n", "Pas de relance"))
+FOLLOW_UP_ACTIONS = {"s": "send", "z": "snooze", "d": "dismiss", "e": "edit"}
+_OFFER_ROWS = (
+    (("s", "Envoyer"), ("z", "Reporter 3 j")),
+    (("d", "Ne pas relancer"), ("e", "Modifier dans Gmail")),
+)
 # Callback data comes from the client: a button set only accepts the verdicts it offers.
 _VERDICT_CODES_BY_ACTION = {
     FEEDBACK: {code for code, _ in _FEEDBACK_LABELS},
@@ -76,6 +82,16 @@ def follow_up_buttons(thread_id: str) -> list[list[Button]] | None:
     )
 
 
+def follow_up_offer_buttons(thread_id: str) -> list[list[Button]] | None:
+    rows = [
+        [(label, f"{FOLLOW_UP_ACTION}:{code}:{thread_id}") for code, label in row]
+        for row in _OFFER_ROWS
+    ]
+    if all(is_valid_callback_data(data) for row in rows for _, data in row):
+        return rows
+    return None
+
+
 def draft_buttons(draft_id: str) -> list[list[Button]] | None:
     return _single_row([("Envoyer", f"{SEND}:{draft_id}"), ("Annuler", f"{CANCEL}:{draft_id}")])
 
@@ -97,11 +113,12 @@ def parse_callback(data: str) -> Callback | None:
         if code not in _VERDICT_CODES_BY_ACTION[action] or not gmail_id:
             return None
         return Callback(action, gmail_id, VERDICT_CODES[code])
-    if action == FOLLOW_UP:
+    if action in (FOLLOW_UP, FOLLOW_UP_ACTION):
+        codes = FOLLOW_UP_VERDICTS if action == FOLLOW_UP else FOLLOW_UP_ACTIONS
         code, _, thread_id = rest.partition(":")
-        if code not in FOLLOW_UP_VERDICTS or not thread_id:
+        if code not in codes or not thread_id:
             return None
-        return Callback(action, thread_id, FOLLOW_UP_VERDICTS[code])
+        return Callback(action, thread_id, codes[code])
     if action in (SEND, CANCEL, UNSUBSCRIBE, KEEP) and rest:
         return Callback(action, rest)
     return None

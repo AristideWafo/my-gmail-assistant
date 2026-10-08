@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from src.bootstrap import Components, build_components, connection_probes
 from src.config import Settings
 from src.expiring_set import ExpiringSet
+from src.followup.offers import FollowUpOffers
 from src.followup.refresh import FollowUpTracker
 from src.gateways.alerts import AlertGateway
 from src.health import (
@@ -32,6 +33,7 @@ from src.health import (
     run_watchdog,
 )
 from src.interactions import InteractionHandler
+from src.interactions.callbacks import follow_up_offer_buttons
 from src.interactions.listener import run_listener
 from src.interactions.unsubscribe import UnsubscribeProposer
 from src.maintenance import BackupRotation
@@ -74,6 +76,7 @@ class ApplicationContext:
                 settings.attention_threshold if settings.attention_mode == "on" else None,
                 settings.follow_up_threshold if settings.follow_up_mode != "off" else None,
                 settings.tzinfo,
+                follow_ups_on=settings.follow_up_mode == "on",
             )
             if self.chat is not None
             else None
@@ -83,6 +86,7 @@ class ApplicationContext:
         )
         self.put_forward_job = self._build_put_forward_job()
         self.follow_ups = self._build_follow_up_tracker()
+        self.follow_up_offers = self._build_follow_up_offers()
         self.unsubscribes = self._build_unsubscribe_proposer()
         self.spend = SpendTracker(
             self.store,
@@ -290,8 +294,33 @@ class ApplicationContext:
             return
         try:
             self.follow_ups.refresh()
+            # After the refresh: an offer must start from the freshest state there is.
+            if self.follow_up_offers is not None:
+                offered = self.follow_up_offers.run()
+                if offered:
+                    logger.info("Offered %d follow-up(s)", offered)
         except Exception:
-            logger.exception("Failed to refresh the follow-ups; will retry")
+            logger.exception("Failed to refresh or offer the follow-ups; will retry")
+
+    def _build_follow_up_offers(self) -> FollowUpOffers | None:
+        settings = self.settings
+        if self.follow_ups is None or settings.follow_up_mode != "on":
+            return None
+        if self.chat is None or not self.chat.is_configured or not self.inbound_enabled:
+            logger.warning("FOLLOW_UP_MODE=on needs the chat with TELEGRAM_INBOUND_ENABLED: offers off")
+            return None
+        return FollowUpOffers(
+            self.store,
+            self.mail,
+            self.chat,
+            self.proactive_budget,
+            follow_up_offer_buttons,
+            settings.follow_up_threshold,
+            settings.tzinfo,
+            settings.follow_up_hour,
+            settings.follow_up_daily_max,
+            signature=settings.user_display_name,
+        )
 
     def _build_follow_up_tracker(self) -> FollowUpTracker | None:
         settings = self.settings

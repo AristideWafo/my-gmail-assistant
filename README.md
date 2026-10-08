@@ -214,6 +214,20 @@ Lists, on demand, your sent mails still waiting for an answer (the 10 due first)
 - **[Relance utile] / [Pas de relance]** on each thread rate it, whatever JEV said: a "relance utile" on a mail JEV judged as waiting for nothing is a miss to learn from. A thread rated "pas de relance" is never offered a follow-up. Counted in `followup_verdicts_total{verdict}`.
 - The header counts, among the mails JEV judged as waiting, how many you rated useful. Move to `on` only after at least 10 rated, with at least 80 % useful.
 
+### Offering follow-ups (`FOLLOW_UP_MODE=on`)
+
+Once `/pending` shows enough useful verdicts, `on` offers the follow-ups. Nothing is ever sent without your press on **[Envoyer]**.
+
+- From `FOLLOW_UP_HOUR` (10, local) on weekdays, never on Friday after 17:00 nor at the weekend, each due follow-up is offered in **its own silent Telegram message**, at most `FOLLOW_UP_DAILY_MAX` (3) a day and within the notification budget. Without `QUIET_HOURS`, an offer can come late in the evening: it is silent, but set them to avoid it. Needs `TELEGRAM_INBOUND_ENABLED=true`, since the offer is made of buttons.
+- Before an offer, the thread is read again in Gmail, and every recipient is searched for a mail sent after yours, in any thread: an answer found closes the thread instead.
+- The message shows the recipients (those of your mail, To and Cc), the subject and **the exact text that would be sent**: a fixed reminder in the language of your mail (from its text, then its subject, French when neither tells), with "tu" if you wrote "tu", "Bonjour," with no name guessed from an address, your `USER_DISPLAY_NAME` as signature. No LLM writes it: read it before pressing, and use [Modifier dans Gmail] when it does not fit.
+- **[Envoyer]** checks everything again: the mode is still `on`, the offer is less than two weekdays old and pressed on the message that made it, your mail is still the last of the thread, no answer came in the thread or elsewhere. Then it creates the reply in the thread and sends it, once: a second press, or one redelivered after a crash, sends nothing and creates no second draft. If Gmail fails after the draft was created, you are told to check your Sent folder.
+- **[Reporter 3 j]** offers it again three days later. **[Ne pas relancer]** closes the thread for good. **[Modifier dans Gmail]** creates the draft and leaves it to you; the bot will not send it.
+- A follow-up is offered once per thread: the one you send becomes the thread's last mail, and is never followed up in turn. An offer left unanswered for two weekdays expires and is not made again.
+- Mails to more than 5 people are not followed.
+- Setting `FOLLOW_UP_MODE` back to `shadow` or `off` makes [Envoyer] and [Modifier dans Gmail], on buttons already on screen, answer that follow-ups are off; [Reporter] and [Ne pas relancer] still record your choice.
+- Outcomes in `followup_proposals_total{outcome}`: `offered`, `sent`, `send_failed`, `duplicate`, `snoozed`, `dismissed`, `handed_off`, `expired`, `rejected`, and why a due follow-up was dropped at offer or send time: `answered` (in the thread), `answered_elsewhere` (any mail from a recipient since yours, auto-replies included: out-of-office replies end the follow-up too), `bounced`, `deleted`, `anchor_changed`.
+
 ## Choosing / adding implementations
 
 The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interactions/`) only talks to the protocols in `src/ports`. `src/bootstrap.py` builds the concrete adapters from these selectors:

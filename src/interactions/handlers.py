@@ -16,6 +16,7 @@ from src.interactions.callbacks import (
     CANCEL,
     FEEDBACK,
     FOLLOW_UP,
+    FOLLOW_UP_ACTION,
     KEEP,
     PUT_FORWARD,
     REVIEW,
@@ -26,6 +27,7 @@ from src.interactions.callbacks import (
     parse_callback,
 )
 from src.interactions.commands import CommandRouter
+from src.interactions.follow_up import FollowUpActions
 from src.interactions.pending import PendingCommand
 from src.interactions.put_forward import PutForwardList
 from src.interactions.review import ReviewCommand
@@ -74,6 +76,7 @@ class InteractionHandler:
         attention_threshold: float | None = None,
         follow_up_threshold: float | None = None,
         timezone: tzinfo = UTC,
+        follow_ups_on: bool = False,
     ) -> None:
         self._store = store
         self._chat = chat
@@ -96,6 +99,10 @@ class InteractionHandler:
             self.commands.register(
                 "avoir", "mails mis en avant en attente", self.put_forward.run
             )
+        # Built even when off: a button already on screen must still be answered, with "no".
+        self.follow_up_actions = FollowUpActions(
+            store, mail, self._answer, self._clear, enabled=follow_ups_on, timezone=timezone
+        )
         # None: sent threads are not tracked, so there is nothing to list.
         if follow_up_threshold is not None:
             self.commands.register(
@@ -137,6 +144,7 @@ class InteractionHandler:
             UNSUBSCRIBE: self._on_unsubscribe,
             KEEP: self._on_keep,
             FOLLOW_UP: self._on_follow_up_verdict,
+            FOLLOW_UP_ACTION: self.follow_up_actions.handle,
         }
         handlers[callback.action](event, callback)
 
