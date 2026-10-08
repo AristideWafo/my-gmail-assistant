@@ -4,6 +4,16 @@ import re
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _SIGNATURE_RE = re.compile(r"\n--\s?\n")
+# Gmail writes the attribution on one line, but other clients wrap it, so it may span two.
+_ATTRIBUTION_RE = re.compile(
+    r"^[ \t]*(?:Le|On)\b[^\n]*(?:\n[^\n]*)?\b(?:a\s+écrit|wrote)\s*:", re.MULTILINE
+)
+_FORWARDED_RE = re.compile(
+    r"^[ \t]*(?:-{2,}\s*(?:Original Message|Message d'origine|Forwarded message|Message transféré)"
+    r"|(?:De|From)\s*:[^\n]*\n[ \t]*(?:Envoyé|Sent|Date)\s*:)",
+    re.MULTILINE | re.IGNORECASE,
+)
+_HTML_QUOTE_RE = re.compile(r"<(?:div[^>]*\bgmail_quote\b|blockquote)", re.IGNORECASE)
 MAX_BODY_WORDS = 1000
 CUT_MARKER = "[…]"
 
@@ -22,6 +32,18 @@ def strip_html(text: str) -> str:
 def strip_signature(text: str) -> str:
     match = _SIGNATURE_RE.search(text)
     return text[: match.start()].rstrip() if match else text
+
+
+def strip_quoted_reply(text: str, is_html: bool = False) -> str:
+    """Keeps what the author wrote above the mail they answer or forward."""
+    if is_html:
+        match = _HTML_QUOTE_RE.search(text)
+        text = strip_html(text[: match.start()] if match else text)
+    cuts = [m.start() for m in (_ATTRIBUTION_RE.search(text), _FORWARDED_RE.search(text)) if m]
+    if cuts:
+        text = text[: min(cuts)]
+    kept = [line for line in text.splitlines() if not line.lstrip().startswith(">")]
+    return "\n".join(kept).strip()
 
 
 def truncate_words(text: str, max_words: int = MAX_BODY_WORDS, tail_words: int = 0) -> str:

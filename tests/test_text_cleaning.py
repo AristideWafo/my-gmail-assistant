@@ -6,6 +6,7 @@ from src.gmail.text_cleaning import (
     decode_body,
     extract_domain,
     strip_html,
+    strip_quoted_reply,
     strip_signature,
     truncate_words,
 )
@@ -73,6 +74,46 @@ class TextCleaningTests(unittest.TestCase):
     def test_clean_body_plain_pipeline(self):
         plain_text = "Hi there\n-- \nSignature block"
         self.assertEqual(clean_body(plain_text, is_html=False), "Hi there")
+
+
+class StripQuotedReplyTests(unittest.TestCase):
+    def test_cuts_at_a_french_attribution_even_when_wrapped(self):
+        text = (
+            "Merci, bien reçu.\n\nLe lun. 5 oct. 2026 à 10:00, Jean <jean@example.com> a\n"
+            "écrit :\n> Peux-tu me renvoyer le document ?"
+        )
+
+        self.assertEqual(strip_quoted_reply(text), "Merci, bien reçu.")
+
+    def test_cuts_at_an_english_attribution(self):
+        text = "Can you send it by Friday?\n\nOn Mon, Oct 5, 2026 at 10:00 AM Jean <j@x.com> wrote:\n> hi"
+
+        self.assertEqual(strip_quoted_reply(text), "Can you send it by Friday?")
+
+    def test_cuts_at_an_outlook_header_block_or_a_forward_marker(self):
+        outlook = "Voir ci-dessous.\n\nDe : Jean\nEnvoyé : lundi 5 octobre\nObjet : Devis\n\nUne question ?"
+        forward = "Pour info.\n\n---------- Forwarded message ---------\nFrom: a@x.com"
+
+        self.assertEqual(strip_quoted_reply(outlook), "Voir ci-dessous.")
+        self.assertEqual(strip_quoted_reply(forward), "Pour info.")
+
+    def test_drops_quoted_lines_written_inline(self):
+        text = "> Tu viens samedi ?\nOui, je viens.\n> Et dimanche ?\nNon."
+
+        self.assertEqual(strip_quoted_reply(text), "Oui, je viens.\nNon.")
+
+    def test_html_is_cut_at_the_gmail_quote_before_its_tags_are_removed(self):
+        html = (
+            "<div>Ok pour moi</div><div class=\"gmail_quote\"><div>Le 5 oct., Jean a écrit :</div>"
+            "<blockquote>Tu confirmes ?</blockquote></div>"
+        )
+
+        self.assertEqual(strip_quoted_reply(html, is_html=True), "Ok pour moi")
+
+    def test_a_mail_without_quote_is_kept_whole(self):
+        text = "Le dossier est prêt.\nLe reste suit demain."
+
+        self.assertEqual(strip_quoted_reply(text), text)
 
 
 if __name__ == "__main__":
