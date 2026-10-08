@@ -166,6 +166,15 @@ A label alone shows little: a processed mail is marked read. With `ATTENTION_LIS
 - The list is sent at the first polling cycle at or after the hour; a restart neither repeats nor skips it, and a late start still sends it that day. If Telegram fails, the mails that did not go out come with the next day's list.
 - `TIMEZONE` is an IANA name such as `Europe/Paris` (default `UTC`); an unknown name stops the startup.
 
+### Notification budget
+
+Messages the assistant sends on its own initiative, the daily list today and follow-up offers later, go through a daily budget. Urgent alerts, replies to your commands and health messages never do.
+
+- `PROACTIVE_DAILY_CAP` (default `6`) is the number of such messages per local day. The daily list counts as one, whatever its length. Only a message that went out is counted.
+- `QUIET_HOURS` (empty by default) is a window of local hours with none, written `22-8`: from 22:00 to 07:59. It may cross midnight.
+- A list held back by the cap goes out at a later cycle, or with the next day's list. A list hour inside the quiet hours stops the startup, since it would never go out.
+- The day's count is kept in the database: a restart does not reset it.
+
 ## Choosing / adding implementations
 
 The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interactions/`) only talks to the protocols in `src/ports`. `src/bootstrap.py` builds the concrete adapters from these selectors:

@@ -35,7 +35,7 @@ from src.interactions.listener import run_listener
 from src.interactions.unsubscribe import UnsubscribeProposer
 from src.maintenance import BackupRotation
 from src.observability import Metrics
-from src.scheduling import DailyJob
+from src.scheduling import DailyJob, ProactiveBudget
 from src.triage.rules import load_ruleset
 from src.version import app_version
 from src.workflow import EmailWorkflow, attention_reasons
@@ -74,6 +74,9 @@ class ApplicationContext:
             )
             if self.chat is not None
             else None
+        )
+        self.proactive_budget = ProactiveBudget(
+            self.store, settings.tzinfo, settings.proactive_daily_cap, settings.quiet_hours_window
         )
         self.put_forward_job = self._build_put_forward_job()
         self.unsubscribes = self._build_unsubscribe_proposer()
@@ -265,9 +268,13 @@ class ApplicationContext:
         if self.put_forward_job is None:
             return
         try:
-            if not self.put_forward_job.claim():
+            # Checked before claiming the day: a list held back by the cap goes out at a later
+            # cycle, or with the next day's list, instead of being lost.
+            if self.proactive_budget.available() < 1 or not self.put_forward_job.claim():
                 return
             sent = self.interactions.put_forward.send_daily(interactive=self.inbound_enabled)
+            if sent:
+                self.proactive_budget.spend()
         except Exception:
             logger.exception("Failed to send the list of mails put forward; will retry")
             return

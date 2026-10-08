@@ -2,7 +2,7 @@ import unittest
 
 from pydantic import ValidationError
 
-from src.config import Settings, parse_user_ids
+from src.config import Settings, in_quiet_hours, parse_quiet_hours, parse_user_ids
 
 
 class ParseUserIdsTests(unittest.TestCase):
@@ -77,6 +77,54 @@ class SettingsScheduleTests(unittest.TestCase):
         for overrides in ({"timezone": "Mars/Olympus"}, {"attention_list_hour": 24}):
             with self.subTest(overrides), self.assertRaises(ValidationError):
                 Settings(_env_file=None, **overrides)
+
+
+class QuietHoursTests(unittest.TestCase):
+    def test_parsed_as_a_start_and_an_end_hour(self):
+        self.assertEqual(parse_quiet_hours("22-8"), (22, 8))
+        self.assertEqual(parse_quiet_hours(" 13-14 "), (13, 14))
+        self.assertIsNone(parse_quiet_hours(""))
+
+    def test_malformed_windows_are_rejected(self):
+        for value in ("22", "22-", "a-8", "22-24", "-1-8", "8-8", "22-8-1"):
+            with self.subTest(value), self.assertRaises(ValueError):
+                parse_quiet_hours(value)
+
+    def test_a_window_may_cross_midnight(self):
+        night = (22, 8)
+        quiet = [hour for hour in range(24) if in_quiet_hours(hour, night)]
+
+        self.assertEqual(quiet, [0, 1, 2, 3, 4, 5, 6, 7, 22, 23])
+
+    def test_a_window_within_the_day_ends_before_its_last_hour(self):
+        lunch = (12, 14)
+
+        self.assertEqual([h for h in range(24) if in_quiet_hours(h, lunch)], [12, 13])
+        self.assertFalse(in_quiet_hours(3, None))
+
+
+class SettingsProactiveBudgetTests(unittest.TestCase):
+    def test_six_messages_a_day_and_no_quiet_hours_by_default(self):
+        settings = Settings(_env_file=None)
+
+        self.assertEqual((settings.proactive_daily_cap, settings.quiet_hours_window), (6, None))
+
+    def test_quiet_hours_are_read_from_the_environment_format(self):
+        settings = Settings(_env_file=None, quiet_hours="22-8")
+
+        self.assertEqual(settings.quiet_hours_window, (22, 8))
+
+    def test_invalid_values_fail_at_startup(self):
+        for overrides in ({"quiet_hours": "late"}, {"proactive_daily_cap": 0}):
+            with self.subTest(overrides), self.assertRaises(ValidationError):
+                Settings(_env_file=None, **overrides)
+
+    def test_a_daily_list_hour_inside_the_quiet_hours_fails_at_startup(self):
+        with self.assertRaises(ValidationError):
+            Settings(_env_file=None, quiet_hours="22-8", attention_list_hour=7)
+
+        settings = Settings(_env_file=None, quiet_hours="22-8", attention_list_hour=8)
+        self.assertEqual(settings.attention_list_hour, 8)
 
 
 if __name__ == "__main__":

@@ -44,7 +44,7 @@ Le scope proposé a été confronté au code. Les écarts retenus :
 2. **Le LLM ne tient jamais d'outil d'écriture.** Il produit une proposition typée ; le code l'exécute après confirmation. Le contenu d'un mail est du texte choisi par l'expéditeur.
 3. **Chaque fonctionnalité derrière un flag d'env, désactivé par défaut**, comme `JEV_FEW_SHOT_ENABLED`.
 4. **Tout composant externe derrière un port** (`src/ports`), choisi dans `src/bootstrap.py`.
-5. **Budget de notifications** : heures calmes et plafond quotidien de messages proactifs ; seules les alertes urgentes y échappent.
+5. **Budget de notifications** : heures calmes et plafond quotidien de messages proactifs ; seules les alertes urgentes y échappent. En place (`src/scheduling/budget.py`, `PROACTIVE_DAILY_CAP`, `QUIET_HOURS`) : toute nouvelle source de message proactif doit y passer.
 6. **Fuseau explicite** (`TIMEZONE`, en place depuis la liste quotidienne) pour tout ce qui est horaire. Le stockage reste en UTC.
 
 ## Dépendances
@@ -338,7 +338,15 @@ Lots :
 - ⬜ Dérivation d'état déterministe : dernier message de l'autre + `needs_reply` → `waiting_for_me` ; dernier message de toi → `waiting_for_them` ; sinon clos
 - ⬜ Rafraîchissement à cadence réduite (15 min) et à la demande, pas à chaque cycle de polling
 - ⬜ `/pending` avec boutons `[Fait] [Ignorer] [Relancer]`. `[Ignorer]` sert aussi de verdict sur `needs_reply`
-- ⬜ Relance : après `FOLLOW_UP_AFTER_DAYS` sans réponse, brouillon Gemini proposé via le flux `[Envoyer]/[Annuler]` existant. Une seule proposition par thread
+- ⬜ Relance des mails envoyés sans réponse. Conception revue par un agent architecte ; les écarts avec la première idée viennent de la lecture du code :
+  - un message par relance, pas un message groupé : un appui sur un bouton retire tous les boutons du message (`_clear`) ;
+  - brouillon créé au moment de [Envoyer], pas avant : `send_draft` envoie le brouillon tel qu'il est dans Gmail, il pourrait différer de l'aperçu confirmé ;
+  - texte par modèle français / anglais, sans Gemini en v1 : pas de coût, pas d'engagement inventé, pas d'injection ;
+  - question JEV `expects_answer` posée sur ton texte sans la citation du mail auquel tu réponds ; seuil étalonné hors ligne sur tes envois passés (`lab --source sent`, ~60 mails étiquetés) ;
+  - « répondu » au moindre doute : message d'une autre adresse que les tiennes (`sendAs`) et non automatique dans le fil, ou mail de l'interlocuteur dans un autre fil ; rebond = fil fermé ;
+  - seuls les envois postérieurs à l'activation sont suivis ; une seule proposition par fil, sauf [Reporter] ;
+  - avant l'envoi : mode toujours `on`, offre de moins de 48 h, ancre inchangée, toujours sans réponse, envoi réservé au plus une fois.
+  - Lots : ✅ budget de notifications ; ⬜ lecture des envois et des fils ; ⬜ table `threads` en observation ; ⬜ question `expects_answer` et son banc ; ⬜ `/pending` ; ⬜ proposition et envoi
 - ⬜ **Suivi de réponses collectives** : mail envoyé à plusieurs destinataires (convocation, sondage) → qui a répondu, qui ne l'a pas fait, relance groupée proposée aux seuls silencieux
 - ⬜ **Fiche interlocuteur** (`/contact <nom>`) : dernier échange, threads ouverts, délai de réponse habituel. Calculée depuis `threads`, sans LLM
 - ⬜ **Synthèse de fil** : sur un thread long, résumé en quelques lignes et ce qui est attendu de toi. Un appel LLM, à la demande
@@ -469,7 +477,7 @@ Lots :
 - Few-shot : un exemple ne porte que le domaine de l'expéditeur. Constaté avec deux exemples fictifs : une correction sur un expéditeur `gmail.com` a changé l'urgence d'autres mails `gmail.com` sans rapport. À confirmer sur les vraies corrections avec `python -m src.evaluation run`
 - Nouveau consentement OAuth en Phase 4 : l'ancien refresh token ne porte pas le scope Calendar, prévoir la bascule
 - Lecture des threads : un appel Gmail par thread ouvert et par rafraîchissement ; borner le nombre de threads suivis
-- Fatigue de notification : trois digests, briefs et relances s'ajoutent aux alertes. Le plafond de l'invariant 5 doit exister dès la Phase 3
+- Fatigue de notification : trois digests, briefs et relances s'ajoutent aux alertes. Le plafond de l'invariant 5 existe (`PROACTIVE_DAILY_CAP`) ; chaque nouveau message programmé doit y passer
 - `main.py` et `ApplicationContext` grossissent à chaque phase : l'extraction prévue en Phase 3 ne doit pas être repoussée
 
 ---

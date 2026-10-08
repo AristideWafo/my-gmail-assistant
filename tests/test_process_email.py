@@ -351,6 +351,30 @@ class DailyListTests(unittest.TestCase):
 
         ctx.interactions.put_forward.send_daily.assert_not_called()
 
+    def test_a_list_that_went_out_uses_one_unit_of_the_daily_budget(self):
+        ctx = self.context(attention_mode="on", attention_list_hour=0, proactive_daily_cap=2)
+
+        ctx.send_put_forward_list_if_due()
+
+        self.assertEqual(ctx.proactive_budget.available(), 1)
+
+    def test_an_empty_list_uses_no_budget(self):
+        ctx = self.context(attention_mode="on", attention_list_hour=0, proactive_daily_cap=2)
+        ctx.interactions.put_forward.send_daily.return_value = 0
+
+        ctx.send_put_forward_list_if_due()
+
+        self.assertEqual(ctx.proactive_budget.available(), 2)
+
+    def test_a_spent_budget_holds_the_list_without_claiming_the_day(self):
+        ctx = self.context(attention_mode="on", attention_list_hour=0, proactive_daily_cap=1)
+        ctx.proactive_budget.spend()
+
+        ctx.send_put_forward_list_if_due()
+
+        ctx.interactions.put_forward.send_daily.assert_not_called()
+        self.assertIsNone(ctx.store.get_state("job:put_forward_list"))
+
     def test_a_failed_list_is_logged_and_does_not_stop_the_poll(self):
         ctx = self.context(attention_mode="on", attention_list_hour=0)
         ctx.interactions.put_forward.send_daily.side_effect = RuntimeError("telegram down")
