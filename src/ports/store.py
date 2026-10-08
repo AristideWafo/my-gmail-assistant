@@ -21,9 +21,11 @@ class ThreadStore(Protocol):
     def save(self, thread: TrackedThread) -> None: ...
 
     def update(
-        self, thread_id: str, change: Callable[[TrackedThread | None], TrackedThread]
-    ) -> TrackedThread:
-        """Applies `change` to the stored thread atomically; use it for any read-modify-write."""
+        self, thread_id: str, change: Callable[[TrackedThread | None], TrackedThread | None]
+    ) -> TrackedThread | None:
+        """Applies `change` to the stored thread atomically; use it for any read-modify-write.
+
+        `change` returning None leaves the row as it is."""
         ...
 
     def in_state(self, state: str) -> list[TrackedThread]:

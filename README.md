@@ -189,6 +189,24 @@ With `FOLLOW_UP_MODE=shadow` (default `off`), the assistant keeps track of the t
 - Gauge `followup_threads{state}` (`waiting_for_them`, `closed`, `ignored`); read errors in `followup_refresh_errors_total{step}`.
 - A thread still waiting is never pruned; a settled one is forgotten after 90 days.
 
+### Does my mail wait for something?
+
+A thread waiting for an answer is not enough: after they answer, your "Merci !" becomes the new anchor. So JEV is asked, once per anchor, whether **your own text** waits for something: an answer, a document, a decision, a confirmation. The quoted mail you were answering and your signature are cut off first; with the quote, the question you answered would make your "Merci, bien reçu" look like it waits.
+
+- `FOLLOW_UP_THRESHOLD` (default `0.5`) is the probability from which the answer counts as yes. Only a thread judged yes, still waiting and past its due date would get a follow-up; `followup_due_threads` counts them.
+- A mail JEV could not judge is asked again at the next refresh, never assumed to wait. At most 20 are asked per refresh. Tokens are counted in `llm_tokens_total{kind="followup"}`.
+- Needs `CLASSIFIER=jev`. Measured on 25 invented sent mails, French and English: 25 right at `0.5`, about 0.25 s per call. With the quote kept, "Voir ci-dessous." above a question went from 0.09 to 0.35.
+
+**Choosing the threshold on your own mail** (writes only `data/sent_samples.json`, readable by you alone, ignored by git):
+
+```bash
+docker compose exec assistant python -m src.evaluation sent-collect   # one JEV call per mail sent in the last 90 days
+docker compose exec -it assistant python -m src.evaluation sent-label # yes / no on 60 of them, spread over the range
+docker compose exec assistant python -m src.evaluation sent-report    # precision and recall per threshold
+```
+
+The report also says, per threshold, how often an answer came within the delay anyway. It is a hint, not a truth: people answer without being asked, and ignore real requests.
+
 ## Choosing / adding implementations
 
 The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interactions/`) only talks to the protocols in `src/ports`. `src/bootstrap.py` builds the concrete adapters from these selectors:

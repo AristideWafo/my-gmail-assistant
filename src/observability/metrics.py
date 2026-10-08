@@ -64,6 +64,12 @@ class Metrics:
     followup_refresh_errors = Counter(
         "followup_refresh_errors_total", "Sent threads that could not be read", ["step"]
     )
+    followup_judged = Counter(
+        "followup_judged_total", "Sent mails JEV judged, by whether they await something", ["answer"]
+    )
+    followup_due = Gauge(
+        "followup_due_threads", "Threads a follow-up would be offered for now"
+    )
     followup_capped = Gauge(
         "followup_listing_capped",
         "1 when the last refresh found more recent sent threads than FOLLOW_UP_MAX_THREADS",
@@ -181,6 +187,10 @@ class Metrics:
     @classmethod
     def mark_followup_refresh_error(cls, step: str) -> None:
         cls.followup_refresh_errors.labels(step=step).inc()
+
+    @classmethod
+    def mark_followup_judged(cls, awaits: bool) -> None:
+        cls.followup_judged.labels(answer="yes" if awaits else "no").inc()
 
     @classmethod
     def set_followup_capped(cls, capped: bool) -> None:

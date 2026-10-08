@@ -60,14 +60,16 @@ class SqliteThreadStore:
             self._conn.execute(_REPLACE, _to_row(thread))
 
     def update(
-        self, thread_id: str, change: Callable[[TrackedThread | None], TrackedThread]
-    ) -> TrackedThread:
+        self, thread_id: str, change: Callable[[TrackedThread | None], TrackedThread | None]
+    ) -> TrackedThread | None:
         """Reads, changes and writes the thread in one transaction, so nothing written in
-        between, such as a button pressed in the chat, is overwritten."""
+        between, such as a button pressed in the chat, is overwritten. `change` returning None
+        writes nothing."""
         with self._lock, self._conn:
             row = self._conn.execute(f"{_SELECT} WHERE thread_id = ?", (thread_id,)).fetchone()
             thread = change(None if row is None else _to_thread(row))
-            self._conn.execute(_REPLACE, _to_row(thread))
+            if thread is not None:
+                self._conn.execute(_REPLACE, _to_row(thread))
         return thread
 
     def in_state(self, state: str) -> list[TrackedThread]:

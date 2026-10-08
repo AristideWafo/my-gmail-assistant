@@ -111,6 +111,8 @@ class Settings(BaseSettings):
     # Weekdays without an answer before a follow-up is due.
     follow_up_after_days: int = Field(default=3, ge=1)
     follow_up_refresh_minutes: int = Field(default=15, ge=1)
+    # Probability from which JEV's "does my mail wait for something" counts as yes.
+    follow_up_threshold: float = Field(default=0.5, ge=0, le=1)
     # Most recent sent threads followed; older ones beyond it are not.
     follow_up_max_threads: int = Field(default=50, ge=1)
     # Offers to unsubscribe from senders whose mail is always archived; needs the chat inbox.

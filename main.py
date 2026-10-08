@@ -304,6 +304,8 @@ class ApplicationContext:
             settings.tzinfo,
             settings.follow_up_after_days,
             settings.follow_up_max_threads,
+            judge=self.components.sent_mail_judge,
+            threshold=settings.follow_up_threshold,
         )
 
     def _build_put_forward_job(self) -> DailyJob | None:

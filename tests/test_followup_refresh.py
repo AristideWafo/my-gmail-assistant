@@ -202,5 +202,101 @@ class FollowUpTrackerTests(unittest.TestCase):
         self.assertEqual(Metrics.followup_threads.labels(state=WAITING_FOR_THEM)._value.get(), 1)
 
 
+class ScriptedJudge:
+    is_configured = True
+
+    def __init__(self, probability=0.9, error=None):
+        self.probability = probability
+        self.error = error
+        self.asked = []
+
+    def expects_answer(self, subject, text):
+        self.asked.append((subject, text))
+        if self.error is not None:
+            raise self.error
+        return self.probability
+
+
+class JudgingTests(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
+        self.store = SqliteDecisionStore(":memory:", clock=lambda: self.now)
+        self.addCleanup(self.store.close)
+        self.mail = FakeMail(addresses=MINE, texts={"m1": "Pouvez-vous confirmer ?"})
+        self.judge = ScriptedJudge()
+        self.tracker = FollowUpTracker(
+            self.mail, self.store, PARIS, after_days=3, max_threads=50, judge=self.judge,
+            threshold=0.5, clock=lambda: self.now,
+        )
+        self.tracker.activated_at()
+        self.now = datetime(2026, 10, 6, 8, 0, tzinfo=UTC)
+        self.mail.threads = [snapshot(message("m1"))]
+
+    def stored(self):
+        return self.store.threads.get("t1")
+
+    def test_a_new_anchor_is_judged_once_on_my_own_text(self):
+        self.tracker.refresh()
+        self.tracker.refresh()
+
+        self.assertEqual(self.judge.asked, [("Devis", "Pouvez-vous confirmer ?")])
+        self.assertEqual((self.stored().expects_answer, self.stored().jev_asked_for), (0.9, "m1"))
+
+    def test_a_new_anchor_is_judged_again(self):
+        self.tracker.refresh()
+        self.mail.threads = [snapshot(message("m1"), message("m2", day=6), history_id="2")]
+
+        self.tracker.refresh()
+
+        self.assertEqual(len(self.judge.asked), 2)
+        self.assertEqual(self.stored().jev_asked_for, "m2")
+
+    def test_a_failed_judgement_is_retried_at_the_next_refresh(self):
+        self.judge.error = RuntimeError("timeout")
+        before = Metrics.total(Metrics.followup_refresh_errors)
+        with self.assertLogs("src.followup.refresh", level="WARNING"):
+            self.tracker.refresh()
+        self.assertIsNone(self.stored().expects_answer)
+        self.assertEqual(Metrics.total(Metrics.followup_refresh_errors), before + 1)
+
+        self.judge.error = None
+        self.tracker.refresh()
+
+        self.assertEqual(self.stored().expects_answer, 0.9)
+
+    def test_judging_is_bounded_per_refresh(self):
+        self.mail.threads = [snapshot(message(f"m{i}"), thread_id=f"t{i}") for i in range(25)]
+
+        self.tracker.refresh()
+
+        self.assertEqual(len(self.judge.asked), 20)
+
+    def test_without_a_judge_nothing_is_ever_due(self):
+        tracker = FollowUpTracker(self.mail, self.store, PARIS, 3, 50, clock=lambda: self.now)
+        self.now = datetime(2026, 10, 20, 8, 0, tzinfo=UTC)
+
+        tracker.refresh()
+
+        self.assertIsNone(self.stored().expects_answer)
+        self.assertEqual(Metrics.followup_due._value.get(), 0)
+
+    def test_due_threads_are_counted_once_late(self):
+        self.tracker.refresh()
+        self.assertEqual(Metrics.followup_due._value.get(), 0)
+
+        self.now = datetime(2026, 10, 8, 9, 0, tzinfo=UTC)
+        self.tracker.refresh()
+
+        self.assertEqual(Metrics.followup_due._value.get(), 1)
+
+    def test_answers_are_counted_by_threshold(self):
+        yes = Metrics.followup_judged.labels(answer="yes")
+        before = yes._value.get()
+
+        self.tracker.refresh()
+
+        self.assertEqual(yes._value.get(), before + 1)
+
+
 if __name__ == "__main__":
     unittest.main()
