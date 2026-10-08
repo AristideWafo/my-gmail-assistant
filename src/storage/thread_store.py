@@ -79,6 +79,11 @@ class SqliteThreadStore:
             ).fetchall()
         return [_to_thread(row) for row in rows]
 
+    def rated(self) -> list[TrackedThread]:
+        with self._lock:
+            rows = self._conn.execute(f"{_SELECT} WHERE verdict != ''").fetchall()
+        return [_to_thread(row) for row in rows]
+
     def counts(self) -> dict[str, int]:
         with self._lock:
             rows = self._conn.execute(

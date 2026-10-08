@@ -421,6 +421,10 @@ class FollowUpWiringTests(unittest.TestCase):
         with self.assertLogs("gmail-assistant", level="ERROR"):
             ctx.refresh_follow_ups_if_due()
 
+    def test_the_pending_command_follows_the_mode(self):
+        self.assertNotIn("pending", self.context().interactions.commands.help_text())
+        self.assertIn("pending", self.context(follow_up_mode="shadow").interactions.commands.help_text())
+
     def test_nothing_runs_when_tracking_is_off(self):
         ctx = self.context()
 

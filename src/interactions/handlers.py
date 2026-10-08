@@ -1,5 +1,7 @@
 import json
 import logging
+from dataclasses import replace
+from datetime import UTC, tzinfo
 
 from src.domain import (
     Button,
@@ -13,6 +15,7 @@ from src.formatting import truncate
 from src.interactions.callbacks import (
     CANCEL,
     FEEDBACK,
+    FOLLOW_UP,
     KEEP,
     PUT_FORWARD,
     REVIEW,
@@ -23,6 +26,7 @@ from src.interactions.callbacks import (
     parse_callback,
 )
 from src.interactions.commands import CommandRouter
+from src.interactions.pending import PendingCommand
 from src.interactions.put_forward import PutForwardList
 from src.interactions.review import ReviewCommand
 from src.interactions.stats import StatsCommand
@@ -56,6 +60,8 @@ UNSUBSCRIBED = "Désabonnement demandé"
 ALREADY_UNSUBSCRIBED = "Désabonnement déjà demandé"
 UNSUBSCRIBE_FAILED = "Échec : désabonne-toi depuis le mail dans Gmail."
 KEPT = "Abonnement conservé"
+FOLLOW_UP_ACKS = {"useful": "Noté : relance utile", "not_useful": "Noté : pas de relance"}
+UNKNOWN_THREAD = "Fil inconnu"
 
 
 class InteractionHandler:
@@ -66,6 +72,8 @@ class InteractionHandler:
         mail: MailProvider,
         unsubscriber: Unsubscriber | None = None,
         attention_threshold: float | None = None,
+        follow_up_threshold: float | None = None,
+        timezone: tzinfo = UTC,
     ) -> None:
         self._store = store
         self._chat = chat
@@ -87,6 +95,13 @@ class InteractionHandler:
         if self.put_forward is not None:
             self.commands.register(
                 "avoir", "mails mis en avant en attente", self.put_forward.run
+            )
+        # None: sent threads are not tracked, so there is nothing to list.
+        if follow_up_threshold is not None:
+            self.commands.register(
+                "pending",
+                "mails envoyés en attente de réponse",
+                PendingCommand(store, chat, follow_up_threshold, timezone).run,
             )
 
     def dispatch(self, event: ChatEvent) -> None:
@@ -121,6 +136,7 @@ class InteractionHandler:
             CANCEL: self._on_cancel,
             UNSUBSCRIBE: self._on_unsubscribe,
             KEEP: self._on_keep,
+            FOLLOW_UP: self._on_follow_up_verdict,
         }
         handlers[callback.action](event, callback)
 
@@ -136,6 +152,18 @@ class InteractionHandler:
             return
         Metrics.mark_feedback(callback.verdict, record.route)
         self._answer(event, FEEDBACK_ACKS[callback.verdict])
+        self._clear(event.message_id)
+
+    def _on_follow_up_verdict(self, event: CallbackEvent, callback: Callback) -> None:
+        rated = self._store.threads.update(
+            callback.target,
+            lambda thread: None if thread is None else replace(thread, verdict=callback.verdict),
+        )
+        if rated is None:
+            self._answer(event, UNKNOWN_THREAD)
+            return
+        Metrics.mark_followup_verdict(callback.verdict)
+        self._answer(event, FOLLOW_UP_ACKS[callback.verdict])
         self._clear(event.message_id)
 
     def _on_send(self, event: CallbackEvent, callback: Callback) -> None:

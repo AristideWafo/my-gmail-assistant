@@ -207,6 +207,13 @@ docker compose exec assistant python -m src.evaluation sent-report    # precisio
 
 The report also says, per threshold, how often an answer came within the delay anyway. It is a hint, not a truth: people answer without being asked, and ignore real requests.
 
+### `/pending`
+
+Lists, on demand, your sent mails still waiting for an answer (the 10 due first): recipient, subject, when it was sent and when a follow-up is due, what JEV thinks, and whether a follow-up **would be offered** now. Only exists with `FOLLOW_UP_MODE=shadow` or `on`; it answers, it never pushes, so it is outside the notification budget.
+
+- **[Relance utile] / [Pas de relance]** on each thread rate it, whatever JEV said: a "relance utile" on a mail JEV judged as waiting for nothing is a miss to learn from. A thread rated "pas de relance" is never offered a follow-up. Counted in `followup_verdicts_total{verdict}`.
+- The header counts, among the mails JEV judged as waiting, how many you rated useful. Move to `on` only after at least 10 rated, with at least 80 % useful.
+
 ## Choosing / adding implementations
 
 The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interactions/`) only talks to the protocols in `src/ports`. `src/bootstrap.py` builds the concrete adapters from these selectors:

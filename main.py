@@ -72,6 +72,8 @@ class ApplicationContext:
                 self.mail,
                 self.components.unsubscriber,
                 settings.attention_threshold if settings.attention_mode == "on" else None,
+                settings.follow_up_threshold if settings.follow_up_mode != "off" else None,
+                settings.tzinfo,
             )
             if self.chat is not None
             else None
