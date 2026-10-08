@@ -11,6 +11,7 @@ from src.gmail import GmailClient
 from src.llm import GeminiClient
 from src.storage import SqliteDecisionStore
 from src.triage import FallbackClassifier, HeuristicClassifier, JevClassifier
+from src.triage.sent_mail import JevSentMailJudge
 from tests.fakes import FakeChannel, FakeClassifier, fake_components
 
 
@@ -142,6 +143,15 @@ class AttentionWiringTests(unittest.TestCase):
 
                 self.assertTrue(classifier.ask_attention)
                 self.assertTrue(classifier.ask_needs_reply)
+
+
+class SentMailJudgeWiringTests(unittest.TestCase):
+    def test_built_only_when_following_up_with_jev(self):
+        self.assertIsNone(build().sent_mail_judge)
+        self.assertIsNone(build(follow_up_mode="shadow", classifier="heuristic").sent_mail_judge)
+        for mode in ("shadow", "on"):
+            with self.subTest(mode=mode):
+                self.assertIsInstance(build(follow_up_mode=mode).sent_mail_judge, JevSentMailJudge)
 
 
 class ConnectionProbesTests(unittest.TestCase):

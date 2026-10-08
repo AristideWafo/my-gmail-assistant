@@ -146,7 +146,7 @@ class JevClassifier:
         return min(max(float(probability), 0.0), 1.0)
 
     @staticmethod
-    def _record_usage(data: dict) -> None:
+    def record_usage(data: dict, kind: str = "triage") -> None:
         usage = data.get("usage")
         if not isinstance(usage, dict):
             return
@@ -154,7 +154,7 @@ class JevClassifier:
             tokens = int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0))
         except (TypeError, ValueError):
             return
-        Metrics.mark_llm_usage("triage", *tokens, cost_usd=None)
+        Metrics.mark_llm_usage(kind, *tokens, cost_usd=None)
 
     def ask(self, request: dict) -> dict:
         response = requests.post(
@@ -169,7 +169,7 @@ class JevClassifier:
     def classify(self, email: EmailMessage) -> TriageResult:
         data = self.ask(self.build_request(email))
         result = self.parse_answers(data)
-        self._record_usage(data)
+        self.record_usage(data)
         return result
 
     @staticmethod

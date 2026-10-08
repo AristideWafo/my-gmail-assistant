@@ -3,9 +3,18 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, tzinfo
 
 from src.domain import WAITING_FOR_THEM, TrackedThread
-from src.followup.state import DELETED, EXPIRED, add_business_days, close, derive, track
+from src.followup.state import (
+    DELETED,
+    EXPIRED,
+    add_business_days,
+    close,
+    derive,
+    track,
+    with_answer,
+    would_propose,
+)
 from src.observability.metrics import Metrics
-from src.ports import DecisionStore, MailProvider
+from src.ports import DecisionStore, MailProvider, SentMailJudge
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +22,8 @@ ACTIVATED_AT_KEY = "followup:activated_at"
 SENT_WINDOW_DAYS = 14
 # A mail unanswered for a month is no longer a follow-up: its thread stops being re-read.
 MAX_TRACKING = timedelta(days=30)
+# Bounds the JEV calls of one refresh; the rest are asked at the next one.
+MAX_JUDGED_PER_REFRESH = 20
 
 
 class FollowUpTracker:
@@ -25,6 +36,8 @@ class FollowUpTracker:
         timezone: tzinfo,
         after_days: int,
         max_threads: int,
+        judge: SentMailJudge | None = None,
+        threshold: float = 0.5,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._mail = mail
@@ -32,6 +45,8 @@ class FollowUpTracker:
         self._timezone = timezone
         self._after_days = after_days
         self._max_threads = max_threads
+        self._judge = judge
+        self.threshold = threshold
         self._clock = clock
 
     def activated_at(self) -> datetime:
@@ -90,7 +105,37 @@ class FollowUpTracker:
             except Exception as exc:  # noqa: BLE001 - one unreadable thread must not stop the rest
                 Metrics.mark_followup_refresh_error("thread")
                 logger.warning("Could not refresh sent thread %s: %s", thread_id, exc)
+        self._judge_new_anchors()
         Metrics.set_followup_threads(threads.counts())
+        now = self._clock()
+        Metrics.followup_due.set(
+            sum(would_propose(t, self.threshold, now) for t in threads.in_state(WAITING_FOR_THEM))
+        )
+
+    def _judge_new_anchors(self) -> None:
+        # Without an answer a thread is never offered: an unjudged mail is not assumed to wait.
+        if self._judge is None:
+            return
+        threads = self._store.threads
+        pending = [
+            t
+            for t in threads.in_state(WAITING_FOR_THEM)
+            if t.anchor is not None and t.jev_asked_for != t.anchor.message_id
+        ]
+        for thread in pending[:MAX_JUDGED_PER_REFRESH]:
+            anchor = thread.anchor
+            try:
+                text = self._mail.sent_text(anchor.message_id)
+                probability = self._judge.expects_answer(anchor.subject, text)
+            except Exception as exc:  # noqa: BLE001 - asked again at the next refresh
+                Metrics.mark_followup_refresh_error("judge")
+                logger.warning("Could not judge sent mail %s: %s", anchor.message_id, exc)
+                continue
+            threads.update(
+                thread.thread_id,
+                lambda current, a=anchor.message_id, p=probability: with_answer(current, a, p),
+            )
+            Metrics.mark_followup_judged(probability >= self.threshold)
 
     def _read(self, thread_id: str, mine: frozenset[str], activated_at: datetime) -> None:
         threads = self._store.threads

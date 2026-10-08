@@ -1,6 +1,6 @@
 import argparse
 import sys
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from src.bootstrap import MAIL_PROVIDERS, STORES, BuildContext
 from src.config import Settings
@@ -11,12 +11,23 @@ from src.evaluation.dataset import build_dataset
 from src.evaluation.lab import against_baseline, format_lab_report, planned_calls, run_variant
 from src.evaluation.routing_audit import DETERMINISTIC_SOURCES, RULES, audit, format_audit
 from src.evaluation.runner import NOT_CONCLUSIVE, evaluate, format_report, is_conclusive
+from src.evaluation.sent import (
+    DEFAULT_SAMPLES_PATH,
+    find_samples,
+    format_sent_report,
+    judge_samples,
+    label_samples,
+    load_samples,
+    pick_for_labelling,
+    save_samples,
+)
 from src.evaluation.variants import QUESTION_VARIANTS, TRUNCATION_VARIANTS, VARIANTS
 from src.ports import EmailClassifier
 from src.triage.engine import JevClassifier
 from src.triage.few_shot import build_examples
 from src.triage.heuristic import HeuristicClassifier
 from src.triage.rules import load_ruleset
+from src.triage.sent_mail import JevSentMailJudge
 
 CANDIDATE_WINDOW = timedelta(days=90)
 DEFAULT_MAX_CALLS = 500
@@ -225,6 +236,50 @@ def routing_rules(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def sent_collect(args: argparse.Namespace, settings: Settings) -> int:
+    judge = JevSentMailJudge(JevClassifier(settings.jev_api_url, settings.jev_api_key))
+    if not judge.is_configured:
+        print("JEV is not configured (JEV_API_URL / JEV_API_KEY).")
+        return 2
+    store = STORES[settings.store_backend](settings)
+    try:
+        mail = MAIL_PROVIDERS[settings.mail_provider](BuildContext(settings, store))
+        samples = find_samples(
+            mail,
+            args.days,
+            args.max_threads,
+            settings.follow_up_after_days,
+            settings.tzinfo,
+            datetime.now(UTC),
+        )
+        print(f"{len(samples)} JEV call(s): one per mail you sent in the last {args.days} days")
+        if len(samples) > args.max_calls:
+            print(f"Refused: more than --max-calls {args.max_calls}. Raise it, or lower --days.")
+            return 2
+        failed = judge_samples(samples, mail, judge)
+    finally:
+        store.close()
+    pick_for_labelling(samples)
+    save_samples(args.path, samples)
+    print(
+        f"Saved to {args.path} ({failed} could not be judged). "
+        "Next: `python -m src.evaluation sent-label`."
+    )
+    return 0
+
+
+def sent_label(args: argparse.Namespace, settings: Settings) -> int:
+    samples = load_samples(args.path)
+    done = label_samples(samples, input, print, lambda: save_samples(args.path, samples))
+    print(f"{done} mail(s) labelled. Next: `python -m src.evaluation sent-report`.")
+    return 0
+
+
+def sent_report(args: argparse.Namespace, settings: Settings) -> int:
+    print(format_sent_report(load_samples(args.path)))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m src.evaluation", description="Offline evaluation of the triage on rated mails"
@@ -304,6 +359,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     routing_parser.add_argument("--days", type=int, default=90)
     routing_parser.set_defaults(handler=routing_rules)
+
+    collect_parser = commands.add_parser(
+        "sent-collect",
+        help="ask JEV whether each mail you sent waited for an answer, and pick some to label",
+    )
+    collect_parser.add_argument("--days", type=int, default=90)
+    collect_parser.add_argument("--max-threads", type=int, default=200)
+    collect_parser.add_argument("--max-calls", type=int, default=DEFAULT_MAX_CALLS)
+    collect_parser.add_argument("--path", default=DEFAULT_SAMPLES_PATH)
+    collect_parser.set_defaults(handler=sent_collect)
+
+    label_parser = commands.add_parser(
+        "sent-label", help="say yes or no for the sent mails picked by sent-collect (no call)"
+    )
+    label_parser.add_argument("--path", default=DEFAULT_SAMPLES_PATH)
+    label_parser.set_defaults(handler=sent_label)
+
+    report_parser = commands.add_parser(
+        "sent-report", help="precision and recall of each threshold on your labels (no call)"
+    )
+    report_parser.add_argument("--path", default=DEFAULT_SAMPLES_PATH)
+    report_parser.set_defaults(handler=sent_report)
 
     args = parser.parse_args(argv)
     return args.handler(args, Settings())

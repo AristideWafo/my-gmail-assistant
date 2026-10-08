@@ -1,6 +1,7 @@
 from .alerts import AlertChannel, ChannelDeliveryError
 from .chat import ChatInbox
 from .classifier import EmailClassifier
+from .judge import SentMailJudge
 from .llm import EmailAnalyzer
 from .mail import MailProvider
 from .store import DecisionStore, ThreadStore
@@ -14,6 +15,7 @@ __all__ = [
     "EmailAnalyzer",
     "EmailClassifier",
     "MailProvider",
+    "SentMailJudge",
     "ThreadStore",
     "UnsubscribeError",
     "Unsubscriber",

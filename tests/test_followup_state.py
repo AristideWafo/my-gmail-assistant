@@ -1,6 +1,6 @@
 import unittest
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.domain import CLOSED, IGNORED, WAITING_FOR_THEM, ThreadState
@@ -15,6 +15,8 @@ from src.followup.state import (
     add_business_days,
     derive,
     track,
+    with_answer,
+    would_propose,
 )
 from tests.followup_helpers import ACTIVATED, MINE, message, snapshot
 
@@ -179,6 +181,43 @@ class TrackTests(unittest.TestCase):
 
         self.assertIsNone(thread.anchor)
         self.assertEqual(thread.reason, NOT_MINE)
+
+
+class WouldProposeTests(unittest.TestCase):
+    def due(self, **changes):
+        thread = track(None, snapshot(message("m1")), state_of(message("m1")), NOW, NOW)
+        return replace(thread, **{"expects_answer": 0.9, "jev_asked_for": "m1", **changes})
+
+    def test_a_late_thread_judged_to_wait_is_due(self):
+        self.assertTrue(would_propose(self.due(), 0.5, NOW))
+
+    def test_every_condition_is_needed(self):
+        cases = {
+            "not judged": {"expects_answer": None},
+            "judged below the threshold": {"expects_answer": 0.4},
+            "not late yet": {"due_at": NOW + timedelta(minutes=1)},
+            "already offered": {"proposal_state": "offered"},
+            "already followed up once": {"proposals_count": 1},
+            "answered": {"state": CLOSED},
+        }
+        for name, changes in cases.items():
+            with self.subTest(name):
+                self.assertFalse(would_propose(self.due(**changes), 0.5, NOW))
+
+
+class WithAnswerTests(unittest.TestCase):
+    def test_the_answer_is_kept_for_the_anchor_it_was_asked_about(self):
+        thread = track(None, snapshot(message("m1")), state_of(message("m1")), NOW, NOW)
+
+        answered = with_answer(thread, "m1", 0.8)
+
+        self.assertEqual((answered.expects_answer, answered.jev_asked_for), (0.8, "m1"))
+
+    def test_an_answer_about_a_previous_anchor_is_dropped(self):
+        thread = track(None, snapshot(message("m2")), state_of(message("m2")), NOW, NOW)
+
+        self.assertIsNone(with_answer(thread, "m1", 0.8))
+        self.assertIsNone(with_answer(None, "m1", 0.8))
 
 
 if __name__ == "__main__":

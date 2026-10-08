@@ -30,6 +30,7 @@ ADAPTER_MODULES = (
     "src.llm",
     "src.storage",
     "src.triage.engine",
+    "src.triage.sent_mail",
     "src.triage.heuristic",
     "src.triage.fallback",
     "src.gateways.telegram_bot",

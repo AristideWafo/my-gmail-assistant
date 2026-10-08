@@ -115,3 +115,25 @@ def track(
 
 def close(thread: TrackedThread, reason: str, now: datetime) -> TrackedThread:
     return replace(thread, state=CLOSED, reason=reason, updated_at=now)
+
+
+def would_propose(thread: TrackedThread, threshold: float, now: datetime) -> bool:
+    """A follow-up is due: still waiting, judged to expect an answer, late, never offered."""
+    return (
+        thread.state == WAITING_FOR_THEM
+        and thread.expects_answer is not None
+        and thread.expects_answer >= threshold
+        and thread.due_at is not None
+        and thread.due_at <= now
+        and thread.proposal_state == "none"
+        and thread.proposals_count == 0
+    )
+
+
+def with_answer(
+    thread: TrackedThread | None, anchor_id: str, probability: float
+) -> TrackedThread | None:
+    """Stores JEV's answer unless the anchor changed while it was asked."""
+    if thread is None or thread.anchor is None or thread.anchor.message_id != anchor_id:
+        return None
+    return replace(thread, expects_answer=probability, jev_asked_for=anchor_id)

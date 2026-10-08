@@ -18,6 +18,7 @@ from src.ports import (
     EmailAnalyzer,
     EmailClassifier,
     MailProvider,
+    SentMailJudge,
     Unsubscriber,
 )
 from src.storage.decision_store import SqliteDecisionStore
@@ -25,6 +26,7 @@ from src.triage.engine import JEV_RECOVERABLE_ERRORS, JevClassifier
 from src.triage.fallback import FallbackClassifier
 from src.triage.few_shot import EXAMPLE_VERDICTS, MAX_EXAMPLES, build_examples
 from src.triage.heuristic import HeuristicClassifier
+from src.triage.sent_mail import JevSentMailJudge
 
 T = TypeVar("T")
 Probe = Callable[[], str]
@@ -85,6 +87,13 @@ def _jev(ctx: BuildContext) -> EmailClassifier:
     )
 
 
+def _sent_mail_judge(settings: Settings) -> SentMailJudge | None:
+    # Only JEV can judge sent mail; without it no thread is ever judged worth a follow-up.
+    if settings.follow_up_mode == "off" or settings.classifier != "jev":
+        return None
+    return JevSentMailJudge(JevClassifier(settings.jev_api_url, settings.jev_api_key))
+
+
 def _gemini(ctx: BuildContext) -> EmailAnalyzer:
     s = ctx.settings
     return GeminiClient(
@@ -135,6 +144,7 @@ class Components:
     chat: ChatInbox | None
     store: DecisionStore
     unsubscriber: Unsubscriber | None = None
+    sent_mail_judge: SentMailJudge | None = None
     # (registry name, component) pairs to probe at startup, in report order.
     probe_targets: tuple[tuple[str, Any], ...] = ()
 
@@ -182,6 +192,7 @@ def build_components(settings: Settings) -> Components:
         chat=chat,
         store=ctx.store,
         unsubscriber=unsubscriber_factory(ctx),
+        sent_mail_judge=_sent_mail_judge(settings),
         probe_targets=(
             (settings.mail_provider, mail),
             (settings.llm_provider, analyzer),
