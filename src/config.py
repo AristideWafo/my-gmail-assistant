@@ -1,7 +1,7 @@
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +19,31 @@ def parse_user_ids(raw: str) -> frozenset[int]:
             raise ValueError(f"Telegram user ids are positive, got {user_id}")
         ids.add(user_id)
     return frozenset(ids)
+
+
+def parse_quiet_hours(value: str) -> tuple[int, int] | None:
+    """"22-8" -> (22, 8); empty -> None. The window starts at the first hour and ends before the second."""
+    value = value.strip()
+    if not value:
+        return None
+    start, separator, end = value.partition("-")
+    try:
+        hours = (int(start), int(end))
+    except ValueError:
+        hours = None
+    if not separator or hours is None or not all(0 <= hour <= 23 for hour in hours):
+        raise ValueError(f"quiet hours must look like 22-8, got {value!r}")
+    if hours[0] == hours[1]:
+        raise ValueError(f"quiet hours must not start and end at the same hour, got {value!r}")
+    return hours
+
+def in_quiet_hours(hour: int, window: tuple[int, int] | None) -> bool:
+    if window is None:
+        return False
+    start, end = window
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
 
 
 class Settings(BaseSettings):
@@ -76,6 +101,10 @@ class Settings(BaseSettings):
     attention_list_hour: int = Field(default=-1, ge=-1, le=23)
     # IANA name, e.g. Europe/Paris; everything scheduled at a local hour reads it.
     timezone: str = "UTC"
+    # Unsolicited messages (the daily list, follow-up offers) per local day, and local hours
+    # during which none is sent, e.g. "22-8". Urgent alerts are never held back.
+    proactive_daily_cap: int = Field(default=6, ge=1)
+    quiet_hours: str = ""
     # Offers to unsubscribe from senders whose mail is always archived; needs the chat inbox.
     unsubscribe_proposals_enabled: bool = False
     unsubscribe_min_archived: int = Field(default=5, ge=2)
@@ -104,9 +133,30 @@ class Settings(BaseSettings):
             raise ValueError(f"unknown time zone: {value!r}") from None
         return value
 
+    @field_validator("quiet_hours")
+    @classmethod
+    def _validate_quiet_hours(cls, value: str) -> str:
+        parse_quiet_hours(value)
+        return value
+
     @property
     def tzinfo(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
+
+    @model_validator(mode="after")
+    def _list_hour_outside_quiet_hours(self) -> "Settings":
+        # The list waits for its hour every day: inside the quiet window it would never go out.
+        if self.attention_list_hour >= 0 and in_quiet_hours(
+            self.attention_list_hour, self.quiet_hours_window
+        ):
+            raise ValueError(
+                f"ATTENTION_LIST_HOUR={self.attention_list_hour} falls in QUIET_HOURS={self.quiet_hours}"
+            )
+        return self
+
+    @property
+    def quiet_hours_window(self) -> tuple[int, int] | None:
+        return parse_quiet_hours(self.quiet_hours)
 
     @property
     def allowed_user_ids(self) -> frozenset[int]:
