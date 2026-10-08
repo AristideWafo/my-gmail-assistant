@@ -17,13 +17,26 @@ NOT_MINE = "not_mine"
 BEFORE_ACTIVATION = "before_activation"
 NO_RECIPIENT = "no_recipient"
 AUTOMATED_RECIPIENT = "automated_recipient"
+TOO_MANY_RECIPIENTS = "too_many_recipients"
 ANSWERED = "answered"
 BOUNCED = "bounced"
 DELETED = "deleted"
 EXPIRED = "expired"
 DISMISSED = "dismissed"
+ANSWERED_ELSEWHERE = "answered_elsewhere"
+# Beyond it a mail is a group mail: who answered is per person, out of scope, and every
+# recipient would have to be searched before each follow-up.
+MAX_RECIPIENTS = 5
 USEFUL = "useful"
 NOT_USEFUL = "not_useful"
+
+# proposal_state values.
+NONE = "none"
+OFFERED = "offered"
+SENT = "sent"
+SNOOZED = "snoozed"
+HANDED_OFF = "handed_off"
+EXPIRED_OFFER = "expired"
 
 
 def derive(
@@ -62,6 +75,8 @@ def derive(
         return ThreadState(IGNORED, NO_RECIPIENT, anchor)
     if all(is_automated_sender(address) for address in recipients):
         return ThreadState(IGNORED, AUTOMATED_RECIPIENT, anchor)
+    if len(recipients) > MAX_RECIPIENTS:
+        return ThreadState(IGNORED, TOO_MANY_RECIPIENTS, anchor)
     return ThreadState(WAITING_FOR_THEM, anchor=anchor)
 
 
@@ -120,17 +135,22 @@ def close(thread: TrackedThread, reason: str, now: datetime) -> TrackedThread:
 
 
 def would_propose(thread: TrackedThread, threshold: float, now: datetime) -> bool:
-    """A follow-up is due: still waiting, judged to expect an answer, late, never offered, and
-    not rated as unwanted."""
+    """A follow-up is due: still waiting, judged to expect an answer, late, not rated as
+    unwanted, and either never offered or postponed until now."""
+    never_offered = thread.proposal_state == NONE and thread.proposals_count == 0
+    postponed = (
+        thread.proposal_state == SNOOZED
+        and thread.snoozed_until is not None
+        and thread.snoozed_until <= now
+    )
     return (
         thread.state == WAITING_FOR_THEM
         and thread.expects_answer is not None
         and thread.expects_answer >= threshold
         and thread.due_at is not None
         and thread.due_at <= now
-        and thread.proposal_state == "none"
-        and thread.proposals_count == 0
         and thread.verdict != NOT_USEFUL
+        and (never_offered or postponed)
     )
 
 

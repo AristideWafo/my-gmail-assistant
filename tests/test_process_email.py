@@ -421,6 +421,24 @@ class FollowUpWiringTests(unittest.TestCase):
         with self.assertLogs("gmail-assistant", level="ERROR"):
             ctx.refresh_follow_ups_if_due()
 
+    def test_offers_need_the_mode_on_and_the_chat_listening(self):
+        self.assertIsNone(self.context(follow_up_mode="shadow").follow_up_offers)
+        with self.assertLogs("gmail-assistant", level="WARNING"):
+            self.assertIsNone(self.context(follow_up_mode="on").follow_up_offers)
+        listening = self.context(follow_up_mode="on", telegram_inbound_enabled=True)
+        self.assertIsNotNone(listening.follow_up_offers)
+
+    def test_offers_run_right_after_the_refresh(self):
+        ctx = self.context(follow_up_mode="on", telegram_inbound_enabled=True)
+        order = MagicMock()
+        ctx.follow_ups = order.tracker
+        ctx.follow_up_offers = order.offers
+        order.offers.run.return_value = 1
+
+        ctx.refresh_follow_ups_if_due()
+
+        self.assertEqual([c[0] for c in order.mock_calls], ["tracker.refresh", "offers.run"])
+
     def test_the_pending_command_follows_the_mode(self):
         self.assertNotIn("pending", self.context().interactions.commands.help_text())
         self.assertIn("pending", self.context(follow_up_mode="shadow").interactions.commands.help_text())

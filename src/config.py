@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     follow_up_refresh_minutes: int = Field(default=15, ge=1)
     # Probability from which JEV's "does my mail wait for something" counts as yes.
     follow_up_threshold: float = Field(default=0.5, ge=0, le=1)
+    # Local hour from which follow-ups are offered on weekdays, and at most how many a day.
+    follow_up_hour: int = Field(default=10, ge=0, le=23)
+    follow_up_daily_max: int = Field(default=3, ge=1)
     # Most recent sent threads followed; older ones beyond it are not.
     follow_up_max_threads: int = Field(default=50, ge=1)
     # Offers to unsubscribe from senders whose mail is always archived; needs the chat inbox.
@@ -154,13 +157,19 @@ class Settings(BaseSettings):
         return ZoneInfo(self.timezone)
 
     @model_validator(mode="after")
-    def _list_hour_outside_quiet_hours(self) -> "Settings":
-        # The list waits for its hour every day: inside the quiet window it would never go out.
+    def _scheduled_hours_outside_quiet_hours(self) -> "Settings":
+        # Both wait for their hour every day: inside the quiet window they would never go out.
         if self.attention_list_hour >= 0 and in_quiet_hours(
             self.attention_list_hour, self.quiet_hours_window
         ):
             raise ValueError(
                 f"ATTENTION_LIST_HOUR={self.attention_list_hour} falls in QUIET_HOURS={self.quiet_hours}"
+            )
+        if self.follow_up_mode == "on" and in_quiet_hours(
+            self.follow_up_hour, self.quiet_hours_window
+        ):
+            raise ValueError(
+                f"FOLLOW_UP_HOUR={self.follow_up_hour} falls in QUIET_HOURS={self.quiet_hours}"
             )
         return self
 

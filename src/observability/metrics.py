@@ -73,6 +73,9 @@ class Metrics:
     followup_verdicts = Counter(
         "followup_verdicts_total", "Follow-up verdicts given in the chat", ["verdict"]
     )
+    followup_proposals = Counter(
+        "followup_proposals_total", "What happened to follow-up offers", ["outcome"]
+    )
     followup_capped = Gauge(
         "followup_listing_capped",
         "1 when the last refresh found more recent sent threads than FOLLOW_UP_MAX_THREADS",
@@ -198,6 +201,10 @@ class Metrics:
     @classmethod
     def mark_followup_verdict(cls, verdict: str) -> None:
         cls.followup_verdicts.labels(verdict=verdict).inc()
+
+    @classmethod
+    def mark_followup_proposal(cls, outcome: str) -> None:
+        cls.followup_proposals.labels(outcome=outcome).inc()
 
     @classmethod
     def set_followup_capped(cls, capped: bool) -> None:

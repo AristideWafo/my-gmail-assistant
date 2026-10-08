@@ -137,9 +137,20 @@ class SettingsFollowUpTests(unittest.TestCase):
             ("off", 3, 15, 50),
         )
 
+    def test_offers_start_at_ten_three_a_day_at_most(self):
+        settings = Settings(_env_file=None)
+
+        self.assertEqual((settings.follow_up_hour, settings.follow_up_daily_max), (10, 3))
+
+    def test_an_offer_hour_inside_the_quiet_hours_fails_only_when_offers_are_on(self):
+        Settings(_env_file=None, quiet_hours="9-12", follow_up_mode="shadow")
+        with self.assertRaises(ValidationError):
+            Settings(_env_file=None, quiet_hours="9-12", follow_up_mode="on")
+
     def test_invalid_values_fail_at_startup(self):
         for overrides in ({"follow_up_mode": "auto"}, {"follow_up_after_days": 0},
-                          {"follow_up_max_threads": 0}):
+                          {"follow_up_max_threads": 0}, {"follow_up_hour": 24},
+                          {"follow_up_daily_max": 0}):
             with self.subTest(overrides), self.assertRaises(ValidationError):
                 Settings(_env_file=None, **overrides)
 

@@ -34,6 +34,8 @@ PRUNABLE_STATE_PREFIXES = (
     "cmd:",
     "llm_spend:",
     "proactive:",
+    "followup_sent:",
+    "followup_offers:",
 )
 
 _DECISION_COLUMNS = (
