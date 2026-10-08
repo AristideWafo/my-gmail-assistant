@@ -44,7 +44,7 @@ class ThreadMessage:
     message_id_header: str = ""
     # The mailbox owner wrote it: Gmail's SENT label, or one of the owner's sending addresses.
     from_me: bool = False
-    # An auto-reply, a bulk or list mail, or a bounce, as its headers declare it.
+    # An auto-reply or a bounce, as its headers declare it; never an answer from a person.
     automated: bool = False
     # A delivery failure report: the message never reached its recipients.
     bounce: bool = False
@@ -61,6 +61,55 @@ class ThreadSnapshot:
 class ThreadRef:
     thread_id: str
     history_id: str
+
+
+WAITING_FOR_THEM = "waiting_for_them"
+CLOSED = "closed"
+IGNORED = "ignored"
+
+
+@dataclass(frozen=True)
+class FollowUpAnchor:
+    """The last message I sent in a thread: the one an answer is awaited for."""
+
+    message_id: str
+    sent_at: datetime
+    to: tuple[str, ...]
+    cc: tuple[str, ...]
+    subject: str = ""
+    message_id_header: str = ""
+    # Message-IDs of the thread up to the anchor, oldest first, for a follow-up's References.
+    references: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ThreadState:
+    state: str
+    reason: str = ""
+    anchor: FollowUpAnchor | None = None
+
+
+@dataclass(frozen=True)
+class TrackedThread:
+    thread_id: str
+    history_id: str
+    state: str
+    updated_at: datetime
+    reason: str = ""
+    anchor: FollowUpAnchor | None = None
+    due_at: datetime | None = None
+    expects_answer: float | None = None
+    # The anchor the question was asked about: a new anchor needs a new answer.
+    jev_asked_for: str = ""
+    proposal_state: str = "none"
+    # Kept across anchors: the follow-up I send becomes the next anchor, and must not be
+    # followed up in turn.
+    proposals_count: int = 0
+    snoozed_until: datetime | None = None
+    proposal_text: str = ""
+    offered_on: int | None = None
+    offered_at: datetime | None = None
+    verdict: str = ""
 
 @dataclass
 class TriageResult:

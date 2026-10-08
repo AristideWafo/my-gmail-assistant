@@ -58,6 +58,20 @@ class Metrics:
         "chat_commands_total", "Chat commands received", ["command", "status"]
     )
     poll_failures = Counter("poll_failures_total", "Polling cycles whose mail fetch failed")
+    followup_threads = Gauge(
+        "followup_threads", "Threads holding a mail I sent, by follow-up state", ["state"]
+    )
+    followup_refresh_errors = Counter(
+        "followup_refresh_errors_total", "Sent threads that could not be read", ["step"]
+    )
+    followup_capped = Gauge(
+        "followup_listing_capped",
+        "1 when the last refresh found more recent sent threads than FOLLOW_UP_MAX_THREADS",
+    )
+    followup_unlisted_waiting = Gauge(
+        "followup_unlisted_waiting_threads",
+        "Waiting threads outside the listing window, read again at every refresh",
+    )
     backup_last_success = Gauge(
         "backup_last_success_timestamp_seconds", "Unix time of the last verified store backup"
     )
@@ -158,6 +172,19 @@ class Metrics:
     @classmethod
     def mark_attention(cls, signal: str) -> None:
         cls.attention_signals.labels(signal=signal).inc()
+
+    @classmethod
+    def set_followup_threads(cls, counts: dict[str, int]) -> None:
+        for state in ("waiting_for_them", "closed", "ignored"):
+            cls.followup_threads.labels(state=state).set(counts.get(state, 0))
+
+    @classmethod
+    def mark_followup_refresh_error(cls, step: str) -> None:
+        cls.followup_refresh_errors.labels(step=step).inc()
+
+    @classmethod
+    def set_followup_capped(cls, capped: bool) -> None:
+        cls.followup_capped.set(1 if capped else 0)
 
     @classmethod
     def mark_put_forward(cls) -> None:

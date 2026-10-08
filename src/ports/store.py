@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Protocol, runtime_checkable
 
@@ -8,12 +9,39 @@ from src.domain import (
     FeedbackTally,
     RatedDecision,
     RuleCandidate,
+    TrackedThread,
     TriageResult,
 )
 
 
 @runtime_checkable
+class ThreadStore(Protocol):
+    def get(self, thread_id: str) -> TrackedThread | None: ...
+
+    def save(self, thread: TrackedThread) -> None: ...
+
+    def update(
+        self, thread_id: str, change: Callable[[TrackedThread | None], TrackedThread]
+    ) -> TrackedThread:
+        """Applies `change` to the stored thread atomically; use it for any read-modify-write."""
+        ...
+
+    def in_state(self, state: str) -> list[TrackedThread]:
+        """Earliest due first."""
+        ...
+
+    def counts(self) -> dict[str, int]: ...
+
+    def prune(self, older_than: timedelta) -> int:
+        """Forgets settled threads only; one still awaiting an answer is never pruned."""
+        ...
+
+
+@runtime_checkable
 class DecisionStore(Protocol):
+    @property
+    def threads(self) -> ThreadStore: ...
+
     def record_decision(
         self, email: EmailMessage, triage: TriageResult, route: str, put_forward: bool = False
     ) -> None: ...

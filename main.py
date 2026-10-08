@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from src.bootstrap import Components, build_components, connection_probes
 from src.config import Settings
 from src.expiring_set import ExpiringSet
+from src.followup.refresh import FollowUpTracker
 from src.gateways.alerts import AlertGateway
 from src.health import (
     BudgetedAnalyzer,
@@ -79,6 +80,7 @@ class ApplicationContext:
             self.store, settings.tzinfo, settings.proactive_daily_cap, settings.quiet_hours_window
         )
         self.put_forward_job = self._build_put_forward_job()
+        self.follow_ups = self._build_follow_up_tracker()
         self.unsubscribes = self._build_unsubscribe_proposer()
         self.spend = SpendTracker(
             self.store,
@@ -280,6 +282,30 @@ class ApplicationContext:
             return
         logger.info("Sent the daily list of mails put forward: %d mail(s)", sent)
 
+    def refresh_follow_ups_if_due(self) -> None:
+        interval = self.settings.follow_up_refresh_minutes * 60
+        if self.follow_ups is None or not self._maintenance_due("follow_ups", interval):
+            return
+        try:
+            self.follow_ups.refresh()
+        except Exception:
+            logger.exception("Failed to refresh the follow-ups; will retry")
+
+    def _build_follow_up_tracker(self) -> FollowUpTracker | None:
+        settings = self.settings
+        if settings.follow_up_mode == "off":
+            return None
+        if not self.mail.is_configured:
+            logger.warning("FOLLOW_UP_MODE ignored: the mail provider is not configured")
+            return None
+        return FollowUpTracker(
+            self.mail,
+            self.store,
+            settings.tzinfo,
+            settings.follow_up_after_days,
+            settings.follow_up_max_threads,
+        )
+
     def _build_put_forward_job(self) -> DailyJob | None:
         settings = self.settings
         if settings.attention_mode != "on" or settings.attention_list_hour < 0:
@@ -291,10 +317,10 @@ class ApplicationContext:
             "put_forward_list", settings.attention_list_hour, settings.tzinfo, self.store
         )
 
-    def _maintenance_due(self, task: str) -> bool:
+    def _maintenance_due(self, task: str, interval: float = MAINTENANCE_INTERVAL_SECONDS) -> bool:
         now = monotonic()
         last = self._last_maintenance.get(task)
-        if last is not None and now - last < MAINTENANCE_INTERVAL_SECONDS:
+        if last is not None and now - last < interval:
             return False
         self._last_maintenance[task] = now
         return True
@@ -381,6 +407,7 @@ def poll_once(ctx: ApplicationContext) -> None:
     ctx.backup_if_due()
     ctx.prune_if_due()
     ctx.send_put_forward_list_if_due()
+    ctx.refresh_follow_ups_if_due()
     ctx.check_health()
     try:
         emails = ctx.mail.fetch_unread()

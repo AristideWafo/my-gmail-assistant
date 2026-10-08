@@ -346,7 +346,7 @@ Lots :
   - « répondu » au moindre doute : message d'une autre adresse que les tiennes (`sendAs`) et non automatique dans le fil, ou mail de l'interlocuteur dans un autre fil ; rebond = fil fermé ;
   - seuls les envois postérieurs à l'activation sont suivis ; une seule proposition par fil, sauf [Reporter] ;
   - avant l'envoi : mode toujours `on`, offre de moins de 48 h, ancre inchangée, toujours sans réponse, envoi réservé au plus une fois.
-  - Lots : ✅ budget de notifications ; ✅ lecture des envois et des fils (adresses `sendAs`, en-têtes des fils, texte sans citation, recherche d'une réponse hors fil) ; ⬜ table `threads` en observation ; ⬜ question `expects_answer` et son banc ; ⬜ `/pending` ; ⬜ proposition et envoi
+  - Lots : ✅ budget de notifications ; ✅ lecture des envois et des fils (adresses `sendAs`, en-têtes des fils, texte sans citation, recherche d'une réponse hors fil) ; ✅ table `threads` en observation (`FOLLOW_UP_MODE=shadow`) ; ⬜ question `expects_answer` et son banc ; ⬜ `/pending` ; ⬜ proposition et envoi
 - ⬜ **Suivi de réponses collectives** : mail envoyé à plusieurs destinataires (convocation, sondage) → qui a répondu, qui ne l'a pas fait, relance groupée proposée aux seuls silencieux
 - ⬜ **Fiche interlocuteur** (`/contact <nom>`) : dernier échange, threads ouverts, délai de réponse habituel. Calculée depuis `threads`, sans LLM
 - ⬜ **Synthèse de fil** : sur un thread long, résumé en quelques lignes et ce qui est attendu de toi. Un appel LLM, à la demande

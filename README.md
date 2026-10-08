@@ -175,6 +175,20 @@ Messages the assistant sends on its own initiative, the daily list today and fol
 - A list held back by the cap goes out at a later cycle, or with the next day's list. A list hour inside the quiet hours stops the startup, since it would never go out.
 - The day's count is kept in the database: a restart does not reset it.
 
+## Follow-ups of mails you sent: observation mode
+
+With `FOLLOW_UP_MODE=shadow` (default `off`), the assistant keeps track of the threads holding a mail you sent and whether they still wait for an answer. Nothing is sent and no message is posted: this mode only measures, before follow-ups are offered.
+
+- Every `FOLLOW_UP_REFRESH_MINUTES` (15), it lists the threads with a mail you sent in the last 14 days and reads their **headers only**, never the bodies. A thread is read again only when Gmail says it changed (`historyId`).
+- Only mail sent **after the mode was first turned on** is followed, so turning it on does not bring up two weeks of past mail. The date is kept in the database.
+- Your last mail in a thread is its anchor. The thread **waits for them** until any person writes after it, whatever the address: the recipient, someone in copy, or someone new. Auto-replies (`Auto-Submitted`, `Precedence: auto_reply`, `X-Autoreply`) do not count as an answer; an answer sent through a mailing list does. A delivery failure closes the thread. A mail you send later in the thread becomes the new anchor.
+- "You" means every address you send from (Gmail's *Send mail as* aliases), whatever the `+tag` and, at Gmail, the dots.
+- Not followed: mail sent only to yourself, or only to automated addresses (`noreply`, `notifications`...).
+- A follow-up becomes due `FOLLOW_UP_AFTER_DAYS` weekdays (3) after the anchor, in `TIMEZONE`. A thread still unanswered after 30 days stops being followed.
+- Only the `FOLLOW_UP_MAX_THREADS` (50) most recent threads with a mail you sent are listed; `followup_listing_capped` is `1` when there were more, which then go unfollowed. Threads still waiting but out of the listing are read again at every refresh until they expire (`followup_unlisted_waiting_threads`).
+- Gauge `followup_threads{state}` (`waiting_for_them`, `closed`, `ignored`); read errors in `followup_refresh_errors_total{step}`.
+- A thread still waiting is never pruned; a settled one is forgotten after 90 days.
+
 ## Choosing / adding implementations
 
 The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interactions/`) only talks to the protocols in `src/ports`. `src/bootstrap.py` builds the concrete adapters from these selectors:

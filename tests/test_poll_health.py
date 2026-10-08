@@ -125,7 +125,13 @@ class PollOnceObservabilityTests(unittest.TestCase):
 
         maintenance = [call[0] for call in ctx.mock_calls if call[0].endswith("_if_due")]
         self.assertEqual(
-            maintenance, ["backup_if_due", "prune_if_due", "send_put_forward_list_if_due"]
+            maintenance,
+            [
+                "backup_if_due",
+                "prune_if_due",
+                "send_put_forward_list_if_due",
+                "refresh_follow_ups_if_due",
+            ],
         )
 
     def test_health_is_checked_at_each_poll_even_when_the_fetch_fails(self):

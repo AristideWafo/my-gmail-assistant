@@ -11,7 +11,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from src.domain import EmailMessage, ThreadMessage, ThreadRef, ThreadSnapshot
+from src.domain import EmailMessage, ThreadMessage, ThreadRef, ThreadSnapshot, canonical_address
 from src.gmail.text_cleaning import (
     MAX_BODY_WORDS,
     clean_body,
@@ -33,7 +33,6 @@ _THREAD_HEADERS = (
     "Precedence",
     "X-Autoreply",
     "X-Autorespond",
-    "List-Id",
 )
 _BOUNCE_SENDERS = ("mailer-daemon@", "postmaster@")
 # Only a bare address may reach a search query: anything else could add search operators.
@@ -258,7 +257,7 @@ class GmailClient:
             request = self._service.users().settings().sendAs().list(userId=self._user_id)
             aliases = self._execute_with_backoff(request.execute, max_retries=max_retries)
             self._my_addresses = frozenset(
-                alias["sendAsEmail"].lower()
+                canonical_address(alias["sendAsEmail"])
                 for alias in aliases.get("sendAs", [])
                 if alias.get("sendAsEmail")
             )
@@ -295,8 +294,11 @@ class GmailClient:
         return ThreadSnapshot(
             thread_id=thread.get("id", thread_id),
             history_id=str(thread.get("historyId", "")),
+            # A draft is part of the thread for Gmail, but nobody received it.
             messages=tuple(
-                self._parse_thread_message(message, mine) for message in thread.get("messages", [])
+                self._parse_thread_message(message, mine)
+                for message in thread.get("messages", [])
+                if "DRAFT" not in message.get("labelIds", [])
             ),
         )
 
@@ -337,7 +339,7 @@ class GmailClient:
             sent_at=_internal_datetime(message),
             subject=headers.get("subject", ""),
             message_id_header=headers.get("message-id", ""),
-            from_me="SENT" in message.get("labelIds", []) or sender in mine,
+            from_me="SENT" in message.get("labelIds", []) or canonical_address(sender) in mine,
             automated=_is_automated(headers, sender),
             bounce=sender.startswith(_BOUNCE_SENDERS),
         )
@@ -409,12 +411,12 @@ def _internal_datetime(message: dict[str, Any]) -> datetime:
 
 
 def _is_automated(headers: dict[str, str], sender: str) -> bool:
+    # List and bulk headers are left out on purpose: a person answering through a mailing list
+    # carries them too, and that answer must count.
     auto_submitted = headers.get("auto-submitted", "").strip().lower()
-    precedence = headers.get("precedence", "").strip().lower()
     return (
         (bool(auto_submitted) and auto_submitted != "no")
-        or precedence in ("bulk", "auto_reply", "list", "junk")
+        or headers.get("precedence", "").strip().lower() == "auto_reply"
         or bool(headers.get("x-autoreply") or headers.get("x-autorespond"))
-        or bool(headers.get("list-id"))
         or sender.startswith(_BOUNCE_SENDERS)
     )

@@ -54,6 +54,34 @@ MIGRATIONS: tuple[str, ...] = (
     # JSON object, question name to probability; NULL when no attention question was answered.
     "ALTER TABLE decisions ADD COLUMN signals TEXT;",
     "ALTER TABLE decisions ADD COLUMN put_forward INTEGER NOT NULL DEFAULT 0;",
+    # One row per thread holding a mail I sent; recipients and references are JSON arrays.
+    """
+    CREATE TABLE threads (
+        thread_id TEXT PRIMARY KEY,
+        history_id TEXT NOT NULL,
+        state TEXT NOT NULL,
+        reason TEXT NOT NULL DEFAULT '',
+        anchor_message_id TEXT,
+        anchor_sent_at TEXT,
+        anchor_to TEXT,
+        anchor_cc TEXT,
+        anchor_subject TEXT,
+        anchor_message_id_header TEXT,
+        anchor_references TEXT,
+        due_at TEXT,
+        expects_answer REAL,
+        jev_asked_for TEXT NOT NULL DEFAULT '',
+        proposal_state TEXT NOT NULL DEFAULT 'none',
+        proposals_count INTEGER NOT NULL DEFAULT 0,
+        snoozed_until TEXT,
+        proposal_text TEXT NOT NULL DEFAULT '',
+        offered_on INTEGER,
+        offered_at TEXT,
+        verdict TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_threads_state ON threads (state);
+    """,
 )
 LATEST_VERSION = len(MIGRATIONS)
 

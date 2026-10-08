@@ -18,6 +18,7 @@ from src.domain import (
 )
 from src.errors import BackupError
 from src.storage.migrations import LATEST_VERSION, migrate, needs_safety_copy
+from src.storage.thread_store import SqliteThreadStore
 
 EXCERPT_CHARS = 300
 
@@ -60,6 +61,7 @@ class SqliteDecisionStore:
                 # A migration rewrites the only copy of the verdicts: keep the previous state.
                 self.backup(f"{path}.pre-v{LATEST_VERSION}")
         migrate(self._conn)
+        self.threads = SqliteThreadStore(self._conn, self._lock, clock)
 
     def record_decision(
         self, email: EmailMessage, triage: TriageResult, route: str, put_forward: bool = False
@@ -304,7 +306,7 @@ class SqliteDecisionStore:
         return row["archived"]
 
     def prune(self, older_than: timedelta) -> int:
-        """Deletes expired dedup state and unrated decisions; feedback and other state are kept."""
+        """Deletes expired dedup state, unrated decisions and settled threads; feedback is kept."""
         cutoff = self._cutoff(older_than)
         # GLOB, not LIKE: "_" in the prefixes is a LIKE wildcard.
         prefixes = " OR ".join("key GLOB ?" for _ in PRUNABLE_STATE_PREFIXES)
@@ -321,7 +323,7 @@ class SqliteDecisionStore:
                 f"DELETE FROM kv_state WHERE updated_at < ? AND ({prefixes})",
                 (cutoff, *(f"{prefix}*" for prefix in PRUNABLE_STATE_PREFIXES)),
             ).rowcount
-        return deleted
+        return deleted + self.threads.prune(older_than)
 
     def backup(self, destination: str) -> None:
         _create_private_file(destination)
