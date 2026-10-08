@@ -127,5 +127,22 @@ class SettingsProactiveBudgetTests(unittest.TestCase):
         self.assertEqual(settings.attention_list_hour, 8)
 
 
+class SettingsFollowUpTests(unittest.TestCase):
+    def test_off_by_default_with_three_weekdays_and_a_quarter_hour_refresh(self):
+        settings = Settings(_env_file=None)
+
+        self.assertEqual(
+            (settings.follow_up_mode, settings.follow_up_after_days,
+             settings.follow_up_refresh_minutes, settings.follow_up_max_threads),
+            ("off", 3, 15, 50),
+        )
+
+    def test_invalid_values_fail_at_startup(self):
+        for overrides in ({"follow_up_mode": "auto"}, {"follow_up_after_days": 0},
+                          {"follow_up_max_threads": 0}):
+            with self.subTest(overrides), self.assertRaises(ValidationError):
+                Settings(_env_file=None, **overrides)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -19,7 +19,7 @@ from src.config import Settings
 from src.domain import EmailMessage, LLMAnalysis, TriageResult
 from src.expiring_set import ExpiringSet
 from src.observability.metrics import Metrics
-from tests.fakes import FakeChat, FakeClassifier, fake_components
+from tests.fakes import FakeChat, FakeClassifier, FakeMail, fake_components
 
 
 def make_settings(**overrides) -> Settings:
@@ -385,6 +385,46 @@ class DailyListTests(unittest.TestCase):
             poll_once(ctx)
 
         ctx.mail.fetch_unread.assert_called_once()
+
+
+class FollowUpWiringTests(unittest.TestCase):
+    def context(self, mail=None, **settings):
+        settings = make_settings(**settings)
+        components = fake_components()
+        if mail is not None:
+            components = replace(components, mail=mail)
+        self.addCleanup(components.store.close)
+        return ApplicationContext(settings, components)
+
+    def test_tracking_needs_a_mode_and_a_configured_mailbox(self):
+        self.assertIsNone(self.context().follow_ups)
+        self.assertIsNotNone(self.context(follow_up_mode="shadow").follow_ups)
+        self.assertIsNotNone(self.context(follow_up_mode="on").follow_ups)
+        with self.assertLogs("gmail-assistant", level="WARNING"):
+            ctx = self.context(mail=FakeMail(is_configured=False), follow_up_mode="shadow")
+        self.assertIsNone(ctx.follow_ups)
+
+    def test_refresh_runs_at_most_once_per_interval(self):
+        ctx = self.context(follow_up_mode="shadow")
+        ctx.follow_ups = MagicMock()
+
+        ctx.refresh_follow_ups_if_due()
+        ctx.refresh_follow_ups_if_due()
+
+        ctx.follow_ups.refresh.assert_called_once_with()
+
+    def test_a_failed_refresh_is_logged_and_does_not_stop_the_poll(self):
+        ctx = self.context(follow_up_mode="shadow")
+        ctx.follow_ups = MagicMock()
+        ctx.follow_ups.refresh.side_effect = RuntimeError("boom")
+
+        with self.assertLogs("gmail-assistant", level="ERROR"):
+            ctx.refresh_follow_ups_if_due()
+
+    def test_nothing_runs_when_tracking_is_off(self):
+        ctx = self.context()
+
+        ctx.refresh_follow_ups_if_due()
 
 
 class HealthWiringTests(unittest.TestCase):

@@ -11,6 +11,7 @@ from src.ports import (
     EmailAnalyzer,
     EmailClassifier,
     MailProvider,
+    ThreadStore,
     Unsubscriber,
 )
 from tests import fakes
@@ -22,6 +23,7 @@ CORE_MODULES = [
     ROOT / "src" / "gateways" / "alerts.py",
     *sorted((ROOT / "src" / "interactions").glob("*.py")),
     *sorted((ROOT / "src" / "maintenance").glob("*.py")),
+    *sorted((ROOT / "src" / "followup").glob("*.py")),
 ]
 ADAPTER_MODULES = (
     "src.gmail",
@@ -96,6 +98,7 @@ class RegistryConformanceTests(unittest.TestCase):
         self.assertIsInstance(components.channels[0], AlertChannel)
         self.assertIsInstance(components.chat, ChatInbox)
         self.assertIsInstance(components.store, DecisionStore)
+        self.assertIsInstance(components.store.threads, ThreadStore)
 
 
 class CoreIsolationTests(unittest.TestCase):

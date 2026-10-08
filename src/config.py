@@ -105,6 +105,14 @@ class Settings(BaseSettings):
     # during which none is sent, e.g. "22-8". Urgent alerts are never held back.
     proactive_daily_cap: int = Field(default=6, ge=1)
     quiet_hours: str = ""
+    # "shadow" tracks the threads holding a mail I sent and who they wait for, with no message;
+    # "on" also offers follow-ups.
+    follow_up_mode: Literal["off", "shadow", "on"] = "off"
+    # Weekdays without an answer before a follow-up is due.
+    follow_up_after_days: int = Field(default=3, ge=1)
+    follow_up_refresh_minutes: int = Field(default=15, ge=1)
+    # Most recent sent threads followed; older ones beyond it are not.
+    follow_up_max_threads: int = Field(default=50, ge=1)
     # Offers to unsubscribe from senders whose mail is always archived; needs the chat inbox.
     unsubscribe_proposals_enabled: bool = False
     unsubscribe_min_archived: int = Field(default=5, ge=2)

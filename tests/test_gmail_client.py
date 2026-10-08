@@ -366,6 +366,17 @@ class SentMailTests(unittest.TestCase):
         self.assertEqual(theirs.sender, "jean@example.com")
         self.assertFalse(theirs.from_me or theirs.automated or theirs.bounce)
 
+    def test_drafts_are_left_out_of_the_thread(self):
+        client, service = self.client()
+        service.users().threads().get().execute.return_value = {
+            "messages": [
+                thread_message("m1", "jean@example.com"),
+                thread_message("d1", "me@example.com", labels=["DRAFT"]),
+            ]
+        }
+
+        self.assertEqual([m.id for m in client.thread_snapshot("t1").messages], ["m1"])
+
     def test_a_message_from_an_alias_is_mine_even_without_the_sent_label(self):
         client, service = self.client()
         service.users().threads().get().execute.return_value = {
@@ -377,9 +388,9 @@ class SentMailTests(unittest.TestCase):
     def test_automated_messages_are_recognised_by_their_headers(self):
         cases = {
             "auto-submitted": {"Auto_Submitted": "auto-replied"},
-            "precedence": {"Precedence": "bulk"},
+            "precedence": {"Precedence": "auto_reply"},
             "x-autoreply": {"X_Autoreply": "yes"},
-            "list": {"List_Id": "<list.example.com>"},
+            "x-autorespond": {"X_Autorespond": "yes"},
         }
         for name, headers in cases.items():
             with self.subTest(name):
@@ -388,6 +399,23 @@ class SentMailTests(unittest.TestCase):
                     "messages": [thread_message("m1", "jean@example.com", **headers)]
                 }
                 self.assertTrue(client.thread_snapshot("t1").messages[0].automated)
+
+    def test_a_person_answering_through_a_mailing_list_is_not_automated(self):
+        for headers in ({"List_Id": "<team.example.com>"}, {"Precedence": "list"}, {"Precedence": "bulk"}):
+            with self.subTest(headers):
+                client, service = self.client()
+                service.users().threads().get().execute.return_value = {
+                    "messages": [thread_message("m1", "jean@example.com", **headers)]
+                }
+                self.assertFalse(client.thread_snapshot("t1").messages[0].automated)
+
+    def test_my_plus_tag_and_dotted_gmail_spellings_are_mine(self):
+        client, service = self.client(aliases=("first.last@gmail.com",))
+        service.users().threads().get().execute.return_value = {
+            "messages": [thread_message("m1", "FirstLast+news@googlemail.com")]
+        }
+
+        self.assertTrue(client.thread_snapshot("t1").messages[0].from_me)
 
     def test_auto_submitted_no_is_a_person(self):
         client, service = self.client()

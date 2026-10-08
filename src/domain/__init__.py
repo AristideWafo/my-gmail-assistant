@@ -1,6 +1,10 @@
+from .addresses import canonical_address
 from .models import (
+    CLOSED,
     FEEDBACK_ORIGINS,
+    IGNORED,
     VERDICTS,
+    WAITING_FOR_THEM,
     Button,
     CallbackEvent,
     ChatEvent,
@@ -9,6 +13,7 @@ from .models import (
     DecisionRecord,
     EmailMessage,
     FeedbackTally,
+    FollowUpAnchor,
     LLMAnalysis,
     RatedDecision,
     ReplyEvent,
@@ -16,12 +21,17 @@ from .models import (
     ThreadMessage,
     ThreadRef,
     ThreadSnapshot,
+    ThreadState,
+    TrackedThread,
     TriageResult,
 )
 
 __all__ = [
+    "CLOSED",
     "FEEDBACK_ORIGINS",
+    "IGNORED",
     "VERDICTS",
+    "WAITING_FOR_THEM",
     "Button",
     "CallbackEvent",
     "ChatEvent",
@@ -30,6 +40,7 @@ __all__ = [
     "DecisionRecord",
     "EmailMessage",
     "FeedbackTally",
+    "FollowUpAnchor",
     "LLMAnalysis",
     "RatedDecision",
     "ReplyEvent",
@@ -37,5 +48,8 @@ __all__ = [
     "ThreadMessage",
     "ThreadRef",
     "ThreadSnapshot",
+    "ThreadState",
+    "TrackedThread",
     "TriageResult",
+    "canonical_address",
 ]

@@ -21,6 +21,7 @@ The first log line of a start is `Starting my-gmail-assistant <version>`, follow
 | Telegram: "Gemini en erreur" or alerts ending with "(résumé indisponible)" | [Gemini quota or outage](#gemini-quota-timeout-or-outage) |
 | Telegram: "Budget LLM du jour atteint" | [LLM budget reached](#llm-budget-reached) |
 | Telegram: "N traitements de mail en échec" | [Mails skipped](#mails-skipped) |
+| Grafana: `followup_refresh_errors_total` rising, log `Could not list sent threads` | [Follow-up refresh failing](#follow-up-refresh-failing) |
 | Container restarts in a loop, log: `SchemaVersionError` | [Database newer than the build](#database-newer-than-the-build) |
 | Container restarts in a loop, log: `sqlite3.DatabaseError` or "malformed" | [Database corrupted](#database-corrupted) |
 | Nothing arrives at all, no message either | [Total silence](#total-silence) |
@@ -77,6 +78,13 @@ The first log line of a start is `Starting my-gmail-assistant <version>`, follow
 - **Effect.** The mail stays unread and is retried at every cycle, so one mail that always fails produces the message by itself. An urgent mail is not alerted again at each retry: the alert is recorded as soon as it is sent.
 - **Check.** The traceback names the step. A Gmail error on labeling is passing. The same mail id failing for hours on something else is a bug.
 - **Fix.** For a mail that will never pass, mark it read in Gmail: it leaves the fetch query. Keep the traceback.
+
+## Follow-up refresh failing
+
+- **Sign.** `followup_refresh_errors_total{step="list"}` or `{step="thread"}` rising; log `Could not list sent threads` or `Could not refresh sent thread <id>`. Triage and alerts are not affected.
+- **Effect.** The states of the followed threads are not updated: an answer that came meanwhile is not seen until a refresh succeeds. In `shadow` mode nothing is sent, so only the measurement is late.
+- **Check.** A `403` on `step="list"` right after enabling the mode points at the token's scope: `users.settings.sendAs.list` needs `gmail.modify`, which `token_setup` asks for. A `429` is the Gmail quota: lower `FOLLOW_UP_MAX_THREADS` or raise `FOLLOW_UP_REFRESH_MINUTES`.
+- **Fix.** `FOLLOW_UP_MODE=off` stops it at once; the threads already followed are kept for when it is turned back on.
 
 ## Database newer than the build
 
