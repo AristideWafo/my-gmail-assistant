@@ -32,6 +32,10 @@ class ThreadStore(Protocol):
         """Earliest due first."""
         ...
 
+    def rated(self) -> list[TrackedThread]:
+        """Threads given a follow-up verdict, whatever their state."""
+        ...
+
     def counts(self) -> dict[str, int]: ...
 
     def prune(self, older_than: timedelta) -> int:

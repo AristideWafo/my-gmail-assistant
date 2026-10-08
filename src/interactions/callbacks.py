@@ -10,6 +10,7 @@ SEND = "send"
 CANCEL = "cancel"
 UNSUBSCRIBE = "unsub"
 KEEP = "keep"
+FOLLOW_UP = "fu"
 CALLBACK_DATA_MAX_BYTES = 64
 
 VERDICT_CODES = {
@@ -32,6 +33,9 @@ _REVIEW_LABELS = {
 
 
 _PUT_FORWARD_LABELS = (("v", "Vu"), ("n", "Pas utile"))
+# Verdicts on a follow-up, not on a mail: they rate a thread, kept apart from VERDICT_CODES.
+FOLLOW_UP_VERDICTS = {"u": "useful", "n": "not_useful"}
+_FOLLOW_UP_LABELS = (("u", "Relance utile"), ("n", "Pas de relance"))
 # Callback data comes from the client: a button set only accepts the verdicts it offers.
 _VERDICT_CODES_BY_ACTION = {
     FEEDBACK: {code for code, _ in _FEEDBACK_LABELS},
@@ -66,6 +70,12 @@ def put_forward_buttons(gmail_id: str) -> list[list[Button]] | None:
     )
 
 
+def follow_up_buttons(thread_id: str) -> list[list[Button]] | None:
+    return _single_row(
+        [(label, f"{FOLLOW_UP}:{code}:{thread_id}") for code, label in _FOLLOW_UP_LABELS]
+    )
+
+
 def draft_buttons(draft_id: str) -> list[list[Button]] | None:
     return _single_row([("Envoyer", f"{SEND}:{draft_id}"), ("Annuler", f"{CANCEL}:{draft_id}")])
 
@@ -87,6 +97,11 @@ def parse_callback(data: str) -> Callback | None:
         if code not in _VERDICT_CODES_BY_ACTION[action] or not gmail_id:
             return None
         return Callback(action, gmail_id, VERDICT_CODES[code])
+    if action == FOLLOW_UP:
+        code, _, thread_id = rest.partition(":")
+        if code not in FOLLOW_UP_VERDICTS or not thread_id:
+            return None
+        return Callback(action, thread_id, FOLLOW_UP_VERDICTS[code])
     if action in (SEND, CANCEL, UNSUBSCRIBE, KEEP) and rest:
         return Callback(action, rest)
     return None

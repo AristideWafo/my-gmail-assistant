@@ -22,6 +22,8 @@ BOUNCED = "bounced"
 DELETED = "deleted"
 EXPIRED = "expired"
 DISMISSED = "dismissed"
+USEFUL = "useful"
+NOT_USEFUL = "not_useful"
 
 
 def derive(
@@ -118,7 +120,8 @@ def close(thread: TrackedThread, reason: str, now: datetime) -> TrackedThread:
 
 
 def would_propose(thread: TrackedThread, threshold: float, now: datetime) -> bool:
-    """A follow-up is due: still waiting, judged to expect an answer, late, never offered."""
+    """A follow-up is due: still waiting, judged to expect an answer, late, never offered, and
+    not rated as unwanted."""
     return (
         thread.state == WAITING_FOR_THEM
         and thread.expects_answer is not None
@@ -127,6 +130,7 @@ def would_propose(thread: TrackedThread, threshold: float, now: datetime) -> boo
         and thread.due_at <= now
         and thread.proposal_state == "none"
         and thread.proposals_count == 0
+        and thread.verdict != NOT_USEFUL
     )
 
 
