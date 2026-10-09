@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import requests
 from prometheus_client import REGISTRY
 
-from src.domain import CallbackEvent, CommandEvent, ReplyEvent
+from src.domain import CallbackEvent, CommandEvent, ReplyEvent, TextEvent
 from src.gateways.telegram_bot import TelegramApiError, TelegramBot, TelegramChannel
 from src.ports import AlertChannel, ChannelDeliveryError, ChatInbox
 
@@ -80,6 +80,7 @@ class SendMessageTests(unittest.TestCase):
             {
                 "chat_id": CHAT_ID,
                 "text": "Urgent",
+                "link_preview_options": {"is_disabled": True},
                 "reply_markup": {
                     "inline_keyboard": [
                         [
@@ -178,10 +179,12 @@ class CallbackActionsTests(unittest.TestCase):
                 "chat_id": CHAT_ID,
                 "message_id": 7,
                 "text": "updated",
+                "link_preview_options": {"is_disabled": True},
                 "reply_markup": {"inline_keyboard": [[{"text": "OK", "callback_data": "fb:v:1"}]]},
             },
         )
         self.assertNotIn("reply_markup", second)
+        self.assertEqual(second["link_preview_options"], {"is_disabled": True})
 
     def test_get_me_returns_the_bot_profile(self):
         bot, http = make_bot(api_response({"username": "mybot"}))
@@ -249,8 +252,15 @@ class GetUpdatesTests(unittest.TestCase):
         self.assertEqual((events, offset), ([], 2))
         self.assertEqual(rejected("foreign_chat"), before + 1)
 
-    def test_non_reply_and_empty_text_messages_are_ignored(self):
-        updates = [reply_update(1, reply_to=None), reply_update(2, text="")]
+    def test_text_that_is_neither_a_reply_nor_a_command_is_free_text(self):
+        bot, _ = make_bot(api_response([reply_update(1, text="où en est le devis ?", reply_to=None)]))
+
+        self.assertEqual(
+            bot.get_updates(None), ([TextEvent(message_id=99, text="où en est le devis ?")], 2)
+        )
+
+    def test_messages_without_text_are_ignored(self):
+        updates = [reply_update(1, text=""), reply_update(2, text="", reply_to=None)]
         bot, _ = make_bot(api_response(updates))
 
         self.assertEqual(bot.get_updates(None), ([], 3))
@@ -283,15 +293,19 @@ class GetUpdatesTests(unittest.TestCase):
             events, [ReplyEvent(message_id=99, reply_to_message_id=7, text="/review plus tard")]
         )
 
-    def test_text_that_only_looks_like_a_command_is_ignored(self):
-        updates = [
-            reply_update(1, text="/", reply_to=None),
-            reply_update(2, text="/!\\ attention", reply_to=None),
-            reply_update(3, text="voir /review", reply_to=None),
-        ]
+    def test_text_that_only_looks_like_a_command_is_free_text(self):
+        texts = ["/", "/!\\ attention", "voir /review"]
+        updates = [reply_update(i, text=text, reply_to=None) for i, text in enumerate(texts, 1)]
         bot, _ = make_bot(api_response(updates))
 
-        self.assertEqual(bot.get_updates(None), ([], 4))
+        events, _ = bot.get_updates(None)
+
+        self.assertEqual(events, [TextEvent(message_id=99, text=text) for text in texts])
+
+    def test_free_text_from_an_unauthorized_user_is_rejected(self):
+        bot, _ = make_bot(api_response([reply_update(1, text="bonjour", reply_to=None, user_id=7)]))
+
+        self.assertEqual(bot.get_updates(None), ([], 2))
 
     def test_command_from_an_unauthorized_user_is_rejected(self):
         bot, _ = make_bot(api_response([reply_update(1, text="/review", reply_to=None, user_id=7)]))

@@ -160,7 +160,8 @@ class SendTextTests(unittest.TestCase):
         gateway.send_text("hello")
 
         self.assertEqual(http.post.call_args.args[0], "https://api.telegram.org/bottok/sendMessage")
-        self.assertEqual(http.post.call_args.kwargs["json"], {"chat_id": "42", "text": "hello"})
+        payload = http.post.call_args.kwargs["json"]
+        self.assertEqual((payload["chat_id"], payload["text"]), ("42", "hello"))
 
     def test_never_posts_to_discord(self):
         gateway, http = telegram_gateway(telegram_ok({"message_id": 1}), discord_url=VALID_DISCORD_URL)
