@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from prometheus_client import REGISTRY
 
-from src.domain import CallbackEvent, EmailMessage, ReplyEvent, TriageResult
+from src.domain import CallbackEvent, EmailMessage, ReplyEvent, TextEvent, TriageResult
 from src.interactions import InteractionHandler
 from src.interactions.callbacks import (
     Callback,
@@ -104,6 +104,14 @@ class UnknownCallbackTests(HandlerTestCase):
 
                 self.assertEqual(self.answered(), "Action non reconnue")
         self.gmail.send_draft.assert_not_called()
+
+
+class FreeTextTests(HandlerTestCase):
+    def test_free_text_does_nothing_until_something_handles_it(self):
+        self.handler.dispatch(TextEvent(message_id=901, text="où en est le devis ?"))
+
+        self.bot.send_message.assert_not_called()
+        self.gmail.create_draft.assert_not_called()
 
 
 class ReplyTests(HandlerTestCase):

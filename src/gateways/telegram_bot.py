@@ -4,7 +4,7 @@ from typing import Any
 
 import requests
 
-from src.domain import Button, CallbackEvent, ChatEvent, CommandEvent, ReplyEvent
+from src.domain import Button, CallbackEvent, ChatEvent, CommandEvent, ReplyEvent, TextEvent
 from src.interactions.callbacks import is_valid_callback_data
 from src.observability.metrics import Metrics
 from src.ports import ChannelDeliveryError
@@ -19,6 +19,9 @@ FOREIGN_CHAT = "foreign_chat"
 UNAUTHORIZED_USER = "unauthorized_user"
 MALFORMED = "malformed"
 
+# Telegram fetches the first link of a message to build its preview: a link the bot relays
+# from a mail would be requested without anyone clicking it.
+_NO_LINK_PREVIEW = {"is_disabled": True}
 # "/name", optionally "/name@bot" as Telegram writes it in groups, then free-form arguments.
 _COMMAND_RE = re.compile(r"^/([A-Za-z0-9_]{1,32})(?:@\w+)?(?:\s+(.*))?$", re.DOTALL)
 
@@ -57,7 +60,11 @@ class TelegramBot:
         reply_to: int | None = None,
         silent: bool = False,
     ) -> int:
-        payload: dict[str, Any] = {"chat_id": self._chat_id, "text": text}
+        payload: dict[str, Any] = {
+            "chat_id": self._chat_id,
+            "text": text,
+            "link_preview_options": _NO_LINK_PREVIEW,
+        }
         if silent:
             payload["disable_notification"] = True
         if buttons:
@@ -72,7 +79,12 @@ class TelegramBot:
     def edit_message(
         self, message_id: int, text: str, buttons: list[list[Button]] | None = None
     ) -> None:
-        payload: dict[str, Any] = {"chat_id": self._chat_id, "message_id": message_id, "text": text}
+        payload: dict[str, Any] = {
+            "chat_id": self._chat_id,
+            "message_id": message_id,
+            "text": text,
+            "link_preview_options": _NO_LINK_PREVIEW,
+        }
         # Telegram drops the keyboard of an edited message unless it is sent again.
         if buttons:
             payload["reply_markup"] = _inline_keyboard(buttons)
@@ -153,7 +165,7 @@ class TelegramBot:
             return _reject(MALFORMED)
         return CallbackEvent(callback_id=callback_id, message_id=message["message_id"], data=data)
 
-    def _parse_message(self, message: Any) -> ReplyEvent | CommandEvent | None:
+    def _parse_message(self, message: Any) -> ReplyEvent | CommandEvent | TextEvent | None:
         if not isinstance(message, dict):
             return _reject(MALFORMED)
         # sender_chat marks a post made as the group or a channel (anonymous admin): "from" is
@@ -177,7 +189,7 @@ class TelegramBot:
             )
         command = _COMMAND_RE.match(text)
         if command is None:
-            return None
+            return TextEvent(message_id=message["message_id"], text=text)
         return CommandEvent(
             message_id=message["message_id"],
             name=command.group(1).lower(),

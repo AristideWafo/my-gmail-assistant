@@ -478,7 +478,7 @@ Lots :
 **Lots**
 
 - ✅ A1 — `DecisionStore.claim()` : réservation atomique (`INSERT OR IGNORE`), à la place des paires lecture / écriture pour l'envoi d'un brouillon, le désabonnement, les commandes et l'envoi d'une relance. Sans effet tant qu'un seul thread réserve ; nécessaire dès qu'un worker s'ajoute. Table `pending_actions` (schéma 8) et son port : `propose`, `begin` (une seule fois, sur le message qui a proposé, avant expiration, charge inchangée), `cancel`, `finish`
-- ⬜ A2 — Telegram : aperçus de liens désactivés, proposition refusée si elle ne tient pas dans un message, `TextEvent` pour le texte libre
+- ✅ A2 — Telegram : aperçus de liens désactivés sur tout message envoyé ou modifié (Telegram va chercher le premier lien pour en faire l'aperçu : un lien repris d'un mail serait appelé sans clic). `TextEvent` pour le texte qui n'est ni une réponse à un message du bot ni une commande, y compris « / » suivi d'autre chose qu'un nom de commande ; il n'est encore traité par rien. Le refus d'une proposition trop longue pour un message est déplacé en A8, où il sert
 - ⬜ A3 — Types du domaine, port `AgentModel`, adaptateur Gemini (SDK `google-genai`), boucle bornée écrite à la main
 - ⬜ A4 — Registre d'outils, profils, `MailProvider.search`, `ask_jev`. Tests de propriétés : un modèle adverse émet des appels arbitraires, les exécuteurs refusent à 100 %
 - ⬜ A5 — Banc de trajectoires : scénarios (dont injection), répétitions, seuil de réussite, coût et latence

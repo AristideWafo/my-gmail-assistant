@@ -205,8 +205,16 @@ class CommandEvent:
     args: str = ""
 
 
+@dataclass(frozen=True)
+class TextEvent:
+    """Free text written to the bot: neither a reply to one of its messages nor a command."""
+
+    message_id: int
+    text: str
+
+
 Button = tuple[str, str]
-ChatEvent = CallbackEvent | ReplyEvent | CommandEvent
+ChatEvent = CallbackEvent | ReplyEvent | CommandEvent | TextEvent
 
 
 ACTION_PENDING = "pending"
