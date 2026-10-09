@@ -13,6 +13,7 @@ from src.ports import (
     EmailAnalyzer,
     EmailClassifier,
     MailProvider,
+    MemoryNotes,
     PendingActions,
     ThreadStore,
     Unsubscriber,
@@ -109,6 +110,7 @@ class RegistryConformanceTests(unittest.TestCase):
         self.assertIsInstance(components.store.threads, ThreadStore)
         self.assertIsInstance(components.store.pending_actions, PendingActions)
         self.assertIsInstance(components.store.agent_runs, AgentRuns)
+        self.assertIsInstance(components.store.memory, MemoryNotes)
 
 
 class CoreIsolationTests(unittest.TestCase):

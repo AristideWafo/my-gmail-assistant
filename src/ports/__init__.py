@@ -5,7 +5,7 @@ from .classifier import EmailClassifier
 from .judge import QuestionJudge, SentMailJudge
 from .llm import EmailAnalyzer
 from .mail import MailProvider
-from .store import AgentRuns, DecisionStore, PendingActions, ThreadStore
+from .store import AgentRuns, DecisionStore, MemoryNotes, PendingActions, ThreadStore
 from .unsubscribe import UnsubscribeError, Unsubscriber
 
 __all__ = [
@@ -18,6 +18,7 @@ __all__ = [
     "EmailAnalyzer",
     "EmailClassifier",
     "MailProvider",
+    "MemoryNotes",
     "PendingActions",
     "QuestionJudge",
     "SentMailJudge",

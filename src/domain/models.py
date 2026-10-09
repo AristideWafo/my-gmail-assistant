@@ -235,3 +235,14 @@ class PendingAction:
     created_at: datetime
     expires_at: datetime
     chat_message_id: int | None = None
+
+
+@dataclass(frozen=True)
+class MemoryNote:
+    """Something the user said to remember about a correspondent, in the user's own words."""
+
+    id: int
+    scope: str
+    text: str
+    created_at: datetime
+

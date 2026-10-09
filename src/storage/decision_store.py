@@ -18,6 +18,7 @@ from src.domain import (
 )
 from src.errors import BackupError
 from src.storage.agent_runs import SqliteAgentRuns
+from src.storage.memory_notes import SqliteMemoryNotes
 from src.storage.migrations import LATEST_VERSION, migrate, needs_safety_copy
 from src.storage.pending_actions import SqlitePendingActions
 from src.storage.thread_store import SqliteThreadStore
@@ -68,6 +69,7 @@ class SqliteDecisionStore:
         self.threads = SqliteThreadStore(self._conn, self._lock, clock)
         self.pending_actions = SqlitePendingActions(self._conn, self._lock, clock)
         self.agent_runs = SqliteAgentRuns(self._conn, self._lock, clock)
+        self.memory = SqliteMemoryNotes(self._conn, self._lock, clock)
 
     def record_decision(
         self, email: EmailMessage, triage: TriageResult, route: str, put_forward: bool = False

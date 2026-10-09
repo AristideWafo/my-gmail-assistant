@@ -32,6 +32,7 @@ from src.interactions.callbacks import (
 )
 from src.interactions.commands import CommandRouter
 from src.interactions.follow_up import FollowUpActions
+from src.interactions.memory import MemoryCommand
 from src.interactions.pending import PendingCommand
 from src.interactions.proposals import ProposalActions
 from src.interactions.put_forward import PutForwardList
@@ -84,6 +85,7 @@ class InteractionHandler:
         follow_ups_on: bool = False,
         on_text: Callable[[TextEvent], None] | None = None,
         on_revision: Callable[[ReplyEvent, PendingAction], None] | None = None,
+        memory_on: bool = False,
     ) -> None:
         self._store = store
         # None: free text is not handled, as before the agent.
@@ -114,6 +116,12 @@ class InteractionHandler:
         self.follow_up_actions = FollowUpActions(
             store, mail, self._answer, self._clear, enabled=follow_ups_on, timezone=timezone
         )
+        if memory_on:
+            self.commands.register(
+                "memory",
+                "ce que tu m'as demandé de retenir ; /memory oublie <numéro>",
+                MemoryCommand(store.memory, chat).run,
+            )
         # Built whatever the mode: a proposal already on screen must still be answered.
         self.proposal_actions = ProposalActions(store, mail, self._answer, self._clear)
         # None: sent threads are not tracked, so there is nothing to list.

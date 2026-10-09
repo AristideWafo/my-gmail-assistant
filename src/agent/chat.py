@@ -77,6 +77,7 @@ class ChatRuns:
         limits: Limits,
         user_name: str = "",
         proposal_buttons: Callable[[str], list[list[Button]] | None] | None = None,
+        remembers: bool = False,
     ) -> None:
         self._loop = AgentLoop(model, limits)
         self._ports = ports
@@ -84,6 +85,7 @@ class ChatRuns:
         self._user_name = user_name
         # None: the run reads only and cannot show a reply to send.
         self._proposal_buttons = proposal_buttons
+        self._remembers = remembers
 
     def run(self, run: AgentRun) -> Trajectory:
         question = run.payload["text"]
@@ -96,7 +98,10 @@ class ChatRuns:
         toolbox = self._toolbox(run, revised)
         trajectory = self._loop.run(
             chat_system(
-                self._user_name, self._ports.clock().date(), self._proposal_buttons is not None
+                self._user_name,
+                self._ports.clock().date(),
+                may_propose=self._proposal_buttons is not None,
+                remembers=self._remembers,
             ),
             self._prompt(run, question, revised),
             toolbox.specs,
@@ -123,14 +128,16 @@ class ChatRuns:
         return action if action is not None and action.state == ACTION_PENDING else None
 
     def _toolbox(self, run: AgentRun, revised: PendingAction | None) -> Toolbox:
+        said = run.payload["text"] if self._remembers else None
         if self._proposal_buttons is None:
-            return profiles.chat_read(self._ports)
+            return profiles.chat_read(self._ports, said)
         return profiles.chat_propose(
             self._ports,
             self._chat,
             self._proposal_buttons,
             run.payload["message_id"],
             revised and Revised(revised.id, revised.chat_message_id, revised.payload["thread_id"]),
+            said,
         )
 
     def _prompt(self, run: AgentRun, question: str, revised: PendingAction | None) -> str:
