@@ -123,6 +123,11 @@ class GmailClient:
             raise
         return self._parse_message(message, full_body)
 
+    def search(self, query: str, limit: int, max_retries: int = 5) -> list[EmailMessage]:
+        if not self._service:
+            return []
+        return self._list_and_parse(query=query, max_results=limit, max_retries=max_retries)
+
     def in_inbox(self, message_id: str, max_retries: int = 5) -> bool:
         if not self._service:
             return True

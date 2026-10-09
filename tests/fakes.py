@@ -42,6 +42,9 @@ class FakeMail:
     def fetch_message(self, message_id: str, full_body: bool = False) -> EmailMessage | None:
         return next((email for email in self.unread if email.id == message_id), None)
 
+    def search(self, query: str, limit: int) -> list[EmailMessage]:
+        return [email for email in self.unread if query.lower() in email.subject.lower()][:limit]
+
     def in_inbox(self, message_id: str) -> bool:
         return message_id not in self.archived
 

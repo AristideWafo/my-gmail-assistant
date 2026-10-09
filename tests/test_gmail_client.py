@@ -504,6 +504,31 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class SearchTests(unittest.TestCase):
+    def test_search_runs_the_query_with_its_limit_and_parses_what_it_finds(self):
+        client = GmailClient(client_id="", client_secret="", refresh_token="")
+        service = MagicMock()
+        client._service = service
+        service.users().messages().list().execute.return_value = {"messages": [{"id": "m1"}]}
+        service.users().messages().get().execute.return_value = {
+            "id": "m1",
+            "threadId": "t1",
+            "snippet": "Voici le devis",
+            "payload": {"headers": [{"name": "From", "value": "Jean <jean@example.com>"}]},
+        }
+
+        found, = client.search("from:jean devis", 3)
+
+        listed = service.users().messages().list.call_args.kwargs
+        self.assertEqual((listed["q"], listed["maxResults"]), ("from:jean devis", 3))
+        self.assertEqual((found.id, found.thread_id, found.sender), ("m1", "t1", "jean@example.com"))
+
+    def test_search_finds_nothing_when_gmail_is_not_configured(self):
+        client = GmailClient(client_id="", client_secret="", refresh_token="")
+
+        self.assertEqual(client.search("devis", 3), [])
+
+
 class UnreadQueryTests(unittest.TestCase):
     def test_default_query_limits_age_but_never_drops_a_category(self):
         self.assertEqual(build_unread_query(3), "is:unread in:inbox newer_than:3d")

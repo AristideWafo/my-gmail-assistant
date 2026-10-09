@@ -20,6 +20,7 @@ from src.ports import (
     EmailAnalyzer,
     EmailClassifier,
     MailProvider,
+    QuestionJudge,
     SentMailJudge,
     Unsubscriber,
 )
@@ -28,6 +29,7 @@ from src.triage.engine import JEV_RECOVERABLE_ERRORS, JevClassifier
 from src.triage.fallback import FallbackClassifier
 from src.triage.few_shot import EXAMPLE_VERDICTS, MAX_EXAMPLES, build_examples
 from src.triage.heuristic import HeuristicClassifier
+from src.triage.judge import JevQuestionJudge
 from src.triage.sent_mail import JevSentMailJudge
 
 T = TypeVar("T")
@@ -96,6 +98,13 @@ def _sent_mail_judge(settings: Settings) -> SentMailJudge | None:
     return JevSentMailJudge(JevClassifier(settings.jev_api_url, settings.jev_api_key))
 
 
+def _question_judge(settings: Settings) -> QuestionJudge | None:
+    # Only JEV answers free yes/no questions; without it the agent has no `ask_jev` tool.
+    if settings.classifier != "jev":
+        return None
+    return JevQuestionJudge(JevClassifier(settings.jev_api_url, settings.jev_api_key))
+
+
 def _gemini(ctx: BuildContext) -> EmailAnalyzer:
     s = ctx.settings
     return GeminiClient(
@@ -159,6 +168,7 @@ class Components:
     unsubscriber: Unsubscriber | None = None
     sent_mail_judge: SentMailJudge | None = None
     agent_model: AgentModel | None = None
+    question_judge: QuestionJudge | None = None
     # (registry name, component) pairs to probe at startup, in report order.
     probe_targets: tuple[tuple[str, Any], ...] = ()
 
@@ -209,6 +219,7 @@ def build_components(settings: Settings) -> Components:
         unsubscriber=unsubscriber_factory(ctx),
         sent_mail_judge=_sent_mail_judge(settings),
         agent_model=agent_model_factory(ctx),
+        question_judge=_question_judge(settings),
         probe_targets=(
             (settings.mail_provider, mail),
             (settings.llm_provider, analyzer),
