@@ -11,8 +11,10 @@ from unittest.mock import MagicMock
 from src.agent import profiles
 from src.agent.loop import TOOL_FAILED, AgentLoop, Limits
 from src.agent.profiles import AgentPorts
+from src.agent.reply import has_unseen_characters
 from src.agent.scope import NOT_READABLE
 from src.domain import AgentTurn, ToolCall, ToolResult, ToolResults
+from src.interactions.callbacks import proposal_buttons
 from tests.agent_helpers import SECRET, world
 from tests.fakes import FakeAgentModel
 
@@ -209,6 +211,7 @@ class AdversarialProposalTests(unittest.TestCase):
         "[à compléter]",
         "x" * 2999,
         "",
+        "D'accord.\u200b\U000e0041",
     )
 
     @classmethod
@@ -226,7 +229,6 @@ class AdversarialProposalTests(unittest.TestCase):
         chat = MagicMock()
         ids = itertools.count(500)
         chat.send_message.side_effect = lambda *args, **kwargs: next(ids)
-        toolbox = profiles.chat_propose(ports, chat, reply_to=10)
         rng = random.Random(seed)
         calls = list(arbitrary_calls(seed, extra_names=("propose_reply",)))
         calls += [
@@ -237,7 +239,11 @@ class AdversarialProposalTests(unittest.TestCase):
             for _ in range(60)
         ]
         before = _dump_without_proposals(ports)
-        results = [toolbox.execute(call) for call in calls]
+        # A toolbox per call: a run shows one proposal, the adversary gets as many runs.
+        results = [
+            profiles.chat_propose(ports, chat, proposal_buttons, reply_to=10).execute(call)
+            for call in calls
+        ]
         return ports, chat, results, before
 
     def test_nothing_is_written_to_the_mailbox_and_only_proposals_to_the_store(self):
@@ -253,6 +259,7 @@ class AdversarialProposalTests(unittest.TestCase):
                 payload = json.loads(row["payload"])
                 proposed += 1
                 self.assertLessEqual(set(payload["to"]), people[payload["thread_id"]])
+                self.assertFalse(has_unseen_characters(payload["body"]))
                 self.assertEqual(
                     set(payload),
                     {

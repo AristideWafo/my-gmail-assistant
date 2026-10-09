@@ -321,7 +321,7 @@ Off by default. With `AGENT_MODE=on`, `TELEGRAM_INBOUND_ENABLED=true` and `GEMIN
 Off by default, and only with `AGENT_MODE=on`. Asked « réponds à Jean que le devis me va », the assistant reads the thread, writes the reply and shows it in Telegram with **[Envoyer] / [Annuler]**. It still sends nothing itself.
 
 - The model writes the text and names the thread, nothing else. **The recipients and the subject are read from the thread by the code**: the last person who wrote in it, or those you wrote to when the thread only holds your mails. An automated sender (`no-reply@…`) is never answered.
-- The message shows the reply in full, as it will be sent. A reply too long to be shown whole is refused rather than cut.
+- The message shows the reply in full, as it will be sent. A reply too long to be shown whole is refused rather than cut, and so is one holding characters that do not show on screen: what you confirm is all of what is sent.
 - **[Envoyer]** sends exactly what was stored when the message was shown, at most once, only from that message and within 48 hours. Just before, the thread is read again: if a message arrived since, nothing is sent and you are told. If Gmail cannot be reached for that check, nothing is sent and the button stays.
 - **Reply to the proposal** to have it rewritten (« plus court », « propose plutôt jeudi »): a new proposal replaces it and the first one loses its buttons.
 - Followed in `agent_proposals_total{outcome}`.

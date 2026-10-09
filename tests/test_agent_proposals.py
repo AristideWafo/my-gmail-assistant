@@ -3,16 +3,27 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from src.agent import profiles
-from src.agent.chat import KIND, ChatRuns, payload, trigger_key
+from src.agent.chat import KIND, STALE, STALE_REVISION, ChatRuns, payload, trigger_key
 from src.agent.loop import Limits
 from src.agent.reply import (
     MAX_PREVIEW_CHARS,
     PROPOSAL_LIFETIME,
     SEND_REPLY,
     format_proposal,
+    has_unseen_characters,
     reply_target,
+    shown_length,
 )
-from src.agent.toolsets.proposals import NO_ONE_TO_ANSWER, PLACEHOLDER, PROPOSED, TOO_LONG
+from src.agent.toolsets.proposals import (
+    ALREADY_PROPOSED,
+    NO_ONE_TO_ANSWER,
+    OTHER_THREAD,
+    PLACEHOLDER,
+    PROPOSED,
+    TOO_LONG,
+    UNSEEN,
+    Revised,
+)
 from src.domain import (
     ACTION_CANCELLED,
     ACTION_DONE,
@@ -34,13 +45,18 @@ from tests.followup_helpers import message, snapshot
 BODY = "Bonjour Jean,\n\nLe devis me convient.\n\nAristide"
 JEAN = message("m1", sender="jean@example.com", to=("me@example.com",))
 MINE = message("m2", to=("jean@example.com", "paul@example.com"))
+MY_ADDRESSES = frozenset({"me@example.com"})
+
+
+def reply_target_of(thread):
+    return reply_target(thread, MY_ADDRESSES)
 
 
 class ReplyTargetTests(unittest.TestCase):
     def test_their_last_message_is_the_one_answered(self):
         late = message("m3", sender="paul@example.com", subject="Re: Devis")
 
-        target = reply_target(snapshot(JEAN, MINE, late))
+        target = reply_target_of(snapshot(JEAN, MINE, late))
 
         self.assertEqual(target.to, ("paul@example.com",))
         self.assertEqual((target.subject, target.in_reply_to), ("Re: Devis", "<m3@x>"))
@@ -48,7 +64,7 @@ class ReplyTargetTests(unittest.TestCase):
         self.assertEqual(target.last_message_id, "m3")
 
     def test_my_mail_is_continued_to_those_i_wrote_to(self):
-        target = reply_target(snapshot(MINE))
+        target = reply_target_of(snapshot(MINE))
 
         self.assertEqual(target.to, ("jean@example.com", "paul@example.com"))
         self.assertEqual(target.in_reply_to, "<m2@x>")
@@ -57,7 +73,7 @@ class ReplyTargetTests(unittest.TestCase):
         absent = message("m3", sender="jean@example.com", automated=True)
         bounce = message("m4", sender="mailer-daemon@example.com", bounce=True)
 
-        target = reply_target(snapshot(JEAN, MINE, absent, bounce))
+        target = reply_target_of(snapshot(JEAN, MINE, absent, bounce))
 
         self.assertEqual((target.to, target.in_reply_to), (("jean@example.com",), "<m1@x>"))
         self.assertEqual(target.last_message_id, "m4")
@@ -71,7 +87,20 @@ class ReplyTargetTests(unittest.TestCase):
         }
         for reason, thread in cases.items():
             with self.subTest(reason):
-                self.assertIsNone(reply_target(thread))
+                self.assertIsNone(reply_target_of(thread))
+
+    def test_my_own_addresses_are_never_recipients_of_my_reply(self):
+        to_me_too = message("m2", to=("Me@Example.com", "jean@example.com"))
+
+        self.assertEqual(reply_target_of(snapshot(to_me_too)).to, ("jean@example.com",))
+        self.assertIsNone(reply_target_of(snapshot(message("m2", to=("me@example.com",)))))
+
+    def test_the_subject_is_the_one_that_will_be_sent(self):
+        for subject, sent in (("Devis", "Re: Devis"), ("RE: Devis", "RE: Devis"), ("", "Re:")):
+            with self.subTest(subject=subject):
+                thread = snapshot(message("m1", sender="jean@example.com", subject=subject))
+
+                self.assertEqual(reply_target_of(thread).subject, sent)
 
     def test_what_is_not_one_plain_address_is_never_a_recipient(self):
         for sender in (
@@ -80,9 +109,13 @@ class ReplyTargetTests(unittest.TestCase):
             "Jean <jean@example.com>",
             "jean",
             "",
+            "jean@exa\u202emple.com",
+            "je\u200ban@example.com",
+            "jean@example.com\x00",
+            "jeán@example.com",
         ):
             with self.subTest(sender=sender):
-                self.assertIsNone(reply_target(snapshot(message("m1", sender=sender))))
+                self.assertIsNone(reply_target_of(snapshot(message("m1", sender=sender))))
 
 
 class ProposalTestCase(unittest.TestCase):
@@ -93,7 +126,7 @@ class ProposalTestCase(unittest.TestCase):
         self.actions = self.ports.store.pending_actions
         self.chat = MagicMock()
         self.chat.send_message.return_value = 500
-        self.box = profiles.chat_propose(self.ports, self.chat, reply_to=10)
+        self.box = profiles.chat_propose(self.ports, self.chat, proposal_buttons, reply_to=10)
 
     def propose(self, thread_id="t1", body=BODY, **extra):
         return self.box.execute(
@@ -124,7 +157,7 @@ class ProposeReplyTests(ProposalTestCase):
             {
                 "thread_id": "t1",
                 "to": ["jean@example.com"],
-                "subject": "Devis",
+                "subject": "Re: Devis",
                 "body": BODY,
                 "in_reply_to": "<m1@x>",
                 "references": ["<m1@x>", "<m2@x>"],
@@ -161,6 +194,54 @@ class ProposeReplyTests(ProposalTestCase):
                 )
         self.chat.send_message.assert_not_called()
         self.assertEqual(self.mail.writes, [])
+
+    def test_text_that_does_not_show_on_screen_is_refused(self):
+        hidden = "".join(chr(0xE0000 + ord(c)) for c in "iban FR76")
+        for reason, body in {
+            "tag characters": f"D'accord.{hidden}",
+            "zero width": "D'accord.\u200b\u200bFR76",
+            "right-to-left override": "D'accord \u202eetnemelbaruos",
+            "control": "D'accord.\x08\x08",
+        }.items():
+            with self.subTest(reason):
+                result = self.propose(body=body)
+
+                self.assertEqual((result.content, result.is_error), (UNSEEN, True))
+        self.chat.send_message.assert_not_called()
+
+    def test_accents_emoji_and_line_breaks_do_show(self):
+        self.assertFalse(has_unseen_characters("Reçu, à jeudi 🙂\n\tAristide — « merci »"))
+
+    def test_length_is_counted_as_telegram_counts_it(self):
+        self.assertEqual(shown_length("🙂" * 10), 20)
+
+        result = self.propose(body="🙂" * 2500)
+
+        self.assertEqual(result.content, TOO_LONG)
+        self.chat.send_message.assert_not_called()
+
+    def test_a_run_shows_a_single_proposal(self):
+        self.propose()
+
+        second = self.propose(body="Autre version.")
+
+        self.assertEqual(
+            (second.content, second.is_error, second.ends_run), (ALREADY_PROPOSED, True, False)
+        )
+        self.chat.send_message.assert_called_once()
+
+    def test_a_revision_cannot_move_to_another_thread(self):
+        self.propose()
+        first = self.proposal()
+        box = profiles.chat_propose(
+            self.ports, self.chat, proposal_buttons, 11, Revised(first.id, 500, "t1")
+        )
+
+        result = box.execute(ToolCall("propose_reply", {"thread_id": "t2", "body": "Bonjour."}))
+
+        self.assertEqual((result.content, result.is_error), (OTHER_THREAD, True))
+        self.assertEqual(self.actions.get(first.id).state, ACTION_PENDING)
+        self.chat.send_message.assert_called_once()
 
     def test_a_thread_of_automated_senders_cannot_be_answered(self):
         self.mail.threads.append(
@@ -204,7 +285,9 @@ class ProposeReplyTests(ProposalTestCase):
         self.propose()
         first = self.proposal()
         self.chat.send_message.return_value = 501
-        box = profiles.chat_propose(self.ports, self.chat, 11, replaces=(first.id, 500))
+        box = profiles.chat_propose(
+            self.ports, self.chat, proposal_buttons, 11, Revised(first.id, 500, "t1")
+        )
 
         box.execute(ToolCall("propose_reply", {"thread_id": "t1", "body": "Plus court."}))
 
@@ -215,7 +298,9 @@ class ProposeReplyTests(ProposalTestCase):
     def test_a_refused_revision_leaves_the_first_proposal_standing(self):
         self.propose()
         first = self.proposal()
-        box = profiles.chat_propose(self.ports, self.chat, 11, replaces=(first.id, 500))
+        box = profiles.chat_propose(
+            self.ports, self.chat, proposal_buttons, 11, Revised(first.id, 500, "t1")
+        )
 
         box.execute(ToolCall("propose_reply", {"thread_id": "t1", "body": "[à compléter]"}))
 
@@ -259,7 +344,7 @@ class ProposalButtonsTests(ProposalTestCase):
         self.gmail.create_draft.assert_called_once_with(
             "t1",
             "jean@example.com",
-            "Devis",
+            "Re: Devis",
             BODY,
             in_reply_to="<m1@x>",
             references=["<m1@x>", "<m2@x>"],
@@ -368,7 +453,12 @@ class ChatProposalRunTests(ProposalTestCase):
     def handler(self, *script, may_propose=True):
         self.model = FakeAgentModel(list(script))
         return ChatRuns(
-            self.model, self.ports, self.chat, Limits(4, 10_000), "Aristide", may_propose
+            self.model,
+            self.ports,
+            self.chat,
+            Limits(4, 10_000),
+            "Aristide",
+            proposal_buttons if may_propose else None,
         )
 
     def queued(self, message_id, text, revises=None):
@@ -420,6 +510,20 @@ class ChatProposalRunTests(ProposalTestCase):
         self.assertIn("fil t1", prompt)
         self.assertEqual(self.actions.get(first.id).state, ACTION_CANCELLED)
         self.assertEqual(self.actions.pending_on(501).payload["body"], "D'accord pour le devis.")
+
+    def test_a_proposal_sent_or_cancelled_meanwhile_is_not_rewritten(self):
+        self.handler(self.proposing()).run(self.queued(10, "Réponds à Jean que le devis me va."))
+        first = self.proposal()
+        waiting = self.queued(11, "plus court", revises=first)
+        self.actions.cancel(first.id, 500)
+        self.chat.send_message.reset_mock()
+
+        trajectory = self.handler(self.proposing("Plus court.")).run(waiting)
+
+        self.assertEqual(trajectory.outcome, STALE)
+        self.assertEqual(self.model.seen, [])
+        self.chat.send_message.assert_called_once_with(STALE_REVISION, reply_to=11)
+        self.assertIsNone(self.actions.pending_on(501))
 
 
 class RevisionRoutingTests(ProposalTestCase):

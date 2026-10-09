@@ -13,8 +13,9 @@ from src.agent.scope import WHOLE_MAILBOX, MailScope, only_thread
 from src.agent.tools import Tool, Toolbox
 from src.agent.toolsets.judgment import judgment_tools
 from src.agent.toolsets.mail import mail_tools
-from src.agent.toolsets.proposals import proposal_tools
+from src.agent.toolsets.proposals import Revised, proposal_tools
 from src.agent.toolsets.tracking import tracking_tools
+from src.domain import Button
 from src.ports import ChatInbox, DecisionStore, MailProvider, QuestionJudge
 
 
@@ -33,8 +34,9 @@ def chat_read(ports: AgentPorts) -> Toolbox:
 def chat_propose(
     ports: AgentPorts,
     chat: ChatInbox,
+    buttons: Callable[[str], list[list[Button]] | None],
     reply_to: int | None,
-    replaces: tuple[str, int] | None = None,
+    revised: Revised | None = None,
 ) -> Toolbox:
     """`chat_read`, plus showing the user a reply to send or not. Only for a run the user
     started: a proposal is their request, never a mail's."""
@@ -42,7 +44,7 @@ def chat_propose(
         [
             *_reading(ports, WHOLE_MAILBOX),
             *tracking_tools(ports.store),
-            *proposal_tools(ports.mail, ports.store, chat, reply_to, replaces),
+            *proposal_tools(ports.mail, ports.store, chat, buttons, reply_to, revised),
         ]
     )
 

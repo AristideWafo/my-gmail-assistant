@@ -1,5 +1,6 @@
 import logging
 import re
+from collections.abc import Callable
 from datetime import timedelta
 
 from src.agent import profiles
@@ -7,7 +8,16 @@ from src.agent.loop import AgentLoop, Limits
 from src.agent.profiles import AgentPorts
 from src.agent.prompts import chat_system, revision_prompt
 from src.agent.tools import Toolbox
-from src.domain import ANSWERED, ENDED_BY_TOOL, AgentRun, PendingAction, Trajectory
+from src.agent.toolsets.proposals import Revised
+from src.domain import (
+    ACTION_PENDING,
+    ANSWERED,
+    ENDED_BY_TOOL,
+    AgentRun,
+    Button,
+    PendingAction,
+    Trajectory,
+)
 from src.formatting import strip_markdown, truncate
 from src.ports import AgentModel, ChatInbox
 
@@ -26,6 +36,8 @@ GAVE_UP = {
     "over_budget": "Budget du jour de l'assistant atteint : je ne traite plus de question aujourd'hui.",
     "interrupted": "J'ai été redémarré pendant que je traitais ta question. Renvoie-la.",
 }
+STALE = "stale_revision"
+STALE_REVISION = "Cette proposition n'est plus en attente : rien à modifier."
 GAVE_UP_OTHER = "Ta question n'a pas pu être traitée. Réessaie plus tard."
 _URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)
 
@@ -64,20 +76,29 @@ class ChatRuns:
         chat: ChatInbox,
         limits: Limits,
         user_name: str = "",
-        may_propose: bool = False,
+        proposal_buttons: Callable[[str], list[list[Button]] | None] | None = None,
     ) -> None:
         self._loop = AgentLoop(model, limits)
         self._ports = ports
         self._chat = chat
         self._user_name = user_name
-        self._may_propose = may_propose
+        # None: the run reads only and cannot show a reply to send.
+        self._proposal_buttons = proposal_buttons
 
     def run(self, run: AgentRun) -> Trajectory:
         question = run.payload["text"]
-        toolbox = self._toolbox(run)
+        revised = self._revised(run)
+        if "revises" in run.payload and revised is None:
+            # Sent, cancelled or expired while the request waited: rewriting it would put a
+            # second reply to the same mail on screen.
+            self._chat.send_message(STALE_REVISION, reply_to=run.payload["message_id"])
+            return Trajectory(STALE, ())
+        toolbox = self._toolbox(run, revised)
         trajectory = self._loop.run(
-            chat_system(self._user_name, self._ports.clock().date(), self._may_propose),
-            self._prompt(run, question),
+            chat_system(
+                self._user_name, self._ports.clock().date(), self._proposal_buttons is not None
+            ),
+            self._prompt(run, question, revised),
             toolbox.specs,
             toolbox.execute,
         )
@@ -94,19 +115,27 @@ class ChatRuns:
             GAVE_UP.get(reason, GAVE_UP_OTHER), reply_to=run.payload.get("message_id")
         )
 
-    def _toolbox(self, run: AgentRun) -> Toolbox:
-        if not self._may_propose:
-            return profiles.chat_read(self._ports)
-        revised = run.payload.get("revises")
-        replaces = (revised["action_id"], revised["chat_message_id"]) if revised else None
-        return profiles.chat_propose(self._ports, self._chat, run.payload["message_id"], replaces)
+    def _revised(self, run: AgentRun) -> PendingAction | None:
+        asked = run.payload.get("revises")
+        if not asked or self._proposal_buttons is None:
+            return None
+        action = self._ports.store.pending_actions.get(asked["action_id"])
+        return action if action is not None and action.state == ACTION_PENDING else None
 
-    def _prompt(self, run: AgentRun, question: str) -> str:
-        revised = run.payload.get("revises")
-        if revised:
-            action = self._ports.store.pending_actions.get(revised["action_id"])
-            if action is not None:
-                return revision_prompt(action.payload, question)
+    def _toolbox(self, run: AgentRun, revised: PendingAction | None) -> Toolbox:
+        if self._proposal_buttons is None:
+            return profiles.chat_read(self._ports)
+        return profiles.chat_propose(
+            self._ports,
+            self._chat,
+            self._proposal_buttons,
+            run.payload["message_id"],
+            revised and Revised(revised.id, revised.chat_message_id, revised.payload["thread_id"]),
+        )
+
+    def _prompt(self, run: AgentRun, question: str, revised: PendingAction | None) -> str:
+        if revised is not None:
+            return revision_prompt(revised.payload, question)
         earlier = self._ports.store.agent_runs.answered_before(
             run, self._ports.clock() - HISTORY_WINDOW, HISTORY_EXCHANGES
         )
