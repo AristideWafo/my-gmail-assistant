@@ -287,6 +287,32 @@ class DecisionStoreTests(unittest.TestCase):
         self.store.set_state("history_id", "2")
         self.assertEqual(self.store.get_state("history_id"), "2")
 
+    def test_claim_is_granted_once_and_keeps_the_first_value(self):
+        self.assertTrue(self.store.claim("draft_sent:d1", "first"))
+        self.assertFalse(self.store.claim("draft_sent:d1", "second"))
+        self.assertEqual(self.store.get_state("draft_sent:d1"), "first")
+
+    def test_claim_is_refused_on_a_key_already_set(self):
+        self.store.set_state("cmd:1", "review")
+
+        self.assertFalse(self.store.claim("cmd:1"))
+
+    def test_concurrent_claims_have_a_single_winner(self):
+        start = threading.Barrier(8)
+        granted = []
+
+        def press():
+            start.wait()
+            granted.append(self.store.claim("followup_sent:t1:1"))
+
+        threads = [threading.Thread(target=press) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(granted.count(True), 1)
+
     def test_prune_removes_only_expired_unrated_decisions_alerts_and_dedup_state(self):
         for message_id in ("old", "rated"):
             self.store.record_decision(make_email(message_id), make_triage(), "alert")

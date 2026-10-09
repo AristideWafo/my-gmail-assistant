@@ -30,7 +30,7 @@ Le scope proposé a été confronté au code. Les écarts retenus :
 | `VACUUM` périodique | Base de quelques milliers de lignes avec purge à 90 jours : les pages libérées sont réutilisées, aucun gain | Remplacé par ce qui manque vraiment : migrations de schéma et sauvegarde |
 | Métrique de dérive de confiance | `triage_confidence` et son panneau Grafana existent déjà, mais mélangent JEV, heuristique (valeurs fixes) et règles (1.0) | Ajout d'un label `source`, pas de nouvelle métrique |
 | Calendar « via MCP » | L'app utilise déjà `google-api-python-client` et un OAuth Google. MCP ajoute un serveur, un client et un transport pour un seul consommateur | Port `CalendarProvider` + adaptateur Google direct ; un adaptateur MCP reste possible derrière le même port |
-| ReAct pour Calendar, récap, voix | Chercher un créneau libre est un calcul d'intervalles ; « nombre de tâches variable » est une boucle. Un agent à outils d'écriture nourri de texte choisi par l'expéditeur est une surface d'injection | Pipelines déterministes + appels LLM structurés uniques. Boucle d'agent réservée aux questions en langage naturel, en lecture seule |
+| ReAct pour Calendar, récap, voix | Chercher un créneau libre est un calcul d'intervalles ; « nombre de tâches variable » est une boucle. Un agent à outils d'écriture nourri de texte choisi par l'expéditeur est une surface d'injection | Pipelines déterministes + appels LLM structurés uniques. Boucle d'agent réservée aux questions en langage naturel, en lecture seule. **Révisé par la Phase A** : boucle d'agent pour le chat libre et la rédaction des relances, sous profils de capacités fixes ; la relève et le tri restent déterministes |
 | États `waiting_for_me` / `waiting_for_them` | L'assistant ne voit jamais les mails envoyés ni les mails déjà lus, et aucune logique de thread n'existe (seul `thread_id` est stocké) | Table `threads` + lecture des threads côté Gmail ; question JEV `needs_reply` dans l'appel existant |
 | Récap « à faire / fait / pas fait » | Aucune notion de tâche dans le système | Modèle `action_items` explicite avec une définition de « fait » |
 | Récap soir + hebdo + vue du matin + coaching | Quatre messages programmés distincts, générés par quatre mécanismes | Un seul moteur de digest ; le coaching devient une section du récap hebdo |
@@ -41,7 +41,7 @@ Le scope proposé a été confronté au code. Les écarts retenus :
 ## Invariants (valables pour toutes les phases)
 
 1. **Aucune écriture sans confirmation explicite** : envoi de mail, création ou modification d'événement. La confirmation est liée au message Telegram qui l'a proposée, et exécutée au plus une fois (même garde que `_offered_here` aujourd'hui).
-2. **Le LLM ne tient jamais d'outil d'écriture.** Il produit une proposition typée ; le code l'exécute après confirmation. Le contenu d'un mail est du texte choisi par l'expéditeur.
+2. **Le LLM ne tient aucun outil d'écriture irréversible.** Il produit une proposition typée ; le code l'exécute après confirmation. Il ne peut jamais rendre un mail moins visible que la route déterministe. Le contenu d'un mail est du texte choisi par l'expéditeur : il ne donne jamais d'instruction et n'écrit jamais en mémoire. (Reformulé pour la Phase A ; avant elle, aucun outil d'écriture du tout.)
 3. **Chaque fonctionnalité derrière un flag d'env, désactivé par défaut**, comme `JEV_FEW_SHOT_ENABLED`.
 4. **Tout composant externe derrière un port** (`src/ports`), choisi dans `src/bootstrap.py`.
 5. **Budget de notifications** : heures calmes et plafond quotidien de messages proactifs ; seules les alertes urgentes y échappent. En place (`src/scheduling/budget.py`, `PROACTIVE_DAILY_CAP`, `QUIET_HOURS`) : toute nouvelle source de message proactif doit y passer.
@@ -455,6 +455,49 @@ Lots :
 - Brief livré avant un événement test, contenu vérifié à la main, jamais deux fois pour le même événement
 - Une échéance réelle détectée et proposée en rappel
 - Deux brouillons pour deux profils différents montrent un registre différent, vérifié à la main
+
+---
+
+## Phase A — Agent (boucle modèle + outils)
+
+**Pourquoi** : tout ce qui précède est un pipeline. Le modèle répond à des questions fermées, le code décide (`route_for`, `would_propose`). Pour une question libre (« retrouve le mail de X sur Y et prépare une réponse ») ou une relance qui tient compte du fil, il faut que le modèle choisisse lui-même ce qu'il lit et ce qu'il propose. La Phase A remplace la Phase 5 pour le texte ; la voix reste à faire dessus.
+
+**Coût** : élevé. Onze lots, une PR chacun, empilées.
+
+**Principes** (conception confrontée à un agent expert, constats vérifiés dans le code) :
+
+- **JEV reste**, avec trois rôles : son verdict est donné à l'agent comme première observation, il décide du réveil des relances (`expects_answer`), et l'agent peut l'appeler (`ask_jev`) pour trancher une question fermée plus vite qu'un tour de raisonnement. JEV lit le même texte que l'agent : sa réponse est un avis, jamais une clé qui débloque une capacité
+- **Profils de capacités fixes par déclencheur**, pas de marqueur dynamique de contenu lu : un run lancé par un mail ne lit que le fil qui l'a déclenché ; seul un run lancé par ton message peut chercher dans la boîte
+- **Aucune écriture irréversible dans la boucle** : une intention d'écriture devient une ligne de `pending_actions` (charge complète + empreinte), montrée en entier dans Telegram, exécutée une fois par du code à l'appui. Les destinataires sont posés par le code depuis le fil, jamais choisis par le modèle
+- **Règle monotone sur le tri** : l'agent ne peut que rendre un mail plus visible que la route déterministe
+- **Hors des deux threads existants** : file `agent_runs` et un thread worker avec son propre client Gmail. Ni la relève ni les boutons n'attendent un run
+- **Budget séparé** de celui des résumés urgents, avec un plafond par run
+- **Mode dégradé** : agent en panne ou hors budget → le chemin actuel, inchangé (gabarit de relance, `route_for`)
+- **Modèle** : Gemini derrière le port `AgentModel` ; un adaptateur Claude s'ajoute derrière le même port si l'éval le demande
+
+**Lots**
+
+- ✅ A1 — `DecisionStore.claim()` : réservation atomique (`INSERT OR IGNORE`), à la place des paires lecture / écriture pour l'envoi d'un brouillon, le désabonnement, les commandes et l'envoi d'une relance. Sans effet tant qu'un seul thread réserve ; nécessaire dès qu'un worker s'ajoute. Table `pending_actions` (schéma 8) et son port : `propose`, `begin` (une seule fois, sur le message qui a proposé, avant expiration, charge inchangée), `cancel`, `finish`
+- ⬜ A2 — Telegram : aperçus de liens désactivés, proposition refusée si elle ne tient pas dans un message, `TextEvent` pour le texte libre
+- ⬜ A3 — Types du domaine, port `AgentModel`, adaptateur Gemini (SDK `google-genai`), boucle bornée écrite à la main
+- ⬜ A4 — Registre d'outils, profils, `MailProvider.search`, `ask_jev`. Tests de propriétés : un modèle adverse émet des appels arbitraires, les exécuteurs refusent à 100 %
+- ⬜ A5 — Banc de trajectoires : scénarios (dont injection), répétitions, seuil de réussite, coût et latence
+- ⬜ A6 — File `agent_runs`, worker, reprise après arrêt, budget de l'agent
+- ⬜ A7 — Chat libre en lecture seule
+- ⬜ A8 — Propositions depuis le chat : réponse à envoyer, question de clarification, révision par réponse libre
+- ⬜ A9 — Notes mémoire par interlocuteur : seulement ce que tu as écrit toi-même, `/memory`
+- ⬜ A10 — Relances rédigées par l'agent, composées une fois par ancre et stockées ; `shadow` puis `on` ; le chemin d'envoi n'est pas modifié
+- ⬜ A11 — Rejeu hors ligne du tri par l'agent sur les mails notés, avec et sans le verdict JEV. La bascule du tri se décide sur ces chiffres, pas avant
+
+**Reporté** (à rouvrir après les chiffres de A10 et A11) : réveil posé par l'agent, règles proposées par l'agent, deuxième relance, délai adapté à l'interlocuteur, notes déduites par l'agent, tri en production par l'agent.
+
+**DoD**
+- Suite adverse (A4) à 100 % en CI
+- 20 questions libres vérifiées à la main, taux noté ici ; les boutons répondent pendant un run
+- Arrêt du conteneur en plein run : message d'échec au redémarrage, pas de silence
+- Un cas réel de bout en bout : demande → proposition → `[Envoyer]`, texte envoyé identique à celui affiché
+- Test d'injection : un mail contenant une instruction ne déclenche aucune action et n'écrit aucune note
+- Chiffres des deux bras de A11 notés ici avant toute décision sur le tri
 
 ---
 

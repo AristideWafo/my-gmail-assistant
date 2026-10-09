@@ -323,6 +323,19 @@ class FollowUpActionsTests(OfferTestCase):
         self.assertEqual((self.mail.drafts, self.mail.sent), ([], []))
         self.assertEqual(self.thread().proposal_state, SENT)
 
+    def test_a_press_that_loses_the_claim_to_another_one_sends_nothing(self):
+        create_draft = self.mail.create_draft
+
+        def claimed_meanwhile(*args, **kwargs):
+            self.store.set_state("followup_sent:t1:1", "draft-0")
+            return create_draft(*args, **kwargs)
+
+        self.mail.create_draft = claimed_meanwhile
+
+        self.assertEqual(self.press("s"), actions_module.SEND_FAILED)
+        self.assertEqual(self.mail.sent, [])
+        self.assertEqual(self.store.get_state("followup_sent:t1:1"), "draft-0")
+
     def test_only_the_message_that_made_the_offer_is_honoured(self):
         self.assertEqual(self.press("s", message_id=78), actions_module.UNKNOWN_OFFER)
         self.assertEqual(self.mail.drafts, [])

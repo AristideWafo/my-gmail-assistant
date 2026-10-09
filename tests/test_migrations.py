@@ -197,6 +197,27 @@ class LegacyMissedUrgentTests(unittest.TestCase):
         self.assertEqual(store.feedback_counts()["missed_urgent"], 1)
 
 
+class PendingActionsTableTests(unittest.TestCase):
+    def test_version_7_database_is_upgraded_keeping_its_rows(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "assistant.db")
+        conn = sqlite3.connect(path)
+        conn.executescript("".join(MIGRATIONS[:7]) + "PRAGMA user_version = 7;")
+        conn.execute(
+            "INSERT INTO kv_state (key, value, updated_at) VALUES ('k', 'v', '2026-01-01')"
+        )
+        conn.commit()
+        conn.close()
+
+        store = SqliteDecisionStore(path)
+        self.addCleanup(store.close)
+
+        self.assertEqual(schema_version(store._conn), LATEST_VERSION)
+        self.assertEqual(store.get_state("k"), "v")
+        self.assertIn("payload_hash", columns(store._conn, "pending_actions"))
+
+
 class SignalsColumnTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
