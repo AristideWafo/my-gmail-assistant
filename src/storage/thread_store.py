@@ -29,6 +29,9 @@ _COLUMNS = (
     "offered_at",
     "verdict",
     "updated_at",
+    "composed_text",
+    "composed_for",
+    "composed_advice",
 )
 _SELECT = f"SELECT {', '.join(_COLUMNS)} FROM threads"
 _REPLACE = (
@@ -126,6 +129,9 @@ def _to_row(thread: TrackedThread) -> tuple:
         _iso(thread.offered_at),
         thread.verdict,
         _iso(thread.updated_at),
+        thread.composed_text,
+        thread.composed_for,
+        thread.composed_advice,
     )
 
 
@@ -158,6 +164,9 @@ def _to_thread(row: sqlite3.Row) -> TrackedThread:
         offered_on=row["offered_on"],
         offered_at=_date(row["offered_at"]),
         verdict=row["verdict"],
+        composed_text=row["composed_text"],
+        composed_for=row["composed_for"],
+        composed_advice=row["composed_advice"],
     )
 
 

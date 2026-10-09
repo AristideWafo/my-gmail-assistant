@@ -129,6 +129,10 @@ class Settings(BaseSettings):
     agent_proposals_enabled: bool = False
     # Lets the agent keep, about a correspondent, passages of what the user wrote to it.
     agent_memory_enabled: bool = False
+    # "shadow" has the agent write each due follow-up and stores it, shown in /pending only;
+    # "on" offers the agent's text instead of the fixed one. Needs AGENT_MODE=on and
+    # FOLLOW_UP_MODE shadow or on.
+    agent_follow_up_mode: Literal["off", "shadow", "on"] = "off"
     # The model that drives the agent's tool loop; shares GEMINI_API_KEY, its rate limit and
     # its timeout with the analyzer.
     agent_model: str = "gemini-2.5-flash"

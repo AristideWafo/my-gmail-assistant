@@ -1,5 +1,4 @@
 import logging
-import re
 from collections.abc import Callable
 from datetime import timedelta
 
@@ -18,7 +17,7 @@ from src.domain import (
     PendingAction,
     Trajectory,
 )
-from src.formatting import strip_markdown, truncate
+from src.formatting import remove_links, strip_markdown, truncate
 from src.ports import AgentModel, ChatInbox
 
 logger = logging.getLogger(__name__)
@@ -30,7 +29,6 @@ MAX_QUESTION_CHARS = 2000
 # conversation.
 HISTORY_WINDOW = timedelta(minutes=30)
 HISTORY_EXCHANGES = 3
-LINK_REMOVED = "[lien retiré]"
 NO_ANSWER = "Je n'ai pas réussi à répondre à cette question. Reformule-la ou réessaie plus tard."
 GAVE_UP = {
     "over_budget": "Budget du jour de l'assistant atteint : je ne traite plus de question aujourd'hui.",
@@ -39,7 +37,6 @@ GAVE_UP = {
 STALE = "stale_revision"
 STALE_REVISION = "Cette proposition n'est plus en attente : rien à modifier."
 GAVE_UP_OTHER = "Ta question n'a pas pu être traitée. Réessaie plus tard."
-_URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)
 
 
 def trigger_key(message_id: int) -> str:
@@ -57,12 +54,8 @@ def payload(message_id: int, text: str, revises: PendingAction | None = None) ->
 
 
 def presentable(answer: str, question: str) -> str:
-    """What may be shown of a model's answer. A link is only kept when the user wrote it: any
-    other one comes from a mail, and a link can carry out what the mail's text could not."""
-    without_links = _URL_RE.sub(
-        lambda match: match.group(0) if match.group(0) in question else LINK_REMOVED, answer
-    )
-    return truncate(strip_markdown(without_links), MAX_MESSAGE_CHARS)
+    """What may be shown of a model's answer: no link the user did not write, no markdown."""
+    return truncate(strip_markdown(remove_links(answer, keep_from=question)), MAX_MESSAGE_CHARS)
 
 
 class ChatRuns:

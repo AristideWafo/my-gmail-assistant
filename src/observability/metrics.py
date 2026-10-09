@@ -76,6 +76,9 @@ class Metrics:
     followup_proposals = Counter(
         "followup_proposals_total", "What happened to follow-up offers", ["outcome"]
     )
+    followup_texts = Counter(
+        "followup_texts_total", "Follow-ups offered, by who wrote their text", ["author"]
+    )
     followup_capped = Gauge(
         "followup_listing_capped",
         "1 when the last refresh found more recent sent threads than FOLLOW_UP_MAX_THREADS",
@@ -204,6 +207,10 @@ class Metrics:
     @classmethod
     def mark_agent_run(cls, kind: str, outcome: str) -> None:
         cls.agent_runs.labels(kind=kind, outcome=outcome).inc()
+
+    @classmethod
+    def mark_followup_text(cls, author: str) -> None:
+        cls.followup_texts.labels(author=author).inc()
 
     @classmethod
     def mark_followup_refresh_error(cls, step: str) -> None:

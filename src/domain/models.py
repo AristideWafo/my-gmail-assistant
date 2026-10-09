@@ -110,6 +110,11 @@ class TrackedThread:
     offered_on: int | None = None
     offered_at: datetime | None = None
     verdict: str = ""
+    # A follow-up the agent wrote, the anchor it was written for, and what it advises instead
+    # of sending, if anything. All three go with the anchor.
+    composed_text: str = ""
+    composed_for: str = ""
+    composed_advice: str = ""
 
 @dataclass
 class TriageResult:

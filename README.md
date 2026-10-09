@@ -334,6 +334,18 @@ Off by default, and only with `AGENT_MODE=on`. Tell it « retiens que Jean préf
 - A note is about one correspondent, by address. At most 20 per correspondent.
 - `/memory` lists the notes by correspondent; `/memory oublie <numéro>` removes one. Notes are never removed otherwise.
 
+### Follow-ups written by the assistant (`AGENT_FOLLOW_UP_MODE`)
+
+`off` by default. Needs `AGENT_MODE=on` and `FOLLOW_UP_MODE` at `shadow` or `on`. The fixed follow-up text (« Je me permets de revenir vers vous… ») is replaced by one written for the thread.
+
+- When a follow-up becomes due, the agent is asked once for that mail. It reads **that thread only** (no search, no other mail), what you asked to remember about the recipients, and keeps a text on the tracked thread. It can add an advice, « attendre encore » or « ne pas relancer », with its reason.
+- `shadow`: the text is written and stored, and shown under the thread in `/pending`; offers still carry the fixed text. Use it to compare before switching.
+- `on`: the offer carries the agent's text, and its advice if any. **Everything after that is unchanged**: the same message with the same buttons, the same re-check of the thread before sending, sent at most once. The agent offers and sends nothing.
+- An offer waits up to 30 minutes for the agent's text. Without one (model down, budget reached, text refused), it goes out with the fixed text.
+- A text with a placeholder left or with characters that do not show is refused, as for proposed replies.
+- One run per mail to follow up, never asked again for the same mail: a run refused for budget, crashed or cut by a restart leaves that follow-up with the fixed text. These runs share the queue and the daily budget of the questions asked in the chat (`AGENT_DAILY_MAX_RUNS`).
+- Followed in `followup_texts_total{author}` (`agent` or `template`).
+
 Before turning it on, run the scenarios on the live model and read the report: `docker compose exec assistant python -m src.evaluation agent` (see Offline evaluation).
 
 ## Backup and restore
