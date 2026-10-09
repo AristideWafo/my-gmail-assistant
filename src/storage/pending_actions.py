@@ -33,7 +33,8 @@ class SqlitePendingActions:
         self._clock = clock
 
     def propose(self, kind: str, payload: dict, lifetime: timedelta) -> PendingAction:
-        now = self._clock()
+        # Normalised once: what is returned must equal what is read back, whatever the clock.
+        now = self._clock().astimezone(UTC)
         encoded = _encode(payload)
         action = PendingAction(
             id=secrets.token_hex(8),
@@ -51,7 +52,7 @@ class SqlitePendingActions:
                     action.id,
                     kind,
                     encoded,
-                    _digest(encoded),
+                    _digest(kind, encoded),
                     ACTION_PENDING,
                     _iso(now),
                     _iso(action.expires_at),
@@ -65,21 +66,52 @@ class SqlitePendingActions:
             row = self._conn.execute(f"{_SELECT} WHERE id = ?", (action_id,)).fetchone()
         return None if row is None else _to_action(row)
 
-    def attach_chat_message(self, action_id: str, chat_message_id: int) -> None:
+    def attach_chat_message(self, action_id: str, chat_message_id: int) -> bool:
         with self._lock, self._conn:
-            self._conn.execute(
-                "UPDATE pending_actions SET chat_message_id = ?, updated_at = ? WHERE id = ?",
-                (chat_message_id, _iso(self._clock()), action_id),
+            return (
+                self._conn.execute(
+                    "UPDATE pending_actions SET chat_message_id = ?, updated_at = ? "
+                    "WHERE id = ? AND state = ? AND chat_message_id IS NULL",
+                    (chat_message_id, _iso(self._clock()), action_id, ACTION_PENDING),
+                ).rowcount
+                == 1
             )
 
     def begin(self, action_id: str, chat_message_id: int) -> PendingAction | None:
-        return self._leave_pending(action_id, chat_message_id, ACTION_EXECUTING, live_only=True)
+        now = _iso(self._clock())
+        with self._lock, self._conn:
+            taken = self._conn.execute(
+                "UPDATE pending_actions SET state = ?, updated_at = ? "
+                "WHERE id = ? AND state = ? AND chat_message_id = ? AND expires_at > ?",
+                (ACTION_EXECUTING, now, action_id, ACTION_PENDING, chat_message_id, now),
+            ).rowcount
+            if taken != 1:
+                return None
+            row = self._conn.execute(f"{_SELECT} WHERE id = ?", (action_id,)).fetchone()
+            if _digest(row["kind"], row["payload"]) != row["payload_hash"]:
+                # What is about to be carried out is no longer what was shown and confirmed.
+                self._conn.execute(
+                    "UPDATE pending_actions SET state = ? WHERE id = ?", (ACTION_FAILED, action_id)
+                )
+                return None
+        return _to_action(row)
 
     def cancel(self, action_id: str, chat_message_id: int) -> bool:
-        return (
-            self._leave_pending(action_id, chat_message_id, ACTION_CANCELLED, live_only=False)
-            is not None
-        )
+        with self._lock, self._conn:
+            return (
+                self._conn.execute(
+                    "UPDATE pending_actions SET state = ?, updated_at = ? "
+                    "WHERE id = ? AND state = ? AND chat_message_id = ?",
+                    (
+                        ACTION_CANCELLED,
+                        _iso(self._clock()),
+                        action_id,
+                        ACTION_PENDING,
+                        chat_message_id,
+                    ),
+                ).rowcount
+                == 1
+            )
 
     def finish(self, action_id: str, succeeded: bool) -> None:
         with self._lock, self._conn:
@@ -97,40 +129,17 @@ class SqlitePendingActions:
         cutoff = _iso(self._clock() - older_than)
         with self._lock, self._conn:
             return self._conn.execute(
-                "DELETE FROM pending_actions WHERE created_at < ?", (cutoff,)
+                "DELETE FROM pending_actions WHERE expires_at < ?", (cutoff,)
             ).rowcount
-
-    def _leave_pending(
-        self, action_id: str, chat_message_id: int, state: str, live_only: bool
-    ) -> PendingAction | None:
-        now = _iso(self._clock())
-        query = (
-            "UPDATE pending_actions SET state = ?, updated_at = ? "
-            "WHERE id = ? AND state = ? AND chat_message_id = ?"
-        )
-        params: list[object] = [state, now, action_id, ACTION_PENDING, chat_message_id]
-        if live_only:
-            query += " AND expires_at > ?"
-            params.append(now)
-        with self._lock, self._conn:
-            if self._conn.execute(query, params).rowcount != 1:
-                return None
-            row = self._conn.execute(f"{_SELECT} WHERE id = ?", (action_id,)).fetchone()
-            if _digest(row["payload"]) != row["payload_hash"]:
-                # What is about to be carried out is no longer what was shown and confirmed.
-                self._conn.execute(
-                    "UPDATE pending_actions SET state = ? WHERE id = ?", (ACTION_FAILED, action_id)
-                )
-                return None
-        return _to_action(row)
 
 
 def _encode(payload: dict) -> str:
     return json.dumps(payload, sort_keys=True, ensure_ascii=False)
 
 
-def _digest(encoded: str) -> str:
-    return hashlib.sha256(encoded.encode()).hexdigest()
+def _digest(kind: str, encoded: str) -> str:
+    # The kind decides what is done with the payload: it is confirmed with it.
+    return hashlib.sha256(f"{kind}\n{encoded}".encode()).hexdigest()
 
 
 def _iso(value: datetime) -> str:

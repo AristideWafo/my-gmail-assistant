@@ -33,7 +33,9 @@ class PendingActionsTests(unittest.TestCase):
 
         stored = self.actions.get(action.id)
         self.assertEqual(stored, action)
-        self.assertEqual((stored.kind, stored.payload, stored.state), ("send_reply", PAYLOAD, ACTION_PENDING))
+        self.assertEqual(
+            (stored.kind, stored.payload, stored.state), ("send_reply", PAYLOAD, ACTION_PENDING)
+        )
         self.assertEqual(stored.expires_at, NOW + LIFETIME)
         self.assertIsNone(stored.chat_message_id)
 
@@ -83,6 +85,39 @@ class PendingActionsTests(unittest.TestCase):
 
         self.assertIsNone(self.actions.begin(action.id, 50))
         self.assertEqual(self.actions.get(action.id).state, ACTION_FAILED)
+
+    def test_begin_is_refused_when_the_kind_changed_since_it_was_shown(self):
+        action = self.offered()
+        with self.store._conn:
+            self.store._conn.execute(
+                "UPDATE pending_actions SET kind = 'delete_thread' WHERE id = ?", (action.id,)
+            )
+
+        self.assertIsNone(self.actions.begin(action.id, 50))
+        self.assertEqual(self.actions.get(action.id).state, ACTION_FAILED)
+
+    def test_an_action_is_bound_to_a_single_chat_message(self):
+        action = self.actions.propose("send_reply", PAYLOAD, LIFETIME)
+
+        self.assertTrue(self.actions.attach_chat_message(action.id, 50))
+        self.assertFalse(self.actions.attach_chat_message(action.id, 99))
+
+        self.assertIsNone(self.actions.begin(action.id, 99))
+        self.assertIsNotNone(self.actions.begin(action.id, 50))
+
+    def test_an_action_already_begun_cannot_be_bound(self):
+        action = self.offered()
+        self.actions.begin(action.id, 50)
+
+        self.assertFalse(self.actions.attach_chat_message(action.id, 99))
+        self.assertEqual(self.actions.get(action.id).chat_message_id, 50)
+
+    def test_a_clock_without_a_time_zone_still_round_trips(self):
+        self.clock[0] = datetime(2026, 10, 9, 9, 0)  # noqa: DTZ001 - the case under test
+
+        action = self.actions.propose("send_reply", PAYLOAD, LIFETIME)
+
+        self.assertEqual(self.actions.get(action.id), action)
 
     def test_concurrent_presses_begin_a_single_time(self):
         action = self.offered()
@@ -139,9 +174,9 @@ class PendingActionsTests(unittest.TestCase):
 
         self.assertTrue(self.actions.cancel(action.id, 50))
 
-    def test_prune_forgets_old_actions_with_the_rest_of_the_store(self):
+    def test_prune_forgets_actions_expired_for_long_with_the_rest_of_the_store(self):
         old = self.offered()
-        self.clock[0] = NOW + timedelta(days=91)
+        self.clock[0] = NOW + LIFETIME + timedelta(days=91)
         recent = self.offered(51)
 
         self.store.prune(timedelta(days=90))
@@ -149,10 +184,20 @@ class PendingActionsTests(unittest.TestCase):
         self.assertIsNone(self.actions.get(old.id))
         self.assertIsNotNone(self.actions.get(recent.id))
 
+    def test_prune_keeps_an_action_that_has_not_expired_whatever_its_age(self):
+        lasting = self.actions.propose("send_reply", PAYLOAD, timedelta(days=365))
+        self.clock[0] = NOW + timedelta(days=200)
+
+        self.store.prune(timedelta(days=90))
+
+        self.assertIsNotNone(self.actions.get(lasting.id))
+
     def test_text_outside_ascii_survives_a_round_trip(self):
         action = self.offered(payload={"body": "Reçu, à jeudi — Aristide"})
 
-        self.assertEqual(self.actions.begin(action.id, 50).payload["body"], "Reçu, à jeudi — Aristide")
+        self.assertEqual(
+            self.actions.begin(action.id, 50).payload["body"], "Reçu, à jeudi — Aristide"
+        )
 
 
 if __name__ == "__main__":
