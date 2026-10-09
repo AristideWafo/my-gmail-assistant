@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 from src.agent.scope import WHOLE_MAILBOX, MailScope, only_thread
 from src.agent.tools import Tool, Toolbox
+from src.agent.toolsets.followup import followup_tools
 from src.agent.toolsets.judgment import judgment_tools
 from src.agent.toolsets.mail import mail_tools
 from src.agent.toolsets.memory import memory_tools
@@ -61,6 +62,16 @@ def chat_propose(
 
 def thread_bound(ports: AgentPorts, thread_id: str) -> Toolbox:
     return Toolbox(_reading(ports, only_thread(thread_id)))
+
+
+def followup_compose(ports: AgentPorts, thread_id: str, anchor_id: str) -> Toolbox:
+    """Reads the one thread and keeps a text on it. It cannot offer or send it."""
+    return Toolbox(
+        [
+            *_reading(ports, only_thread(thread_id)),
+            *followup_tools(ports.store.threads, thread_id, anchor_id),
+        ]
+    )
 
 
 def _reading(ports: AgentPorts, scope: MailScope) -> list[Tool]:

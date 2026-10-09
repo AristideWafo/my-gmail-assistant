@@ -39,7 +39,10 @@ class FollowUpTracker:
         judge: SentMailJudge | None = None,
         threshold: float = 0.5,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        on_due: Callable[[TrackedThread], None] | None = None,
     ) -> None:
+        # Told of each thread a follow-up is due for, at every refresh until it is offered.
+        self._on_due = on_due
         self._mail = mail
         self._store = store
         self._timezone = timezone
@@ -108,9 +111,20 @@ class FollowUpTracker:
         self._judge_new_anchors()
         Metrics.set_followup_threads(threads.counts())
         now = self._clock()
-        Metrics.followup_due.set(
-            sum(would_propose(t, self.threshold, now) for t in threads.in_state(WAITING_FOR_THEM))
-        )
+        due = [
+            t for t in threads.in_state(WAITING_FOR_THEM) if would_propose(t, self.threshold, now)
+        ]
+        Metrics.followup_due.set(len(due))
+        for thread in due:
+            self._tell_due(thread)
+
+    def _tell_due(self, thread: TrackedThread) -> None:
+        if self._on_due is None:
+            return
+        try:
+            self._on_due(thread)
+        except Exception as exc:  # noqa: BLE001 - told again at the next refresh
+            logger.warning("Could not ask for the follow-up of %s: %s", thread.thread_id, exc)
 
     def _judge_new_anchors(self) -> None:
         # Without an answer a thread is never offered: an unjudged mail is not assumed to wait.

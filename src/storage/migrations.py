@@ -127,6 +127,12 @@ MIGRATIONS: tuple[str, ...] = (
     );
     CREATE INDEX idx_memory_notes_scope ON memory_notes (scope);
     """,
+    # A follow-up the agent wrote for a thread; composed_for is the anchor it was written for.
+    """
+    ALTER TABLE threads ADD COLUMN composed_text TEXT NOT NULL DEFAULT '';
+    ALTER TABLE threads ADD COLUMN composed_for TEXT NOT NULL DEFAULT '';
+    ALTER TABLE threads ADD COLUMN composed_advice TEXT NOT NULL DEFAULT '';
+    """,
 )
 LATEST_VERSION = len(MIGRATIONS)
 

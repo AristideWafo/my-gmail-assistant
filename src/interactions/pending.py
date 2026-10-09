@@ -2,6 +2,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime, tzinfo
 
 from src.domain import WAITING_FOR_THEM, CommandEvent, TrackedThread
+from src.followup.compose import is_composed
+from src.followup.offers import format_advice
 from src.followup.state import NOT_USEFUL, USEFUL, would_propose
 from src.interactions.callbacks import follow_up_buttons
 from src.ports import ChatInbox, DecisionStore
@@ -35,6 +37,10 @@ def format_thread(
         lines.append("Une relance serait proposée.")
     if thread.verdict:
         lines.append(f"Ton avis : {VERDICT_LABELS.get(thread.verdict, thread.verdict)}")
+    if is_composed(thread):
+        lines += ["", "Relance rédigée par l'assistant :", thread.composed_text]
+        if format_advice(thread.composed_advice):
+            lines.append(format_advice(thread.composed_advice))
     return "\n".join(lines)
 
 

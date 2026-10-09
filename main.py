@@ -13,12 +13,15 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from src.agent import chat as agent_chat
+from src.agent.followup import FollowUpRuns
 from src.agent.loop import Limits
 from src.agent.profiles import AgentPorts
 from src.agent.worker import AgentBudget, AgentWorker
 from src.bootstrap import Components, build_components, connection_probes
 from src.config import Settings
 from src.expiring_set import ExpiringSet
+from src.followup import compose as follow_up_compose
+from src.followup.compose import ComposedFollowUps
 from src.followup.offers import FollowUpOffers
 from src.followup.refresh import FollowUpTracker
 from src.gateways.alerts import AlertGateway
@@ -98,6 +101,7 @@ class ApplicationContext:
             self.store, settings.tzinfo, settings.proactive_daily_cap, settings.quiet_hours_window
         )
         self.put_forward_job = self._build_put_forward_job()
+        self.composed_follow_ups = self._build_composed_follow_ups()
         self.follow_ups = self._build_follow_up_tracker()
         self.follow_up_offers = self._build_follow_up_offers()
         self.unsubscribes = self._build_unsubscribe_proposer()
@@ -335,6 +339,20 @@ class ApplicationContext:
             settings.follow_up_hour,
             settings.follow_up_daily_max,
             signature=settings.user_display_name,
+            composed=self.composed_follow_ups,
+        )
+
+    def _build_composed_follow_ups(self) -> ComposedFollowUps | None:
+        settings = self.settings
+        if settings.agent_follow_up_mode == "off" or settings.follow_up_mode == "off":
+            return None
+        if self.agent_worker is None:
+            logger.warning("AGENT_FOLLOW_UP_MODE needs AGENT_MODE=on: follow-ups keep the fixed text")
+            return None
+        return ComposedFollowUps(
+            self.store.agent_runs,
+            self.agent_worker.notify,
+            use_in_offers=settings.agent_follow_up_mode == "on",
         )
 
     def _build_follow_up_tracker(self) -> FollowUpTracker | None:
@@ -352,6 +370,7 @@ class ApplicationContext:
             settings.follow_up_max_threads,
             judge=self.components.sent_mail_judge,
             threshold=settings.follow_up_threshold,
+            on_due=self.composed_follow_ups.request if self.composed_follow_ups else None,
         )
 
     def _build_put_forward_job(self) -> DailyJob | None:
@@ -426,6 +445,10 @@ class ApplicationContext:
                 remembers=settings.agent_memory_enabled,
             )
         }
+        if settings.agent_follow_up_mode != "off" and settings.follow_up_mode != "off":
+            handlers[follow_up_compose.KIND] = FollowUpRuns(
+                model, ports, limits, settings.user_display_name
+            )
         budget = AgentBudget(
             self.store.agent_runs,
             settings.agent_daily_budget_usd,
