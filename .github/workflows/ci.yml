@@ -26,5 +26,14 @@ jobs:
       - name: Test
         run: pytest -v --cov
 
+      - name: Check the compose files
+        env:
+          GRAFANA_HOSTNAME: grafana.example.com
+          GRAFANA_ADMIN_PASSWORD: ci-only
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.traefik.yml config --quiet
+
       - name: Build image (sanity check only)
         run: docker build -t my-gmail-assistant:ci .
