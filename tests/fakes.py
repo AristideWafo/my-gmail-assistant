@@ -4,14 +4,18 @@ from datetime import datetime
 
 from src.bootstrap import Components
 from src.domain import (
+    AgentMessage,
+    AgentTurn,
     Button,
     ChatEvent,
     EmailMessage,
     LLMAnalysis,
     ThreadRef,
     ThreadSnapshot,
+    ToolSpec,
     TriageResult,
 )
+from src.errors import AgentModelError
 from src.storage import SqliteDecisionStore
 
 
@@ -99,6 +103,31 @@ class FakeAnalyzer:
 
     def analyze(self, email: EmailMessage, want_draft: bool, want_entities: bool) -> LLMAnalysis:
         return LLMAnalysis(summary="summary")
+
+
+@dataclass
+class FakeAgentModel:
+    """Plays the turns it was given, in order, whatever it is shown; records what it was shown."""
+
+    script: list[AgentTurn | Exception] = field(default_factory=list)
+    is_configured: bool = True
+    seen: list[tuple[str, tuple[AgentMessage, ...], tuple[ToolSpec, ...]]] = field(
+        default_factory=list
+    )
+
+    def check_connection(self) -> str:
+        return "fake agent model"
+
+    def step(
+        self, system: str, messages: Sequence[AgentMessage], tools: Sequence[ToolSpec]
+    ) -> AgentTurn:
+        self.seen.append((system, tuple(messages), tuple(tools)))
+        if not self.script:
+            raise AgentModelError("the script is over")
+        turn = self.script.pop(0)
+        if isinstance(turn, Exception):
+            raise turn
+        return turn
 
 
 @dataclass

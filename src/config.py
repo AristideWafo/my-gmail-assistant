@@ -122,9 +122,17 @@ class Settings(BaseSettings):
     unsubscribe_proposals_enabled: bool = False
     unsubscribe_min_archived: int = Field(default=5, ge=2)
 
+    # The model that drives the agent's tool loop; shares GEMINI_API_KEY, its rate limit and
+    # its timeout with the analyzer.
+    agent_model: str = "gemini-2.5-flash"
+    # Model turns and tokens one run may use before it is stopped.
+    agent_max_steps: int = Field(default=6, ge=1)
+    agent_max_tokens: int = Field(default=60_000, ge=1)
+
     mail_provider: str = "gmail"
     classifier: str = "jev"
     llm_provider: str = "gemini"
+    agent_provider: str = "gemini"
     # Comma-separated; every listed channel is sent to, in this order (first interactive one wins replies).
     alert_channels: str = "telegram,discord"
     chat_inbox: str = "telegram"

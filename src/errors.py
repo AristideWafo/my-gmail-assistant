@@ -8,3 +8,7 @@ class SchemaVersionError(RuntimeError):
 
 class BackupError(RuntimeError):
     """The store produced a copy that cannot be trusted for a restore."""
+
+
+class AgentModelError(RuntimeError):
+    """The agent's model gave no usable turn; the message is safe to log."""

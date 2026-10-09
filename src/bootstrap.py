@@ -10,8 +10,10 @@ from src.gateways.telegram_bot import TelegramBot, TelegramChannel
 from src.gateways.unsubscribe_http import HttpUnsubscriber
 from src.gmail.client import GmailClient, build_unread_query
 from src.llm.gemini import GeminiClient
+from src.llm.gemini_agent import GeminiAgentModel
 from src.observability.metrics import Metrics
 from src.ports import (
+    AgentModel,
     AlertChannel,
     ChatInbox,
     DecisionStore,
@@ -105,6 +107,16 @@ def _gemini(ctx: BuildContext) -> EmailAnalyzer:
     )
 
 
+def _gemini_agent(ctx: BuildContext) -> AgentModel:
+    s = ctx.settings
+    return GeminiAgentModel(
+        s.gemini_api_key,
+        s.agent_model,
+        max_rpm=s.gemini_max_rpm,
+        timeout_seconds=s.gemini_timeout_seconds,
+    )
+
+
 STORES: dict[str, Callable[[Settings], DecisionStore]] = {
     "sqlite": lambda settings: SqliteDecisionStore(settings.db_path),
 }
@@ -114,6 +126,7 @@ CLASSIFIERS: dict[str, Factory[EmailClassifier]] = {
     "heuristic": lambda ctx: HeuristicClassifier(),
 }
 ANALYZERS: dict[str, Factory[EmailAnalyzer]] = {"gemini": _gemini}
+AGENT_MODELS: dict[str, Factory[AgentModel]] = {"gemini": _gemini_agent}
 ALERT_CHANNELS: dict[str, Factory[AlertChannel]] = {
     "telegram": lambda ctx: TelegramChannel(ctx.telegram_bot),
     "discord": lambda ctx: DiscordChannel(ctx.settings.discord_webhook_url),
@@ -145,6 +158,7 @@ class Components:
     store: DecisionStore
     unsubscriber: Unsubscriber | None = None
     sent_mail_judge: SentMailJudge | None = None
+    agent_model: AgentModel | None = None
     # (registry name, component) pairs to probe at startup, in report order.
     probe_targets: tuple[tuple[str, Any], ...] = ()
 
@@ -174,6 +188,7 @@ def build_components(settings: Settings) -> Components:
     mail_factory = _select(MAIL_PROVIDERS, settings.mail_provider, "MAIL_PROVIDER")
     classifier_factory = _select(CLASSIFIERS, settings.classifier, "CLASSIFIER")
     analyzer_factory = _select(ANALYZERS, settings.llm_provider, "LLM_PROVIDER")
+    agent_model_factory = _select(AGENT_MODELS, settings.agent_provider, "AGENT_PROVIDER")
     chat_factory = _select(CHAT_INBOXES, settings.chat_inbox, "CHAT_INBOX")
     unsubscriber_factory = _select(UNSUBSCRIBERS, settings.unsubscriber, "UNSUBSCRIBER")
     channel_names = _channel_names(settings)
@@ -193,6 +208,7 @@ def build_components(settings: Settings) -> Components:
         store=ctx.store,
         unsubscriber=unsubscriber_factory(ctx),
         sent_mail_judge=_sent_mail_judge(settings),
+        agent_model=agent_model_factory(ctx),
         probe_targets=(
             (settings.mail_provider, mail),
             (settings.llm_provider, analyzer),

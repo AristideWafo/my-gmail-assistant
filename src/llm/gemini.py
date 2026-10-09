@@ -9,6 +9,7 @@ from google.api_core.exceptions import DeadlineExceeded, ResourceExhausted
 
 from src.domain import EmailMessage, LLMAnalysis
 from src.formatting import clean_draft, has_placeholder, strip_markdown
+from src.llm.pricing import estimate_cost_usd
 from src.llm.rate_limit import RateLimiter
 from src.observability.metrics import Metrics
 
@@ -26,13 +27,6 @@ NO_COMMITMENT_RULE = (
     "contient pas, rédige une réponse d'attente : accuse réception et annonce un retour prochain."
 )
 _RETRY_DELAY_RE = re.compile(r"retry in (\d+(?:\.\d+)?)s", re.IGNORECASE)
-
-# $/1M tokens (input, output), verified on ai.google.dev/gemini-api/docs/pricing.
-# Older models (1.5/2.0 flash) are retired and no longer listed there; add only prices you can verify.
-PRICING_PER_MILLION_TOKENS: dict[str, tuple[float, float]] = {
-    "gemini-2.5-flash": (0.30, 2.50),
-}
-_unpriced_models_warned: set[str] = set()
 
 
 def _retry_delay(exc: Exception) -> float:
@@ -101,14 +95,7 @@ class GeminiClient:
             return
         prompt_tokens = usage.prompt_token_count
         completion_tokens = usage.candidates_token_count
-        pricing = PRICING_PER_MILLION_TOKENS.get(self.model_name)
-        cost_usd = None
-        if pricing is not None:
-            input_price, output_price = pricing
-            cost_usd = (prompt_tokens / 1_000_000) * input_price + (completion_tokens / 1_000_000) * output_price
-        elif self.model_name not in _unpriced_models_warned:
-            _unpriced_models_warned.add(self.model_name)
-            logger.warning("No verified pricing for model %s; llm_cost_usd_total will not include it", self.model_name)
+        cost_usd = estimate_cost_usd(self.model_name, prompt_tokens, completion_tokens)
         Metrics.mark_llm_usage(kind, prompt_tokens, completion_tokens, cost_usd)
 
     def analyze(self, email: EmailMessage, want_draft: bool, want_entities: bool) -> LLMAnalysis:

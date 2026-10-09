@@ -5,6 +5,7 @@ from pathlib import Path
 from src import bootstrap
 from src.config import Settings
 from src.ports import (
+    AgentModel,
     AlertChannel,
     ChatInbox,
     DecisionStore,
@@ -25,6 +26,7 @@ CORE_MODULES = [
     *sorted((ROOT / "src" / "interactions").glob("*.py")),
     *sorted((ROOT / "src" / "maintenance").glob("*.py")),
     *sorted((ROOT / "src" / "followup").glob("*.py")),
+    *sorted((ROOT / "src" / "agent").glob("*.py")),
 ]
 ADAPTER_MODULES = (
     "src.gmail",
@@ -45,6 +47,7 @@ FACTORY_REGISTRIES = {
     "MAIL_PROVIDERS": (bootstrap.MAIL_PROVIDERS, MailProvider),
     "CLASSIFIERS": (bootstrap.CLASSIFIERS, EmailClassifier),
     "ANALYZERS": (bootstrap.ANALYZERS, EmailAnalyzer),
+    "AGENT_MODELS": (bootstrap.AGENT_MODELS, AgentModel),
     "ALERT_CHANNELS": (bootstrap.ALERT_CHANNELS, AlertChannel),
     "CHAT_INBOXES": (bootstrap.CHAT_INBOXES, ChatInbox),
     "UNSUBSCRIBERS": (bootstrap.UNSUBSCRIBERS, Unsubscriber),
@@ -97,6 +100,7 @@ class RegistryConformanceTests(unittest.TestCase):
         self.assertIsInstance(components.mail, MailProvider)
         self.assertIsInstance(components.classifier, EmailClassifier)
         self.assertIsInstance(components.analyzer, EmailAnalyzer)
+        self.assertIsInstance(fakes.FakeAgentModel(), AgentModel)
         self.assertIsInstance(components.channels[0], AlertChannel)
         self.assertIsInstance(components.chat, ChatInbox)
         self.assertIsInstance(components.store, DecisionStore)
