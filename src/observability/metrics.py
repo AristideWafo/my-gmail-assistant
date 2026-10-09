@@ -87,6 +87,9 @@ class Metrics:
     agent_runs = Counter(
         "agent_runs_total", "Agent runs by what started them and how they ended", ["kind", "outcome"]
     )
+    agent_proposals = Counter(
+        "agent_proposals_total", "What happened to replies the agent proposed", ["outcome"]
+    )
     agent_queue = Gauge("agent_queued_runs", "Agent runs waiting for the worker")
     backup_last_success = Gauge(
         "backup_last_success_timestamp_seconds", "Unix time of the last verified store backup"
@@ -193,6 +196,10 @@ class Metrics:
     def set_followup_threads(cls, counts: dict[str, int]) -> None:
         for state in ("waiting_for_them", "closed", "ignored"):
             cls.followup_threads.labels(state=state).set(counts.get(state, 0))
+
+    @classmethod
+    def mark_agent_proposal(cls, outcome: str) -> None:
+        cls.agent_proposals.labels(outcome=outcome).inc()
 
     @classmethod
     def mark_agent_run(cls, kind: str, outcome: str) -> None:

@@ -10,6 +10,7 @@ from src.domain import (
     ChatEvent,
     CommandEvent,
     DecisionRecord,
+    PendingAction,
     ReplyEvent,
     TextEvent,
 )
@@ -20,6 +21,7 @@ from src.interactions.callbacks import (
     FOLLOW_UP,
     FOLLOW_UP_ACTION,
     KEEP,
+    PROPOSAL,
     PUT_FORWARD,
     REVIEW,
     SEND,
@@ -31,6 +33,7 @@ from src.interactions.callbacks import (
 from src.interactions.commands import CommandRouter
 from src.interactions.follow_up import FollowUpActions
 from src.interactions.pending import PendingCommand
+from src.interactions.proposals import ProposalActions
 from src.interactions.put_forward import PutForwardList
 from src.interactions.review import ReviewCommand
 from src.interactions.stats import StatsCommand
@@ -80,10 +83,13 @@ class InteractionHandler:
         timezone: tzinfo = UTC,
         follow_ups_on: bool = False,
         on_text: Callable[[TextEvent], None] | None = None,
+        on_revision: Callable[[ReplyEvent, PendingAction], None] | None = None,
     ) -> None:
         self._store = store
         # None: free text is not handled, as before the agent.
         self._on_text = on_text
+        # None: a reply to a proposal is not a request to rewrite it.
+        self._on_revision = on_revision
         self._chat = chat
         self._mail = mail
         self._unsubscriber = unsubscriber
@@ -108,6 +114,8 @@ class InteractionHandler:
         self.follow_up_actions = FollowUpActions(
             store, mail, self._answer, self._clear, enabled=follow_ups_on, timezone=timezone
         )
+        # Built whatever the mode: a proposal already on screen must still be answered.
+        self.proposal_actions = ProposalActions(store, mail, self._answer, self._clear)
         # None: sent threads are not tracked, so there is nothing to list.
         if follow_up_threshold is not None:
             self.commands.register(
@@ -150,6 +158,7 @@ class InteractionHandler:
             KEEP: self._on_keep,
             FOLLOW_UP: self._on_follow_up_verdict,
             FOLLOW_UP_ACTION: self.follow_up_actions.handle,
+            PROPOSAL: self.proposal_actions.handle,
         }
         handlers[callback.action](event, callback)
 
@@ -273,6 +282,14 @@ class InteractionHandler:
         reply_key = f"reply:{event.message_id}"
         if self._store.get_state(reply_key) is not None:
             Metrics.mark_chat_reply("duplicate")
+            return
+        proposal = (
+            self._store.pending_actions.pending_on(event.reply_to_message_id)
+            if self._on_revision is not None
+            else None
+        )
+        if proposal is not None:
+            self._on_revision(event, proposal)
             return
         record = self._store.find_by_chat_message(event.reply_to_message_id)
         if record is None:

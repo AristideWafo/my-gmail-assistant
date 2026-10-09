@@ -37,7 +37,7 @@ from src.health import (
     run_watchdog,
 )
 from src.interactions import InteractionHandler
-from src.interactions.callbacks import follow_up_offer_buttons
+from src.interactions.callbacks import follow_up_offer_buttons, proposal_buttons
 from src.interactions.listener import run_listener
 from src.interactions.unsubscribe import UnsubscribeProposer
 from src.maintenance import BackupRotation
@@ -84,6 +84,11 @@ class ApplicationContext:
                 settings.tzinfo,
                 follow_ups_on=settings.follow_up_mode == "on",
                 on_text=self._queue_free_text if self.agent_worker is not None else None,
+                on_revision=(
+                    self._queue_revision
+                    if self.agent_worker is not None and settings.agent_proposals_enabled
+                    else None
+                ),
             )
             if self.chat is not None
             else None
@@ -314,7 +319,9 @@ class ApplicationContext:
         if self.follow_ups is None or settings.follow_up_mode != "on":
             return None
         if self.chat is None or not self.chat.is_configured or not self.inbound_enabled:
-            logger.warning("FOLLOW_UP_MODE=on needs the chat with TELEGRAM_INBOUND_ENABLED: offers off")
+            logger.warning(
+                "FOLLOW_UP_MODE=on needs the chat with TELEGRAM_INBOUND_ENABLED: offers off"
+            )
             return None
         return FollowUpOffers(
             self.store,
@@ -392,9 +399,7 @@ class ApplicationContext:
         if self.components.unsubscriber is None:
             logger.warning("UNSUBSCRIBE_PROPOSALS_ENABLED ignored: UNSUBSCRIBER is none")
             return None
-        return UnsubscribeProposer(
-            self.store, self.chat, self.settings.unsubscribe_min_archived
-        )
+        return UnsubscribeProposer(self.store, self.chat, self.settings.unsubscribe_min_archived)
 
     def _build_agent_worker(self) -> AgentWorker | None:
         settings = self.settings
@@ -411,7 +416,12 @@ class ApplicationContext:
         limits = Limits(settings.agent_max_steps, settings.agent_max_tokens)
         handlers = {
             agent_chat.KIND: agent_chat.ChatRuns(
-                model, ports, self.chat, limits, settings.user_display_name
+                model,
+                ports,
+                self.chat,
+                limits,
+                settings.user_display_name,
+                proposal_buttons=proposal_buttons if settings.agent_proposals_enabled else None,
             )
         }
         budget = AgentBudget(
@@ -428,6 +438,14 @@ class ApplicationContext:
             agent_chat.trigger_key(event.message_id),
             agent_chat.KIND,
             agent_chat.payload(event.message_id, event.text),
+        ):
+            self.agent_worker.notify()
+
+    def _queue_revision(self, event, proposal) -> None:
+        if self.store.agent_runs.enqueue(
+            agent_chat.trigger_key(event.message_id),
+            agent_chat.KIND,
+            agent_chat.payload(event.message_id, event.text, revises=proposal),
         ):
             self.agent_worker.notify()
 
@@ -625,7 +643,9 @@ def create_app(sync_history: bool | None = None) -> FastAPI:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Gmail triage assistant")
-    parser.add_argument("--sync-history", action="store_true", help="Process historical Gmail messages on startup")
+    parser.add_argument(
+        "--sync-history", action="store_true", help="Process historical Gmail messages on startup"
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     return parser.parse_args()

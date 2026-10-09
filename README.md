@@ -316,6 +316,16 @@ Off by default. With `AGENT_MODE=on`, `TELEGRAM_INBOUND_ENABLED=true` and `GEMIN
 - Limits: `AGENT_MAX_STEPS` (6) model turns and `AGENT_MAX_TOKENS` (60 000) per question; per local day `AGENT_DAILY_MAX_RUNS` (100) questions and `AGENT_DAILY_BUDGET_USD` (0 = no cap) of estimated cost, apart from `LLM_DAILY_BUDGET_USD`. Past them, the assistant says so.
 - Followed in `agent_runs_total{kind,outcome}` and `agent_queued_runs`. Each question, its answer, its cost and a short trace of the tools used are kept 90 days in the database.
 
+### Replies proposed by the assistant (`AGENT_PROPOSALS_ENABLED=true`)
+
+Off by default, and only with `AGENT_MODE=on`. Asked « réponds à Jean que le devis me va », the assistant reads the thread, writes the reply and shows it in Telegram with **[Envoyer] / [Annuler]**. It still sends nothing itself.
+
+- The model writes the text and names the thread, nothing else. **The recipients and the subject are read from the thread by the code**: the last person who wrote in it, or those you wrote to when the thread only holds your mails. An automated sender (`no-reply@…`) is never answered.
+- The message shows the reply in full, as it will be sent. A reply too long to be shown whole is refused rather than cut, and so is one holding characters that do not show on screen: what you confirm is all of what is sent.
+- **[Envoyer]** sends exactly what was stored when the message was shown, at most once, only from that message and within 48 hours. Just before, the thread is read again: if a message arrived since, nothing is sent and you are told. If Gmail cannot be reached for that check, nothing is sent and the button stays.
+- **Reply to the proposal** to have it rewritten (« plus court », « propose plutôt jeudi »): a new proposal replaces it and the first one loses its buttons.
+- Followed in `agent_proposals_total{outcome}`.
+
 Before turning it on, run the scenarios on the live model and read the report: `docker compose exec assistant python -m src.evaluation agent` (see Offline evaluation).
 
 ## Backup and restore
