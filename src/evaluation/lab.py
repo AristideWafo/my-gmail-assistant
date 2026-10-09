@@ -173,7 +173,7 @@ def format_lab_report(reports: Sequence[LabReport], case_count: int) -> str:
             str(len(report.unstable)),
             f"{statistics.mean(report.tokens):.0f}" if report.tokens else "-",
             f"{statistics.median(report.latencies):.2f}" if report.latencies else "-",
-            f"{_percentile(report.latencies, 0.95):.2f}" if report.latencies else "-",
+            f"{percentile(report.latencies, 0.95):.2f}" if report.latencies else "-",
             str(report.errors),
         ]
         for report in reports
@@ -236,6 +236,6 @@ def _listed(names: Sequence[str]) -> str:
     return shown if len(names) <= LISTED_NAMES else f"{shown}; and {len(names) - LISTED_NAMES} more"
 
 
-def _percentile(values: Sequence[float], fraction: float) -> float:
+def percentile(values: Sequence[float], fraction: float) -> float:
     ordered = sorted(values)
     return ordered[round(fraction * (len(ordered) - 1))]

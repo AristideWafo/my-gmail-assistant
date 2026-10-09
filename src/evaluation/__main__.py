@@ -2,7 +2,8 @@ import argparse
 import sys
 from datetime import UTC, datetime, timedelta
 
-from src.bootstrap import MAIL_PROVIDERS, STORES, BuildContext
+from src.agent.loop import Limits
+from src.bootstrap import AGENT_MODELS, MAIL_PROVIDERS, STORES, BuildContext
 from src.config import Settings
 from src.domain import EmailMessage
 from src.evaluation.attention import format_attention_report
@@ -21,11 +22,18 @@ from src.evaluation.sent import (
     pick_for_labelling,
     save_samples,
 )
+from src.evaluation.trajectories import (
+    below,
+    format_trajectory_report,
+    load_scenarios,
+    run_scenario,
+)
 from src.evaluation.variants import QUESTION_VARIANTS, TRUNCATION_VARIANTS, VARIANTS
 from src.ports import EmailClassifier
 from src.triage.engine import JevClassifier
 from src.triage.few_shot import build_examples
 from src.triage.heuristic import HeuristicClassifier
+from src.triage.judge import JevQuestionJudge
 from src.triage.rules import load_ruleset
 from src.triage.sent_mail import JevSentMailJudge
 
@@ -280,6 +288,40 @@ def sent_report(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def agent(args: argparse.Namespace, settings: Settings) -> int:
+    wanted = {name for name in args.only.split(",") if name}
+    scenarios = [s for s in load_scenarios() if not wanted or s.name in wanted]
+    if not scenarios:
+        print(f"No scenario among {sorted(wanted)}.")
+        return 2
+    store = STORES["sqlite"](settings.model_copy(update={"db_path": ":memory:"}))
+    try:
+        model = AGENT_MODELS[settings.agent_provider](BuildContext(settings, store))
+    finally:
+        store.close()
+    if not model.is_configured:
+        print("The agent model is not configured (GEMINI_API_KEY).")
+        return 2
+    calls = len(scenarios) * args.repeats * settings.agent_max_steps
+    print(
+        f"Up to {calls} model call(s): {len(scenarios)} scenario(s) x {args.repeats} run(s) "
+        f"x {settings.agent_max_steps} step(s)"
+    )
+    if calls > args.max_calls:
+        print(f"Refused: more than --max-calls {args.max_calls}. Raise it, or use --only.")
+        return 2
+    jev = JevQuestionJudge(JevClassifier(settings.jev_api_url, settings.jev_api_key))
+    limits = Limits(settings.agent_max_steps, settings.agent_max_tokens)
+    reports = [
+        run_scenario(
+            scenario, model, limits, args.repeats, jev, user_name=settings.user_display_name
+        )
+        for scenario in scenarios
+    ]
+    print(format_trajectory_report(reports, settings.agent_model, args.repeats, args.min_pass))
+    return 1 if below(reports, args.min_pass) else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m src.evaluation", description="Offline evaluation of the triage on rated mails"
@@ -381,6 +423,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     report_parser.add_argument("--path", default=DEFAULT_SAMPLES_PATH)
     report_parser.set_defaults(handler=sent_report)
+
+    agent_parser = commands.add_parser(
+        "agent",
+        help="play invented scenarios through the agent on the live model and check what it "
+        "did; exits 1 when a scenario passes less often than --min-pass",
+    )
+    agent_parser.add_argument("--repeats", type=int, default=5, help="runs per scenario")
+    agent_parser.add_argument(
+        "--min-pass", type=float, default=0.8, help="share of runs each scenario must pass"
+    )
+    agent_parser.add_argument("--only", default="", help="comma-separated scenario names")
+    agent_parser.add_argument(
+        "--max-calls",
+        type=int,
+        default=DEFAULT_MAX_CALLS,
+        help="refuse to run beyond this many model calls",
+    )
+    agent_parser.set_defaults(handler=agent)
 
     args = parser.parse_args(argv)
     return args.handler(args, Settings())
