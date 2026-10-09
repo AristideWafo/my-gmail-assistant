@@ -41,7 +41,7 @@ def reply_target(snapshot: ThreadSnapshot, my_addresses: frozenset[str]) -> Repl
     to = tuple(
         address
         for address in to
-        if _PLAIN_ADDRESS_RE.match(address)
+        if is_plain_address(address)
         and not is_automated_sender(address)
         and canonical_address(address) not in my_addresses
     )
@@ -56,6 +56,10 @@ def reply_target(snapshot: ThreadSnapshot, my_addresses: frozenset[str]) -> Repl
         references=tuple(m.message_id_header for m in snapshot.messages if m.message_id_header),
         last_message_id=snapshot.messages[-1].id,
     )
+
+
+def is_plain_address(address: str) -> bool:
+    return bool(_PLAIN_ADDRESS_RE.match(address))
 
 
 def has_unseen_characters(text: str) -> bool:

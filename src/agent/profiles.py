@@ -13,6 +13,7 @@ from src.agent.scope import WHOLE_MAILBOX, MailScope, only_thread
 from src.agent.tools import Tool, Toolbox
 from src.agent.toolsets.judgment import judgment_tools
 from src.agent.toolsets.mail import mail_tools
+from src.agent.toolsets.memory import memory_tools
 from src.agent.toolsets.proposals import Revised, proposal_tools
 from src.agent.toolsets.tracking import tracking_tools
 from src.domain import Button
@@ -27,8 +28,17 @@ class AgentPorts:
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
 
 
-def chat_read(ports: AgentPorts) -> Toolbox:
-    return Toolbox([*_reading(ports, WHOLE_MAILBOX), *tracking_tools(ports.store)])
+def chat_read(ports: AgentPorts, said: str | None = None) -> Toolbox:
+    """`said`, the user's own message, gives the run a memory: it may keep passages of it."""
+    return Toolbox(_chat_reading(ports, said))
+
+
+def _chat_reading(ports: AgentPorts, said: str | None) -> list[Tool]:
+    return [
+        *_reading(ports, WHOLE_MAILBOX),
+        *tracking_tools(ports.store),
+        *(memory_tools(ports.store.memory, said) if said is not None else ()),
+    ]
 
 
 def chat_propose(
@@ -37,13 +47,13 @@ def chat_propose(
     buttons: Callable[[str], list[list[Button]] | None],
     reply_to: int | None,
     revised: Revised | None = None,
+    said: str | None = None,
 ) -> Toolbox:
     """`chat_read`, plus showing the user a reply to send or not. Only for a run the user
     started: a proposal is their request, never a mail's."""
     return Toolbox(
         [
-            *_reading(ports, WHOLE_MAILBOX),
-            *tracking_tools(ports.store),
+            *_chat_reading(ports, said),
             *proposal_tools(ports.mail, ports.store, chat, buttons, reply_to, revised),
         ]
     )

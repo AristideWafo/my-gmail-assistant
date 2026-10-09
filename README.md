@@ -326,6 +326,14 @@ Off by default, and only with `AGENT_MODE=on`. Asked « réponds à Jean que le 
 - **Reply to the proposal** to have it rewritten (« plus court », « propose plutôt jeudi »): a new proposal replaces it and the first one loses its buttons.
 - Followed in `agent_proposals_total{outcome}`.
 
+### What the assistant remembers (`AGENT_MEMORY_ENABLED=true`)
+
+Off by default, and only with `AGENT_MODE=on`. Tell it « retiens que Jean préfère être tutoyé » and it keeps that note about Jean's address; it looks its notes up before writing to someone.
+
+- **Only your own words are kept.** A note has to be a passage of the message you wrote, word for word; anything else is refused by the code. What a mail says, or what the model concludes from one, can therefore never enter the memory.
+- A note is about one correspondent, by address. At most 20 per correspondent.
+- `/memory` lists the notes by correspondent; `/memory oublie <numéro>` removes one. Notes are never removed otherwise.
+
 Before turning it on, run the scenarios on the live model and read the report: `docker compose exec assistant python -m src.evaluation agent` (see Offline evaluation).
 
 ## Backup and restore

@@ -127,6 +127,8 @@ class Settings(BaseSettings):
     agent_mode: Literal["off", "on"] = "off"
     # Lets the agent show a reply to a mail, with [Envoyer] / [Annuler]. It sends nothing itself.
     agent_proposals_enabled: bool = False
+    # Lets the agent keep, about a correspondent, passages of what the user wrote to it.
+    agent_memory_enabled: bool = False
     # The model that drives the agent's tool loop; shares GEMINI_API_KEY, its rate limit and
     # its timeout with the analyzer.
     agent_model: str = "gemini-2.5-flash"

@@ -117,6 +117,16 @@ MIGRATIONS: tuple[str, ...] = (
     );
     CREATE INDEX idx_agent_runs_state ON agent_runs (state);
     """,
+    # What the user asked to be remembered about a correspondent; scope is a canonical address.
+    """
+    CREATE TABLE memory_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_memory_notes_scope ON memory_notes (scope);
+    """,
 )
 LATEST_VERSION = len(MIGRATIONS)
 

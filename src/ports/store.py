@@ -8,6 +8,7 @@ from src.domain import (
     DecisionRecord,
     EmailMessage,
     FeedbackTally,
+    MemoryNote,
     PendingAction,
     RatedDecision,
     RuleCandidate,
@@ -75,6 +76,22 @@ class PendingActions(Protocol):
 
 
 @runtime_checkable
+class MemoryNotes(Protocol):
+    def add(self, scope: str, text: str) -> MemoryNote | None:
+        """Keeps a note about a correspondent; None once that correspondent has as many as
+        are kept."""
+        ...
+
+    def about(self, scope: str) -> list[MemoryNote]:
+        """Notes about one correspondent, oldest first."""
+        ...
+
+    def everything(self) -> list[MemoryNote]: ...
+
+    def forget(self, note_id: int) -> bool: ...
+
+
+@runtime_checkable
 class AgentRuns(Protocol):
     def enqueue(self, trigger_key: str, kind: str, payload: dict) -> bool:
         """Queues a run unless its trigger already queued one: False for the duplicate."""
@@ -122,6 +139,9 @@ class DecisionStore(Protocol):
 
     @property
     def agent_runs(self) -> AgentRuns: ...
+
+    @property
+    def memory(self) -> MemoryNotes: ...
 
     def record_decision(
         self, email: EmailMessage, triage: TriageResult, route: str, put_forward: bool = False

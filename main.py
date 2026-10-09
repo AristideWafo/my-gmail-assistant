@@ -89,6 +89,7 @@ class ApplicationContext:
                     if self.agent_worker is not None and settings.agent_proposals_enabled
                     else None
                 ),
+                memory_on=self.agent_worker is not None and settings.agent_memory_enabled,
             )
             if self.chat is not None
             else None
@@ -422,6 +423,7 @@ class ApplicationContext:
                 limits,
                 settings.user_display_name,
                 proposal_buttons=proposal_buttons if settings.agent_proposals_enabled else None,
+                remembers=settings.agent_memory_enabled,
             )
         }
         budget = AgentBudget(
