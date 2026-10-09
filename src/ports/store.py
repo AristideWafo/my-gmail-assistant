@@ -7,6 +7,7 @@ from src.domain import (
     DecisionRecord,
     EmailMessage,
     FeedbackTally,
+    PendingAction,
     RatedDecision,
     RuleCandidate,
     TrackedThread,
@@ -44,9 +45,34 @@ class ThreadStore(Protocol):
 
 
 @runtime_checkable
+class PendingActions(Protocol):
+    def propose(self, kind: str, payload: dict, lifetime: timedelta) -> PendingAction:
+        """Stores the whole of what will be shown for confirmation; nothing is carried out."""
+        ...
+
+    def get(self, action_id: str) -> PendingAction | None: ...
+
+    def attach_chat_message(self, action_id: str, chat_message_id: int) -> None: ...
+
+    def begin(self, action_id: str, chat_message_id: int) -> PendingAction | None:
+        """Hands the action over to be carried out, once: None when it is not pending, has
+        expired, was not offered on that chat message or no longer holds what was stored."""
+        ...
+
+    def cancel(self, action_id: str, chat_message_id: int) -> bool: ...
+
+    def finish(self, action_id: str, succeeded: bool) -> None: ...
+
+    def prune(self, older_than: timedelta) -> int: ...
+
+
+@runtime_checkable
 class DecisionStore(Protocol):
     @property
     def threads(self) -> ThreadStore: ...
+
+    @property
+    def pending_actions(self) -> PendingActions: ...
 
     def record_decision(
         self, email: EmailMessage, triage: TriageResult, route: str, put_forward: bool = False
@@ -91,6 +117,11 @@ class DecisionStore(Protocol):
     def get_state(self, key: str) -> str | None: ...
 
     def set_state(self, key: str, value: str) -> None: ...
+
+    def claim(self, key: str, value: str = "1") -> bool:
+        """Sets the key only if it is unset, in one step: True for the single caller that may
+        go on with what the key guards."""
+        ...
 
     def rated_decisions(self) -> list[RatedDecision]:
         """Every decision the user gave a verdict on, oldest verdict first."""

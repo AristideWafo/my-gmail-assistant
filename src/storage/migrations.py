@@ -82,6 +82,20 @@ MIGRATIONS: tuple[str, ...] = (
     );
     CREATE INDEX idx_threads_state ON threads (state);
     """,
+    # One row per action proposed in the chat and awaiting a button; payload is a JSON object.
+    """
+    CREATE TABLE pending_actions (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        payload_hash TEXT NOT NULL,
+        chat_message_id INTEGER,
+        state TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """,
 )
 LATEST_VERSION = len(MIGRATIONS)
 

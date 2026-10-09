@@ -207,3 +207,23 @@ class CommandEvent:
 
 Button = tuple[str, str]
 ChatEvent = CallbackEvent | ReplyEvent | CommandEvent
+
+
+ACTION_PENDING = "pending"
+ACTION_EXECUTING = "executing"
+ACTION_DONE = "done"
+ACTION_FAILED = "failed"
+ACTION_CANCELLED = "cancelled"
+
+
+@dataclass(frozen=True)
+class PendingAction:
+    """Something proposed in the chat that only a button press may carry out."""
+
+    id: str
+    kind: str
+    payload: dict
+    state: str
+    created_at: datetime
+    expires_at: datetime
+    chat_message_id: int | None = None

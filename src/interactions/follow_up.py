@@ -91,7 +91,9 @@ class FollowUpActions:
             return
         # Claimed before calling Gmail: a crash or a redelivered press can at worst skip the
         # follow-up, never send it twice.
-        self._store.set_state(sent_key, draft_id)
+        if not self._store.claim(sent_key, draft_id):
+            self._finish(event, thread, SENT, SEND_FAILED, "duplicate")
+            return
         try:
             if not self._mail.send_draft(draft_id):
                 raise RuntimeError("mail provider is not configured")

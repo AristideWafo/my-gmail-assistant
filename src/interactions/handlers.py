@@ -120,13 +120,11 @@ class InteractionHandler:
             self._on_command(event)
 
     def _on_command(self, event: CommandEvent) -> None:
-        command_key = f"cmd:{event.message_id}"
-        if self._store.get_state(command_key) is not None:
-            Metrics.mark_chat_command(self.commands.label(event.name), "duplicate")
-            return
         # Claimed before running: a redelivered update must not replay a command that already
         # sent half of its messages.
-        self._store.set_state(command_key, event.name)
+        if not self._store.claim(f"cmd:{event.message_id}", event.name):
+            Metrics.mark_chat_command(self.commands.label(event.name), "duplicate")
+            return
         self.commands.dispatch(event)
 
     def _on_callback(self, event: CallbackEvent) -> None:
@@ -177,15 +175,13 @@ class InteractionHandler:
     def _on_send(self, event: CallbackEvent, callback: Callback) -> None:
         if not self._offered_here(event, callback):
             return
-        sent_key = f"draft_sent:{callback.target}"
-        if self._store.get_state(sent_key) is not None:
+        # Sending is irreversible and callbacks are delivered at-least-once: claim the send
+        # before calling Gmail, so a crash or timeout can at worst skip it, never send twice.
+        if not self._store.claim(f"draft_sent:{callback.target}"):
             Metrics.mark_chat_reply("duplicate")
             self._answer(event, ALREADY_SENT)
             self._clear(event.message_id)
             return
-        # Sending is irreversible and callbacks are delivered at-least-once: claim the send
-        # before calling Gmail, so a crash or timeout can at worst skip it, never send twice.
-        self._store.set_state(sent_key, "1")
         try:
             if not self._mail.send_draft(callback.target):
                 raise RuntimeError("Gmail is not configured")
@@ -209,15 +205,13 @@ class InteractionHandler:
         offer = self._unsubscribe_offer(event, callback)
         if offer is None:
             return
-        done_key = f"unsub_done:{callback.target}"
-        if self._store.get_state(done_key) is not None:
+        # Same rule as sending a draft: claimed before the request, so a redelivered press can
+        # at worst skip it, never repeat it.
+        if not self._store.claim(f"unsub_done:{callback.target}"):
             Metrics.mark_unsubscribe("duplicate")
             self._answer(event, ALREADY_UNSUBSCRIBED)
             self._clear(event.message_id)
             return
-        # Same rule as sending a draft: claimed before the request, so a redelivered press can
-        # at worst skip it, never repeat it.
-        self._store.set_state(done_key, "1")
         try:
             if self._unsubscriber is None:
                 raise RuntimeError("no unsubscriber is configured")

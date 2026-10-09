@@ -11,6 +11,7 @@ from src.ports import (
     EmailAnalyzer,
     EmailClassifier,
     MailProvider,
+    PendingActions,
     ThreadStore,
     Unsubscriber,
 )
@@ -100,6 +101,7 @@ class RegistryConformanceTests(unittest.TestCase):
         self.assertIsInstance(components.chat, ChatInbox)
         self.assertIsInstance(components.store, DecisionStore)
         self.assertIsInstance(components.store.threads, ThreadStore)
+        self.assertIsInstance(components.store.pending_actions, PendingActions)
 
 
 class CoreIsolationTests(unittest.TestCase):
