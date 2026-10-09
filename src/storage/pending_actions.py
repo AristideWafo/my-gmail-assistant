@@ -66,6 +66,14 @@ class SqlitePendingActions:
             row = self._conn.execute(f"{_SELECT} WHERE id = ?", (action_id,)).fetchone()
         return None if row is None else _to_action(row)
 
+    def pending_on(self, chat_message_id: int) -> PendingAction | None:
+        with self._lock:
+            row = self._conn.execute(
+                f"{_SELECT} WHERE chat_message_id = ? AND state = ? ORDER BY created_at DESC",
+                (chat_message_id, ACTION_PENDING),
+            ).fetchone()
+        return None if row is None else _to_action(row)
+
     def attach_chat_message(self, action_id: str, chat_message_id: int) -> bool:
         with self._lock, self._conn:
             return (

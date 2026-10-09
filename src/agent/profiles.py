@@ -2,7 +2,8 @@
 
 A run started by the user's own message may search the whole mailbox. A run started by a mail
 or a thread reads that thread only: whatever its text says, there is no tool to reach further.
-No profile holds a tool that writes to the mailbox."""
+No profile holds a tool that writes to the mailbox: the most a run can do is show the user
+a reply for them to send."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -12,8 +13,9 @@ from src.agent.scope import WHOLE_MAILBOX, MailScope, only_thread
 from src.agent.tools import Tool, Toolbox
 from src.agent.toolsets.judgment import judgment_tools
 from src.agent.toolsets.mail import mail_tools
+from src.agent.toolsets.proposals import proposal_tools
 from src.agent.toolsets.tracking import tracking_tools
-from src.ports import DecisionStore, MailProvider, QuestionJudge
+from src.ports import ChatInbox, DecisionStore, MailProvider, QuestionJudge
 
 
 @dataclass(frozen=True)
@@ -26,6 +28,23 @@ class AgentPorts:
 
 def chat_read(ports: AgentPorts) -> Toolbox:
     return Toolbox([*_reading(ports, WHOLE_MAILBOX), *tracking_tools(ports.store)])
+
+
+def chat_propose(
+    ports: AgentPorts,
+    chat: ChatInbox,
+    reply_to: int | None,
+    replaces: tuple[str, int] | None = None,
+) -> Toolbox:
+    """`chat_read`, plus showing the user a reply to send or not. Only for a run the user
+    started: a proposal is their request, never a mail's."""
+    return Toolbox(
+        [
+            *_reading(ports, WHOLE_MAILBOX),
+            *tracking_tools(ports.store),
+            *proposal_tools(ports.mail, ports.store, chat, reply_to, replaces),
+        ]
+    )
 
 
 def thread_bound(ports: AgentPorts, thread_id: str) -> Toolbox:

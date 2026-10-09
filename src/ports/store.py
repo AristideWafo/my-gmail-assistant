@@ -54,6 +54,10 @@ class PendingActions(Protocol):
 
     def get(self, action_id: str) -> PendingAction | None: ...
 
+    def pending_on(self, chat_message_id: int) -> PendingAction | None:
+        """The action still awaiting a decision on that chat message, if any."""
+        ...
+
     def attach_chat_message(self, action_id: str, chat_message_id: int) -> bool:
         """Binds a pending action to the message showing it, once: False when it already is."""
         ...

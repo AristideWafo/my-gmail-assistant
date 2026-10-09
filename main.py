@@ -84,6 +84,11 @@ class ApplicationContext:
                 settings.tzinfo,
                 follow_ups_on=settings.follow_up_mode == "on",
                 on_text=self._queue_free_text if self.agent_worker is not None else None,
+                on_revision=(
+                    self._queue_revision
+                    if self.agent_worker is not None and settings.agent_proposals_enabled
+                    else None
+                ),
             )
             if self.chat is not None
             else None
@@ -411,7 +416,12 @@ class ApplicationContext:
         limits = Limits(settings.agent_max_steps, settings.agent_max_tokens)
         handlers = {
             agent_chat.KIND: agent_chat.ChatRuns(
-                model, ports, self.chat, limits, settings.user_display_name
+                model,
+                ports,
+                self.chat,
+                limits,
+                settings.user_display_name,
+                may_propose=settings.agent_proposals_enabled,
             )
         }
         budget = AgentBudget(
@@ -428,6 +438,14 @@ class ApplicationContext:
             agent_chat.trigger_key(event.message_id),
             agent_chat.KIND,
             agent_chat.payload(event.message_id, event.text),
+        ):
+            self.agent_worker.notify()
+
+    def _queue_revision(self, event, proposal) -> None:
+        if self.store.agent_runs.enqueue(
+            agent_chat.trigger_key(event.message_id),
+            agent_chat.KIND,
+            agent_chat.payload(event.message_id, event.text, revises=proposal),
         ):
             self.agent_worker.notify()
 

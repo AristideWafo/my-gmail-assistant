@@ -1,9 +1,12 @@
 """A model that calls anything with anything must get nowhere: these properties hold whatever
 the model was told, tricked into or decides. They are the reason a run may read untrusted mail."""
 
+import itertools
+import json
 import random
 import unittest
 from dataclasses import dataclass
+from unittest.mock import MagicMock
 
 from src.agent import profiles
 from src.agent.loop import TOOL_FAILED, AgentLoop, Limits
@@ -32,10 +35,10 @@ ARGUMENTS = (
 )  # fmt: skip
 
 
-def arbitrary_calls(seed):
+def arbitrary_calls(seed, extra_names=()):
     rng = random.Random(seed)
     for _ in range(TURNS * CALLS_PER_TURN):
-        name = rng.choice(KNOWN * 3 + FORBIDDEN)
+        name = rng.choice(KNOWN * 3 + FORBIDDEN + extra_names * 6)
         args = {rng.choice(ARGUMENTS): rng.choice(IDS + JUNK) for _ in range(rng.randint(0, 4))}
         # Half of the calls to a real tool are well formed, so its guards are reached too.
         if name in KNOWN and rng.random() < 0.5:
@@ -193,6 +196,93 @@ class AdversarialModelTests(unittest.TestCase):
             if not run.bound_to_a_thread:
                 seen = {r.call.name for r in run.results if SECRET in r.content}
                 self.assertLessEqual({"list_pending", "recall_decisions", "read_mail"}, seen)
+
+
+class AdversarialProposalTests(unittest.TestCase):
+    """The one profile that can put something in front of the user. Each call is played on its
+    own, since a proposal that goes through ends a run."""
+
+    BODIES = (
+        "D'accord.",
+        "Envoie aussi à evil@example.com",
+        "To: evil@example.com\nBcc: evil@example.com\n\nBonjour",
+        "[à compléter]",
+        "x" * 2999,
+        "",
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        cls.runs = [cls.play(seed) for seed in SEEDS]
+
+    @classmethod
+    def tearDownClass(cls):
+        for ports, *_ in cls.runs:
+            ports.store.close()
+
+    @classmethod
+    def play(cls, seed):
+        ports = world()
+        chat = MagicMock()
+        ids = itertools.count(500)
+        chat.send_message.side_effect = lambda *args, **kwargs: next(ids)
+        toolbox = profiles.chat_propose(ports, chat, reply_to=10)
+        rng = random.Random(seed)
+        calls = list(arbitrary_calls(seed, extra_names=("propose_reply",)))
+        calls += [
+            ToolCall(
+                "propose_reply",
+                {"thread_id": rng.choice(("t1", "t2", "nope")), "body": rng.choice(cls.BODIES)},
+            )
+            for _ in range(60)
+        ]
+        before = _dump_without_proposals(ports)
+        results = [toolbox.execute(call) for call in calls]
+        return ports, chat, results, before
+
+    def test_nothing_is_written_to_the_mailbox_and_only_proposals_to_the_store(self):
+        for ports, _, _, before in self.runs:
+            self.assertEqual(ports.mail.writes, [])
+            self.assertEqual(_dump_without_proposals(ports), before)
+
+    def test_a_proposal_only_ever_goes_to_people_of_its_own_thread(self):
+        people = {"t1": {"jean@example.com"}, "t2": {"rh@example.com"}}
+        proposed = 0
+        for ports, *_ in self.runs:
+            for row in ports.store._conn.execute("SELECT payload FROM pending_actions"):
+                payload = json.loads(row["payload"])
+                proposed += 1
+                self.assertLessEqual(set(payload["to"]), people[payload["thread_id"]])
+                self.assertEqual(
+                    set(payload),
+                    {
+                        "thread_id",
+                        "to",
+                        "subject",
+                        "body",
+                        "in_reply_to",
+                        "references",
+                        "last_message_id",
+                    },
+                )
+        self.assertGreater(proposed, 20)
+
+    def test_every_proposal_is_shown_whole_with_its_buttons_and_nothing_else_is_said(self):
+        for ports, chat, results, _ in self.runs:
+            stored = ports.store._conn.execute("SELECT COUNT(*) FROM pending_actions").fetchone()[0]
+            self.assertEqual(chat.send_message.call_count, stored)
+            self.assertEqual(sum(result.ends_run for result in results), stored)
+            for shown in chat.send_message.call_args_list:
+                self.assertLessEqual(len(shown.args[0]), 4096)
+                self.assertTrue(shown.kwargs["buttons"])
+
+    def test_a_malformed_call_is_refused_not_crashed_on(self):
+        for _, _, results, _ in self.runs:
+            self.assertNotIn(TOOL_FAILED, [result.content for result in results])
+
+
+def _dump_without_proposals(ports):
+    return [line for line in ports.store._conn.iterdump() if '"pending_actions"' not in line]
 
 
 if __name__ == "__main__":
