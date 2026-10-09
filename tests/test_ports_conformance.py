@@ -6,6 +6,7 @@ from src import bootstrap
 from src.config import Settings
 from src.ports import (
     AgentModel,
+    AgentRuns,
     AlertChannel,
     ChatInbox,
     DecisionStore,
@@ -107,6 +108,7 @@ class RegistryConformanceTests(unittest.TestCase):
         self.assertIsInstance(components.store, DecisionStore)
         self.assertIsInstance(components.store.threads, ThreadStore)
         self.assertIsInstance(components.store.pending_actions, PendingActions)
+        self.assertIsInstance(components.store.agent_runs, AgentRuns)
 
 
 class CoreIsolationTests(unittest.TestCase):

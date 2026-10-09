@@ -17,6 +17,7 @@ from src.domain import (
     TriageResult,
 )
 from src.errors import BackupError
+from src.storage.agent_runs import SqliteAgentRuns
 from src.storage.migrations import LATEST_VERSION, migrate, needs_safety_copy
 from src.storage.pending_actions import SqlitePendingActions
 from src.storage.thread_store import SqliteThreadStore
@@ -66,6 +67,7 @@ class SqliteDecisionStore:
         migrate(self._conn)
         self.threads = SqliteThreadStore(self._conn, self._lock, clock)
         self.pending_actions = SqlitePendingActions(self._conn, self._lock, clock)
+        self.agent_runs = SqliteAgentRuns(self._conn, self._lock, clock)
 
     def record_decision(
         self, email: EmailMessage, triage: TriageResult, route: str, put_forward: bool = False
@@ -337,7 +339,12 @@ class SqliteDecisionStore:
                 f"DELETE FROM kv_state WHERE updated_at < ? AND ({prefixes})",
                 (cutoff, *(f"{prefix}*" for prefix in PRUNABLE_STATE_PREFIXES)),
             ).rowcount
-        return deleted + self.threads.prune(older_than) + self.pending_actions.prune(older_than)
+        return (
+            deleted
+            + self.threads.prune(older_than)
+            + self.pending_actions.prune(older_than)
+            + self.agent_runs.prune(older_than)
+        )
 
     def backup(self, destination: str) -> None:
         _create_private_file(destination)

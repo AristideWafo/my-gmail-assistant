@@ -1,8 +1,9 @@
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Protocol, runtime_checkable
 
 from src.domain import (
+    AgentRun,
     Correction,
     DecisionRecord,
     EmailMessage,
@@ -11,6 +12,7 @@ from src.domain import (
     RatedDecision,
     RuleCandidate,
     TrackedThread,
+    Trajectory,
     TriageResult,
 )
 
@@ -69,12 +71,48 @@ class PendingActions(Protocol):
 
 
 @runtime_checkable
+class AgentRuns(Protocol):
+    def enqueue(self, trigger_key: str, kind: str, payload: dict) -> bool:
+        """Queues a run unless its trigger already queued one: False for the duplicate."""
+        ...
+
+    def get(self, trigger_key: str) -> AgentRun | None: ...
+
+    def take_next(self) -> AgentRun | None:
+        """Hands the oldest queued run over, now running; None when the queue is empty."""
+        ...
+
+    def finish(self, run_id: int, trajectory: Trajectory) -> None: ...
+
+    def fail(self, run_id: int, reason: str) -> None: ...
+
+    def fail_interrupted(self, reason: str) -> list[AgentRun]:
+        """Fails every run still marked running, which only a stop mid-run leaves behind."""
+        ...
+
+    def started_since(self, moment: datetime) -> int: ...
+
+    def cost_since(self, moment: datetime) -> float:
+        """Estimated cost of the runs started since then; a run of unknown price adds nothing."""
+        ...
+
+    def queued(self) -> int: ...
+
+    def prune(self, older_than: timedelta) -> int:
+        """Forgets finished runs only."""
+        ...
+
+
+@runtime_checkable
 class DecisionStore(Protocol):
     @property
     def threads(self) -> ThreadStore: ...
 
     @property
     def pending_actions(self) -> PendingActions: ...
+
+    @property
+    def agent_runs(self) -> AgentRuns: ...
 
     def record_decision(
         self, email: EmailMessage, triage: TriageResult, route: str, put_forward: bool = False
