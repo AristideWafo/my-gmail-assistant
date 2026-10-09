@@ -496,7 +496,8 @@ Lots :
 - ✅ A10 — Relances rédigées par l'agent (`AGENT_FOLLOW_UP_MODE=off|shadow|on`). À chaque rafraîchissement, le suivi signale les fils dont la relance est due ; un run par ancre (`followup:<fil>:<ancre>`) est mis en file. Profil `followup_compose` : lecture du fil déclencheur seulement, plus `write_follow_up(text, advice, reason)` qui range le texte sur le fil suivi (colonnes `composed_*`, schéma 11) et rien d'autre. `FollowUpOffers` attend le texte 30 minutes au plus, puis prend le gabarit ; le texte retenu devient `proposal_text`, et la suite (boutons, relecture du fil, envoi une fois) n'est pas modifiée. `shadow` : écrit, visible dans `/pending`, non proposé. Les notes mémoire sur les destinataires accompagnent la demande. Un avis « attendre » ou « ne pas relancer » s'affiche sous le texte : c'est toi qui appuies
   - Pour passer de `shadow` à `on` : comparer dans `/pending` une dizaine de relances rédigées avec le gabarit
   - Limites connues : ces runs partagent la file et le budget du chat (une rafale de relances dues retarde une question) ; après un report, l'avis écrit trois jours plus tôt est réaffiché tel quel
-- ⬜ A11 — Rejeu hors ligne du tri par l'agent sur les mails notés, avec et sans le verdict JEV. La bascule du tri se décide sur ces chiffres, pas avant
+- ✅ A11 — Rejeu hors ligne du tri : `python -m src.evaluation agent-triage`. Chaque mail noté qu'aucune règle ne décide est rejugé par JEV, puis par l'agent dans deux bras, avec et sans le verdict JEV sous les yeux (avec, il a tendance à le répéter : son accord avec la route actuelle ne prouve rien). L'agent lit le mail et son fil et dit `alert`, `keep` ou `archive` ; rien n'est déplacé. Le rapport compare la route d'aujourd'hui et chaque bras à tes verdicts, sur tous les mails, sur ceux où JEV hésite (confiance < 0,7) et sur ceux que tu as corrigés, tel quel et avec la règle monotone (« jamais moins visible »), avec tokens et coût
+  - **La bascule du tri n'est pas faite et ne se décide pas ici.** Elle se discute si le bras « sans verdict, jamais moins visible » rattrape nettement plus de mails corrigés que la route actuelle, sur un nombre de cas qui veut dire quelque chose (les seuils de la Phase 1 : 100 verdicts dont 20 corrections). Noter les chiffres ici
 
 **Reporté** (à rouvrir après les chiffres de A10 et A11) : réveil posé par l'agent, règles proposées par l'agent, deuxième relance, délai adapté à l'interlocuteur, notes déduites par l'agent, tri en production par l'agent.
 
@@ -554,6 +555,14 @@ Le code de S1, de la Phase 0, de la Phase 1, de la Phase 1bis (L1, L3 à L5) et 
 7. `python -m src.evaluation lab --source recent` (L3) et `python -m src.evaluation routing-rules` (L4), résultats à noter ici avant toute adoption
 8. Contrôler les brouillons créés et le label `Assistant/A_repondre` ; ajuster `NEEDS_REPLY_THRESHOLD` d'après les probabilités stockées
 9. `python -m src.evaluation candidates` pour écrire les premières règles et la liste VIP
+
+**Phase A — agent** (code écrit, onze PRs empilées ; rien n'a tourné contre le vrai Gemini, faute de clé sur le poste de développement). Dans cet ordre, une étape à la fois :
+
+A. `docker compose exec assistant python -m src.evaluation agent` : taux par scénario et coût, notés en A5. Ajuster les attentes des scénarios écrites sans avoir vu une vraie réponse
+B. `AGENT_MODE=on` : 20 questions libres vérifiées à la main, taux noté ; un arrêt du conteneur en plein run doit donner un message au redémarrage
+C. `AGENT_PROPOSALS_ENABLED=true` : un cas réel de bout en bout, texte envoyé identique au texte affiché
+D. `AGENT_MEMORY_ENABLED=true`, puis `AGENT_FOLLOW_UP_MODE=shadow` : une dizaine de relances rédigées comparées au gabarit dans `/pending`, avant `on`
+E. `python -m src.evaluation agent-triage` quand les verdicts suffisent ; chiffres notés en A11
 
 **Critères encore ouverts** :
 

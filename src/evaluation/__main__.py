@@ -3,6 +3,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 
 from src.agent.loop import Limits
+from src.agent.profiles import AgentPorts
 from src.bootstrap import AGENT_MODELS, MAIL_PROVIDERS, STORES, BuildContext
 from src.config import Settings
 from src.domain import EmailMessage
@@ -28,6 +29,7 @@ from src.evaluation.trajectories import (
     load_scenarios,
     run_scenario,
 )
+from src.evaluation.triage_replay import format_replay_report, judge, replay
 from src.evaluation.variants import QUESTION_VARIANTS, TRUNCATION_VARIANTS, VARIANTS
 from src.ports import EmailClassifier
 from src.triage.engine import JevClassifier
@@ -322,6 +324,48 @@ def agent(args: argparse.Namespace, settings: Settings) -> int:
     return 1 if below(reports, args.min_pass) else 0
 
 
+def agent_triage(args: argparse.Namespace, settings: Settings) -> int:
+    jev = JevClassifier(settings.jev_api_url, settings.jev_api_key)
+    if not jev.is_configured:
+        print("JEV is not configured (JEV_API_URL / JEV_API_KEY).")
+        return 2
+    store = STORES[settings.store_backend](settings)
+    try:
+        ctx = BuildContext(settings, store)
+        model = AGENT_MODELS[settings.agent_provider](ctx)
+        if not model.is_configured:
+            print("The agent model is not configured (GEMINI_API_KEY).")
+            return 2
+        mail = MAIL_PROVIDERS[settings.mail_provider](ctx)
+        rated = store.rated_decisions()
+        if args.limit:
+            rated = rated[-args.limit :]
+        dataset = build_dataset(rated, mail, split_at="", full_body=True)
+        rules = load_ruleset(settings.triage_rules_path)
+        # Production never asks anyone about a mail a rule decides.
+        cases = [case for case in dataset.cases if rules.classify(case.email) is None]
+        calls = 2 * len(cases) * settings.agent_max_steps
+        print(
+            f"{len(cases)} JEV call(s) and up to {calls} model call(s): {len(cases)} mail(s) "
+            f"x 2 arms x {settings.agent_max_steps} step(s)"
+        )
+        if calls > args.max_calls:
+            print(f"Refused: more than --max-calls {args.max_calls}. Raise it, or use --limit.")
+            return 2
+        judged = judge(cases, jev, settings.low_confidence_threshold)
+        reports = replay(
+            judged,
+            model,
+            AgentPorts(mail, store),
+            Limits(settings.agent_max_steps, settings.agent_max_tokens),
+            settings.user_display_name,
+        )
+    finally:
+        store.close()
+    print(format_replay_report(reports, len(judged), settings.agent_model))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m src.evaluation", description="Offline evaluation of the triage on rated mails"
@@ -441,6 +485,20 @@ def main(argv: list[str] | None = None) -> int:
         help="refuse to run beyond this many model calls",
     )
     agent_parser.set_defaults(handler=agent)
+
+    replay_parser = commands.add_parser(
+        "agent-triage",
+        help="replay the mails you rated through the agent, shown JEV's verdict and not, "
+        "against today's route; nothing is moved or written",
+    )
+    replay_parser.add_argument("--limit", type=int, default=0, help="only the N latest verdicts")
+    replay_parser.add_argument(
+        "--max-calls",
+        type=int,
+        default=DEFAULT_MAX_CALLS,
+        help="refuse to run beyond this many model calls",
+    )
+    replay_parser.set_defaults(handler=agent_triage)
 
     args = parser.parse_args(argv)
     return args.handler(args, Settings())

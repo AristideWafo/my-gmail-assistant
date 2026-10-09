@@ -17,6 +17,7 @@ from src.agent.toolsets.mail import mail_tools
 from src.agent.toolsets.memory import memory_tools
 from src.agent.toolsets.proposals import Revised, proposal_tools
 from src.agent.toolsets.tracking import tracking_tools
+from src.agent.toolsets.triage import Decision, triage_tools
 from src.domain import Button
 from src.ports import ChatInbox, DecisionStore, MailProvider, QuestionJudge
 
@@ -72,6 +73,14 @@ def followup_compose(ports: AgentPorts, thread_id: str, anchor_id: str) -> Toolb
             *followup_tools(ports.store.threads, thread_id, anchor_id),
         ]
     )
+
+
+def triage_replay(ports: AgentPorts, thread_id: str, decision: Decision) -> Toolbox:
+    """Reads the mail's own thread and says where the mail should go. It moves nothing."""
+    # A mail parsed without a thread id has no thread to be bound to: it is judged on the
+    # text given in the prompt alone.
+    reading = _reading(ports, only_thread(thread_id)) if thread_id else []
+    return Toolbox([*reading, *triage_tools(decision)])
 
 
 def _reading(ports: AgentPorts, scope: MailScope) -> list[Tool]:
