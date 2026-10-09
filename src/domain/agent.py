@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 
 ANSWERED = "answered"
 ENDED_BY_TOOL = "ended_by_tool"
@@ -91,3 +92,24 @@ class Trajectory:
             if isinstance(message, AgentTurn)
             for call in message.tool_calls
         )
+
+
+RUN_QUEUED = "queued"
+RUN_RUNNING = "running"
+RUN_DONE = "done"
+RUN_FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class AgentRun:
+    """One thing asked of the agent, from the moment it is queued to how it ended."""
+
+    id: int
+    # What started it, e.g. the chat message: the same trigger never starts two runs.
+    trigger_key: str
+    kind: str
+    payload: dict
+    state: str
+    created_at: datetime
+    outcome: str = ""
+    answer: str = ""

@@ -96,6 +96,27 @@ MIGRATIONS: tuple[str, ...] = (
         updated_at TEXT NOT NULL
     );
     """,
+    # One row per thing asked of the agent; the unique trigger key is what makes a redelivered
+    # chat message start a single run. payload and trace are JSON.
+    """
+    CREATE TABLE agent_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trigger_key TEXT NOT NULL UNIQUE,
+        kind TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        state TEXT NOT NULL,
+        outcome TEXT NOT NULL DEFAULT '',
+        answer TEXT NOT NULL DEFAULT '',
+        trace TEXT NOT NULL DEFAULT '[]',
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT
+    );
+    CREATE INDEX idx_agent_runs_state ON agent_runs (state);
+    """,
 )
 LATEST_VERSION = len(MIGRATIONS)
 

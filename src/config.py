@@ -128,6 +128,10 @@ class Settings(BaseSettings):
     # Model turns and tokens one run may use before it is stopped.
     agent_max_steps: int = Field(default=6, ge=1)
     agent_max_tokens: int = Field(default=60_000, ge=1)
+    # What the agent may spend per local day, apart from LLM_DAILY_BUDGET_USD: an estimated
+    # cost (0 = no cap; blind to a model without a known price) and a number of runs.
+    agent_daily_budget_usd: float = Field(default=0, ge=0)
+    agent_daily_max_runs: int = Field(default=100, ge=1)
 
     mail_provider: str = "gmail"
     classifier: str = "jev"
