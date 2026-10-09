@@ -78,6 +78,11 @@ class AgentRuns(Protocol):
 
     def get(self, trigger_key: str) -> AgentRun | None: ...
 
+    def answered_before(self, run: AgentRun, since: datetime, limit: int) -> list[AgentRun]:
+        """The last runs of the same kind that ended on an answer before this one, oldest
+        first."""
+        ...
+
     def take_next(self) -> AgentRun | None:
         """Hands the oldest queued run over, now running; None when the queue is empty."""
         ...

@@ -169,6 +169,9 @@ class Components:
     sent_mail_judge: SentMailJudge | None = None
     agent_model: AgentModel | None = None
     question_judge: QuestionJudge | None = None
+    # The agent's worker thread reads mail while the polling thread does: the provider's
+    # client is not safe to share between them.
+    agent_mail: MailProvider | None = None
     # (registry name, component) pairs to probe at startup, in report order.
     probe_targets: tuple[tuple[str, Any], ...] = ()
 
@@ -209,6 +212,8 @@ def build_components(settings: Settings) -> Components:
     analyzer = analyzer_factory(ctx)
     channels = [(name, ALERT_CHANNELS[name](ctx)) for name in channel_names]
     chat = chat_factory(ctx)
+    agent_on = settings.agent_mode != "off"
+    agent_model = agent_model_factory(ctx)
     return Components(
         mail=mail,
         classifier=classifier,
@@ -218,14 +223,16 @@ def build_components(settings: Settings) -> Components:
         store=ctx.store,
         unsubscriber=unsubscriber_factory(ctx),
         sent_mail_judge=_sent_mail_judge(settings),
-        agent_model=agent_model_factory(ctx),
+        agent_model=agent_model,
         question_judge=_question_judge(settings),
+        agent_mail=mail_factory(ctx) if agent_on else None,
         probe_targets=(
             (settings.mail_provider, mail),
             (settings.llm_provider, analyzer),
             (settings.classifier, classifier),
             *channels,
             *_chat_probe(settings, chat, channel_names),
+            *(((f"{settings.agent_provider}-agent", agent_model),) if agent_on else ()),
         ),
     )
 
