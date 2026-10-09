@@ -52,6 +52,9 @@ def dmarc_passed(headers: list[dict[str, Any]]) -> bool:
     return False
 
 
+SEARCH_EXCLUSIONS = "-in:draft -in:spam -in:trash"
+
+
 def build_unread_query(max_age_days: int) -> str:
     return f"is:unread in:inbox newer_than:{max_age_days}d"
 
@@ -122,6 +125,14 @@ class GmailClient:
                 return None
             raise
         return self._parse_message(message, full_body)
+
+    def search(self, query: str, limit: int, max_retries: int = 5) -> list[EmailMessage]:
+        if not self._service:
+            return []
+        # Unsent drafts are not mail, and spam or trash is where the most hostile text sits.
+        return self._list_and_parse(
+            query=f"({query}) {SEARCH_EXCLUSIONS}", max_results=limit, max_retries=max_retries
+        )
 
     def in_inbox(self, message_id: str, max_retries: int = 5) -> bool:
         if not self._service:

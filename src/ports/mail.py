@@ -23,6 +23,11 @@ class MailProvider(Protocol):
         """
         ...
 
+    def search(self, query: str, limit: int) -> list[EmailMessage]:
+        """The most recent mails matching a query in the provider's own search syntax; empty
+        when the provider is not configured."""
+        ...
+
     def in_inbox(self, message_id: str) -> bool:
         """False once the message was archived or deleted; True when the provider cannot tell."""
         ...
