@@ -12,6 +12,8 @@ MAX_THREAD_MESSAGES = 8
 MAX_BODY_CHARS = 3000
 MAX_ID_CHARS = 64
 MAX_QUERY_CHARS = 200
+MAX_HEADER_CHARS = 300
+MAX_RECIPIENTS = 10
 
 
 def mail_tools(mail: MailProvider, scope: MailScope) -> list[Tool]:
@@ -25,15 +27,22 @@ def mail_tools(mail: MailProvider, scope: MailScope) -> list[Tool]:
         if not scope.allows(args["thread_id"]):
             raise ToolRefused(NOT_READABLE)
         snapshot = mail.thread_snapshot(args["thread_id"])
-        if snapshot is None:
+        # The provider's word is checked too: the scope must hold whatever it returns.
+        if snapshot is None or not scope.allows(snapshot.thread_id):
             raise ToolRefused(NOT_READABLE)
         messages = []
         for message in snapshot.messages[-MAX_THREAD_MESSAGES:]:
-            email = mail.fetch_message(message.id, full_body=True)
-            if email is not None:
-                messages.append(
-                    {**_full(email), "to": list(message.to), "from_me": message.from_me}
-                )
+            try:
+                email = scope.read(mail, message.id)
+            except ToolRefused:
+                continue
+            messages.append(
+                {
+                    **_full(email),
+                    "to": [short(address) for address in message.to[:MAX_RECIPIENTS]],
+                    "from_me": message.from_me,
+                }
+            )
         return _encode({"thread_id": snapshot.thread_id, "messages": messages})
 
     def search_mail(args: dict) -> str:
@@ -78,14 +87,19 @@ def mail_tools(mail: MailProvider, scope: MailScope) -> list[Tool]:
     return tools
 
 
+def short(value: str) -> str:
+    """Headers are the sender's text too: a subject or an address is cut like a body is."""
+    return truncate(value, MAX_HEADER_CHARS)
+
+
 def _summary(email: EmailMessage) -> dict:
     return {
-        "message_id": email.id,
-        "thread_id": email.thread_id,
-        "from": email.sender,
-        "subject": email.subject,
-        "date": email.received_at,
-        "snippet": email.snippet,
+        "message_id": short(email.id),
+        "thread_id": short(email.thread_id),
+        "from": short(email.sender),
+        "subject": short(email.subject),
+        "date": short(email.received_at),
+        "snippet": short(email.snippet),
     }
 
 

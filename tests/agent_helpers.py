@@ -1,8 +1,14 @@
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from src.agent.profiles import AgentPorts
-from src.domain import EmailMessage
+from src.domain import (
+    WAITING_FOR_THEM,
+    EmailMessage,
+    FollowUpAnchor,
+    TrackedThread,
+    TriageResult,
+)
 from src.storage import SqliteDecisionStore
 from tests.fakes import FakeMail
 from tests.followup_helpers import message, snapshot
@@ -64,13 +70,12 @@ class FakeJudge:
 
 
 def world():
-    """Thread t1 (two mails) and thread t2, whose text must never reach a run bound to t1."""
+    """Thread t1 (two mails) and thread t2, of which nothing may reach a run bound to t1. The
+    store already holds what the assistant recorded about both."""
+    hostile = email("m2", "t1", subject="x" * 200_000, body="Je relance.", sender="y" * 100_000)
+    other = email("m9", "t2", subject=f"Salaires {SECRET}", body=SECRET, sender=f"{SECRET}@rh.fr")
     mail = SpyMail(
-        unread=[
-            email("m1", "t1"),
-            email("m2", "t1", body="Je relance pour le devis."),
-            email("m9", "t2", subject="Salaires", body=SECRET),
-        ],
+        unread=[email("m1", "t1"), hostile, other],
         threads=[
             snapshot(
                 message("m1", sender="jean@example.com", to=("me@example.com",)), message("m2")
@@ -79,5 +84,7 @@ def world():
         ],
     )
     store = SqliteDecisionStore(":memory:", clock=lambda: NOW)
-    judge = FakeJudge()
-    return AgentPorts(mail=mail, store=store, judge=judge, clock=lambda: NOW)
+    store.record_decision(other, TriageResult("low", "personnel", 0.9), "label")
+    anchor = FollowUpAnchor("m9", NOW - timedelta(days=4), (f"{SECRET}@rh.fr",), (), SECRET)
+    store.threads.save(TrackedThread("t2", "1", WAITING_FOR_THEM, NOW, anchor=anchor, due_at=NOW))
+    return AgentPorts(mail=mail, store=store, judge=FakeJudge(), clock=lambda: NOW)

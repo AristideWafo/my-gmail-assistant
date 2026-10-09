@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from src.agent.scope import WHOLE_MAILBOX, MailScope, only_thread
-from src.agent.tools import Toolbox
+from src.agent.tools import Tool, Toolbox
 from src.agent.toolsets.judgment import judgment_tools
 from src.agent.toolsets.mail import mail_tools
 from src.agent.toolsets.tracking import tracking_tools
@@ -28,15 +28,11 @@ def chat_read(ports: AgentPorts) -> Toolbox:
     return Toolbox([*_reading(ports, WHOLE_MAILBOX), *tracking_tools(ports.store)])
 
 
-def followup_compose(ports: AgentPorts, thread_id: str) -> Toolbox:
+def thread_bound(ports: AgentPorts, thread_id: str) -> Toolbox:
     return Toolbox(_reading(ports, only_thread(thread_id)))
 
 
-def triage_replay(ports: AgentPorts, thread_id: str) -> Toolbox:
-    return Toolbox(_reading(ports, only_thread(thread_id)))
-
-
-def _reading(ports: AgentPorts, scope: MailScope) -> list:
+def _reading(ports: AgentPorts, scope: MailScope) -> list[Tool]:
     return [
         *mail_tools(ports.mail, scope),
         *judgment_tools(ports.judge, ports.mail, scope, ports.clock),

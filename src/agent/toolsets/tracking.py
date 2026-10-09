@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from src.agent.schema import arguments, text
 from src.agent.tools import Tool
+from src.agent.toolsets.mail import MAX_RECIPIENTS, short
 from src.domain import WAITING_FOR_THEM, ToolSpec
 from src.ports import DecisionStore
 
@@ -15,19 +16,21 @@ def tracking_tools(store: DecisionStore) -> list[Tool]:
     """What the assistant itself recorded: read only."""
 
     def list_pending(_: dict) -> str:
-        waiting = store.threads.in_state(WAITING_FOR_THEM)
+        waiting = [t for t in store.threads.in_state(WAITING_FOR_THEM) if t.anchor is not None]
         return json.dumps(
             [
                 {
                     "thread_id": thread.thread_id,
-                    "to": list(thread.anchor.to + thread.anchor.cc),
-                    "subject": thread.anchor.subject,
+                    "to": [
+                        short(address)
+                        for address in (thread.anchor.to + thread.anchor.cc)[:MAX_RECIPIENTS]
+                    ],
+                    "subject": short(thread.anchor.subject),
                     "sent_at": thread.anchor.sent_at.isoformat(),
                     "follow_up_due_at": thread.due_at.isoformat() if thread.due_at else None,
                     "probability_it_expects_an_answer": thread.expects_answer,
                 }
                 for thread in waiting[:MAX_LISTED]
-                if thread.anchor is not None
             ],
             ensure_ascii=False,
         )
@@ -44,8 +47,8 @@ def tracking_tools(store: DecisionStore) -> list[Tool]:
                 {
                     "message_id": record.message_id,
                     "thread_id": record.thread_id,
-                    "from": record.sender,
-                    "subject": record.subject,
+                    "from": short(record.sender),
+                    "subject": short(record.subject),
                     "date": record.created_at,
                     "urgency": record.urgency,
                     "category": record.category,

@@ -520,7 +520,8 @@ class SearchTests(unittest.TestCase):
         found, = client.search("from:jean devis", 3)
 
         listed = service.users().messages().list.call_args.kwargs
-        self.assertEqual((listed["q"], listed["maxResults"]), ("from:jean devis", 3))
+        self.assertEqual(listed["q"], "(from:jean devis) -in:draft -in:spam -in:trash")
+        self.assertEqual(listed["maxResults"], 3)
         self.assertEqual((found.id, found.thread_id, found.sender), ("m1", "t1", "jean@example.com"))
 
     def test_search_finds_nothing_when_gmail_is_not_configured(self):

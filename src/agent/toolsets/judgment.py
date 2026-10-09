@@ -5,7 +5,7 @@ from datetime import datetime
 from src.agent.schema import arguments, text
 from src.agent.scope import MailScope
 from src.agent.tools import Tool, ToolRefused
-from src.agent.toolsets.mail import MAX_BODY_CHARS, MAX_ID_CHARS
+from src.agent.toolsets.mail import MAX_BODY_CHARS, MAX_ID_CHARS, short
 from src.domain import ToolSpec
 from src.formatting import truncate
 from src.ports import MailProvider, QuestionJudge
@@ -35,10 +35,10 @@ def judgment_tools(
         asked += 1
         probability = judge.probability(
             {
-                "subject": email.subject,
+                "subject": short(email.subject),
                 "body": truncate(email.body or email.snippet, MAX_BODY_CHARS),
-                "sender": email.sender,
-                "received_at": email.received_at,
+                "sender": short(email.sender),
+                "received_at": short(email.received_at),
                 "today": clock().date().isoformat(),
             },
             args["question"],

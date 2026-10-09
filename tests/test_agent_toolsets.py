@@ -5,7 +5,8 @@ from datetime import timedelta
 from src.agent import profiles
 from src.agent.scope import NOT_READABLE
 from src.agent.toolsets.judgment import MAX_QUESTIONS_PER_RUN, TOO_MANY_QUESTIONS
-from src.agent.toolsets.mail import MAX_BODY_CHARS, MAX_THREAD_MESSAGES
+from src.agent.toolsets.mail import MAX_BODY_CHARS, MAX_HEADER_CHARS, MAX_THREAD_MESSAGES
+from src.agent.toolsets.tracking import MAX_LISTED
 from src.domain import WAITING_FOR_THEM, FollowUpAnchor, ToolCall, TrackedThread, TriageResult
 from tests.agent_helpers import NOW, SECRET, email, world
 from tests.followup_helpers import message, snapshot
@@ -83,7 +84,7 @@ class ChatReadTests(ToolsetTestCase):
         self.assertEqual([m["message_id"] for m in thread["messages"]], ["m1", "m2"])
         self.assertEqual([m["from_me"] for m in thread["messages"]], [False, True])
         self.assertEqual(thread["messages"][0]["to"], ["me@example.com"])
-        self.assertEqual(thread["messages"][1]["body"], "Je relance pour le devis.")
+        self.assertEqual(thread["messages"][1]["body"], "Je relance.")
 
     def test_read_thread_keeps_only_the_last_mails_of_a_long_thread(self):
         ids = [f"x{i}" for i in range(MAX_THREAD_MESSAGES + 3)]
@@ -100,6 +101,18 @@ class ChatReadTests(ToolsetTestCase):
         thread = self.output("read_thread", thread_id="t1")
 
         self.assertEqual([m["message_id"] for m in thread["messages"]], ["m1"])
+
+    def test_headers_are_cut_like_bodies(self):
+        hostile = self.output("read_mail", message_id="m2")
+
+        self.assertLessEqual(len(hostile["subject"]), MAX_HEADER_CHARS)
+        self.assertLessEqual(len(hostile["from"]), MAX_HEADER_CHARS)
+
+    def test_a_thread_without_an_anchor_does_not_hide_the_others(self):
+        for i in range(MAX_LISTED + 5):
+            self.ports.store.threads.save(TrackedThread(f"n{i}", "1", WAITING_FOR_THEM, NOW))
+
+        self.assertEqual([p["thread_id"] for p in self.output("list_pending")], ["t2"])
 
     def test_an_unknown_thread_is_refused(self):
         self.assertEqual(self.call("read_thread", thread_id="nope").content, NOT_READABLE)
@@ -125,7 +138,7 @@ class ChatReadTests(ToolsetTestCase):
             )
         )
 
-        (pending,) = self.output("list_pending")
+        pending = next(p for p in self.output("list_pending") if p["thread_id"] == "t1")
 
         self.assertEqual((pending["thread_id"], pending["to"]), ("t1", ["jean@example.com"]))
         self.assertEqual(pending["probability_it_expects_an_answer"], 0.9)
@@ -196,7 +209,7 @@ class AskJevTests(ToolsetTestCase):
 
 class ThreadBoundTests(ToolsetTestCase):
     def toolbox(self):
-        return profiles.followup_compose(self.ports, "t1")
+        return profiles.thread_bound(self.ports, "t1")
 
     def test_it_can_read_and_judge_but_not_search_or_look_elsewhere(self):
         self.assertEqual(
@@ -220,14 +233,30 @@ class ThreadBoundTests(ToolsetTestCase):
         self.assertEqual(elsewhere.content, missing.content)
         self.assertNotIn(SECRET, elsewhere.content)
 
+    def test_a_provider_answering_with_another_thread_is_not_believed(self):
+        self.mail.threads[0] = snapshot(message("m1"), thread_id="t2")
+
+        self.assertEqual(self.call("read_thread", thread_id="t1").content, NOT_READABLE)
+
+    def test_a_mail_of_another_thread_listed_in_this_one_is_left_out(self):
+        self.mail.threads[0] = snapshot(message("m1"), message("m9"))
+
+        thread = self.output("read_thread", thread_id="t1")
+
+        self.assertEqual([m["message_id"] for m in thread["messages"]], ["m1"])
+
+    def test_a_run_cannot_be_bound_to_an_empty_thread_id(self):
+        with self.assertRaises(ValueError):
+            profiles.thread_bound(self.ports, "")
+
     def test_jev_is_not_asked_about_a_mail_of_another_thread(self):
         result = self.call("ask_jev", message_id="m9", **QUESTION)
 
         self.assertTrue(result.is_error)
         self.assertEqual(self.ports.judge.asked, [])
 
-    def test_the_replay_of_a_mail_is_bound_to_its_thread_too(self):
-        self.box = profiles.triage_replay(self.ports, "t2")
+    def test_a_run_bound_to_the_other_thread_reads_that_one_only(self):
+        self.box = profiles.thread_bound(self.ports, "t2")
 
         self.assertTrue(self.call("read_mail", message_id="m1").is_error)
         self.assertEqual(self.output("read_mail", message_id="m9")["body"], SECRET)

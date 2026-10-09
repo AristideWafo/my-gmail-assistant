@@ -34,4 +34,8 @@ WHOLE_MAILBOX = MailScope(None)
 
 
 def only_thread(thread_id: str) -> MailScope:
+    # A mail without a thread id is parsed with an empty one: an empty scope id would match
+    # every such mail.
+    if not thread_id:
+        raise ValueError("a run cannot be bound to an empty thread id")
     return MailScope(frozenset({thread_id}))
