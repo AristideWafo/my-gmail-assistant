@@ -83,6 +83,7 @@ class SelectorTests(unittest.TestCase):
             "mail_provider": ("outlook", "gmail"),
             "classifier": ("gpt", "heuristic, jev"),
             "llm_provider": ("claude", "gemini"),
+            "agent_provider": ("claude", "gemini"),
             "alert_channels": ("telegram,slack", "discord, telegram"),
             "chat_inbox": ("discord", "none, telegram"),
             "store_backend": ("postgres", "sqlite"),

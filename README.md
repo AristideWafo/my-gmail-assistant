@@ -237,6 +237,7 @@ The core (`main.py`, `src/workflow.py`, `src/gateways/alerts.py`, `src/interacti
 | `MAIL_PROVIDER` | `gmail` | `gmail` |
 | `CLASSIFIER` | `jev` | `jev` (JEV with heuristic fallback), `heuristic` (local rules only) |
 | `LLM_PROVIDER` | `gemini` | `gemini` |
+| `AGENT_PROVIDER` | `gemini` | `gemini` (the model driving the agent's tool loop, `AGENT_MODEL`, default `gemini-2.5-flash`; it uses `GEMINI_API_KEY` through the `google-genai` SDK) |
 | `ALERT_CHANNELS` | `telegram,discord` | comma-separated list of `telegram`, `discord`; every listed channel receives alerts in this order, the first interactive one carries reply buttons; unlisted channels are not built |
 | `CHAT_INBOX` | `telegram` | `telegram`, `none` (no inbound buttons or replies) |
 | `STORE_BACKEND` | `sqlite` | `sqlite` |
@@ -272,7 +273,7 @@ The dashboards showed these failures; nobody was told. At each polling cycle the
 
 `HEALTH_ALERT_WINDOW_MINUTES=0` turns the checks off. A message that could not be delivered is tried again at the next cycle. The first three count real failures, so they need traffic: an outage of JEV on a day with two mails stays silent. The recovery message means "no more failure over the window", not that the service was probed.
 
-**Daily LLM budget.** `LLM_DAILY_BUDGET_USD` (default `0`, no cap) is a cap on the estimated cost of Gemini calls per local day (`TIMEZONE`). Once reached, Gemini is no longer called until the next day: urgent alerts still go out, without summary or draft, and each skipped call is counted in `llm_errors_total{reason="budget"}`. The day's total is kept in the database, so a restart does not reset it. The estimate comes from `llm_cost_usd_total`, which only knows the models listed in `PRICING_PER_MILLION_TOKENS` (`src/llm/gemini.py`): with another model, or for JEV whose price is not known to the app, the cap sees nothing.
+**Daily LLM budget.** `LLM_DAILY_BUDGET_USD` (default `0`, no cap) is a cap on the estimated cost of Gemini calls per local day (`TIMEZONE`). Once reached, Gemini is no longer called until the next day: urgent alerts still go out, without summary or draft, and each skipped call is counted in `llm_errors_total{reason="budget"}`. The day's total is kept in the database, so a restart does not reset it. The estimate comes from `llm_cost_usd_total`, which only knows the models listed in `PRICING_PER_MILLION_TOKENS` (`src/llm/pricing.py`): with another model, or for JEV whose price is not known to the app, the cap sees nothing.
 
 ## Startup connection checks
 
