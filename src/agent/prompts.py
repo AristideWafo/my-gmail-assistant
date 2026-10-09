@@ -2,6 +2,7 @@ from datetime import date
 
 from src.agent.rules import NO_COMMITMENT_RULE
 from src.domain import TrackedThread
+from src.formatting import truncate
 
 _CHAT_RULES = """\
 Règles :
@@ -87,7 +88,7 @@ def followup_prompt(thread: TrackedThread, notes: dict[str, list[str]]) -> str:
     anchor = thread.anchor
     lines = [
         f"Fil à relancer : {thread.thread_id}",
-        f"Mail envoyé le {anchor.sent_at.date().isoformat()}, objet : {anchor.subject}",
+        f"Mail envoyé le {anchor.sent_at.date().isoformat()}, objet : {truncate(anchor.subject, 300)}",
     ]
     remembered = [f"- {address} : {note}" for address, about in notes.items() for note in about]
     if remembered:

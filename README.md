@@ -343,6 +343,7 @@ Off by default, and only with `AGENT_MODE=on`. Tell it « retiens que Jean préf
 - `on`: the offer carries the agent's text, and its advice if any. **Everything after that is unchanged**: the same message with the same buttons, the same re-check of the thread before sending, sent at most once. The agent offers and sends nothing.
 - An offer waits up to 30 minutes for the agent's text. Without one (model down, budget reached, text refused), it goes out with the fixed text.
 - A text with a placeholder left or with characters that do not show is refused, as for proposed replies.
+- One run per mail to follow up, never asked again for the same mail: a run refused for budget, crashed or cut by a restart leaves that follow-up with the fixed text. These runs share the queue and the daily budget of the questions asked in the chat (`AGENT_DAILY_MAX_RUNS`).
 - Followed in `followup_texts_total{author}` (`agent` or `template`).
 
 Before turning it on, run the scenarios on the live model and read the report: `docker compose exec assistant python -m src.evaluation agent` (see Offline evaluation).

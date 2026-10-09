@@ -447,7 +447,11 @@ class ApplicationContext:
         }
         if settings.agent_follow_up_mode != "off" and settings.follow_up_mode != "off":
             handlers[follow_up_compose.KIND] = FollowUpRuns(
-                model, ports, limits, settings.user_display_name
+                model,
+                ports,
+                limits,
+                settings.user_display_name,
+                offers_use_it=settings.agent_follow_up_mode == "on",
             )
         budget = AgentBudget(
             self.store.agent_runs,

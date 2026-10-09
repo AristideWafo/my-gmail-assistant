@@ -6,7 +6,9 @@ _BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__", re.DOTALL)
 _HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
 _BULLET_RE = re.compile(r"^[ \t]*[-*+•][ \t]+", re.MULTILINE)
 _BLANK_RUN_RE = re.compile(r"\n{3,}")
-_PREAMBLE_RE = re.compile(r"^(voici|here is|here's|here are|ci-dessous|proposition de r[ée]ponse)\b.*:$", re.IGNORECASE)
+_PREAMBLE_RE = re.compile(
+    r"^(voici|here is|here's|here are|ci-dessous|proposition de r[ée]ponse)\b.*:$", re.IGNORECASE
+)
 _PLACEHOLDER_RE = re.compile(r"\[[^\]\n]+\]")
 _SUBJECT_LINE_RE = re.compile(r"^(objet|subject|sujet)\s*:", re.IGNORECASE)
 
@@ -40,3 +42,15 @@ def truncate(text: str, limit: int) -> str:
 
 def has_placeholder(text: str) -> bool:
     return bool(_PLACEHOLDER_RE.search(text))
+
+
+LINK_REMOVED = "[lien retiré]"
+_URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)
+
+
+def remove_links(text: str, keep_from: str = "") -> str:
+    """Text a model wrote after reading mail, without its links: a link can carry out what the
+    mail's words could not. One found in `keep_from`, what the user wrote, is theirs and stays."""
+    return _URL_RE.sub(
+        lambda match: match.group(0) if match.group(0) in keep_from else LINK_REMOVED, text
+    )

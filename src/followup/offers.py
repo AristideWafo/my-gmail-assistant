@@ -159,8 +159,13 @@ class FollowUpOffers:
             if would_propose(thread, self._threshold, now)
         ]
 
-    def _offer(self, thread: TrackedThread) -> bool:
+    def _offer(self, candidate: TrackedThread) -> bool:
         threads = self._store.threads
+        # Read again: offering the candidates before this one took time, during which its
+        # text may have been written, or a button pressed.
+        thread = threads.get(candidate.thread_id)
+        if thread is None or not would_propose(thread, self._threshold, self._clock()):
+            return False
         if self._composed is not None and self._composed.still_writing(thread):
             return False
         try:
@@ -170,12 +175,13 @@ class FollowUpOffers:
                 threads.update(thread.thread_id, lambda current: settle(current, reason, now))
                 Metrics.mark_followup_proposal(reason)
                 return False
-            text, advice = self._text(thread)
+            text, advice, author = self._text(thread)
             message_id = self._chat.send_message(
                 format_offer(thread, text, self._timezone, advice),
                 buttons=self._buttons(thread.thread_id),
                 silent=True,
             )
+            Metrics.mark_followup_text(author)
         except Exception as exc:  # noqa: BLE001 - offered at the next run instead
             Metrics.mark_followup_refresh_error("offer")
             logger.warning("Could not offer a follow-up on thread %s: %s", thread.thread_id, exc)
@@ -211,19 +217,18 @@ class FollowUpOffers:
         Metrics.mark_followup_proposal("offered")
         return True
 
-    def _text(self, thread: TrackedThread) -> tuple[str, str]:
+    def _text(self, thread: TrackedThread) -> tuple[str, str, str]:
+        """The text to offer, the advice shown with it and who wrote it."""
         written = self._composed.text_for(thread) if self._composed is not None else None
         if written is not None:
-            Metrics.mark_followup_text("agent")
-            return written, self._composed.advice_for(thread)
-        Metrics.mark_followup_text("template")
+            return written, self._composed.advice_for(thread), "agent"
         text = follow_up_text(
             thread.anchor,
             self._mail.sent_text(thread.anchor.message_id),
             self._signature,
             self._timezone,
         )
-        return text, ""
+        return text, "", "template"
 
     def _withdraw(self, message_id: int) -> None:
         try:

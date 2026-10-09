@@ -7,7 +7,6 @@ from src.agent.chat import (
     GAVE_UP,
     GAVE_UP_OTHER,
     KIND,
-    LINK_REMOVED,
     MAX_MESSAGE_CHARS,
     MAX_QUESTION_CHARS,
     NO_ANSWER,
@@ -23,6 +22,7 @@ from src.bootstrap import build_components
 from src.config import Settings
 from src.domain import ANSWERED, RUN_DONE, AgentTurn, TextEvent, ToolCall, UserMessage
 from src.errors import AgentModelError
+from src.formatting import LINK_REMOVED
 from tests.agent_helpers import NOW, world
 from tests.fakes import FakeAgentModel, FakeChat, FakeMail, fake_components
 

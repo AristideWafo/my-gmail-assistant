@@ -5,7 +5,7 @@ from src.agent.schema import arguments, text
 from src.agent.tools import Tool, ToolRefused
 from src.agent.toolsets.mail import short
 from src.domain import ToolSpec, TrackedThread
-from src.formatting import clean_draft, has_placeholder
+from src.formatting import clean_draft, has_placeholder, remove_links
 from src.ports import ThreadStore
 
 MAX_FOLLOW_UP_CHARS = 1200
@@ -32,7 +32,9 @@ def followup_tools(threads: ThreadStore, thread_id: str, anchor_id: str) -> list
         advice = args.get("advice", "send")
         if advice not in ADVICE:
             raise ToolRefused(UNKNOWN_ADVICE)
-        reason = short(args.get("reason", ""))[:MAX_REASON_CHARS]
+        # One line without a link: the reason is shown next to the text to send, where a line
+        # break could pass for it and a link would be the mail's, not the assistant's.
+        reason = short(remove_links(" ".join(args.get("reason", "").split())))
         if advice != "send" and not reason:
             raise ToolRefused(REASON_NEEDED)
         if has_unseen_characters(reason):
