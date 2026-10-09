@@ -12,6 +12,10 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from src.agent import chat as agent_chat
+from src.agent.loop import Limits
+from src.agent.profiles import AgentPorts
+from src.agent.worker import AgentBudget, AgentWorker
 from src.bootstrap import Components, build_components, connection_probes
 from src.config import Settings
 from src.expiring_set import ExpiringSet
@@ -67,6 +71,8 @@ class ApplicationContext:
         self.alerts = AlertGateway(
             list(self.components.channels), feedback_buttons=self.inbound_enabled
         )
+        self.agent_worker = self._build_agent_worker()
+        self.agent_thread: threading.Thread | None = None
         self.interactions = (
             InteractionHandler(
                 self.store,
@@ -77,6 +83,7 @@ class ApplicationContext:
                 settings.follow_up_threshold if settings.follow_up_mode != "off" else None,
                 settings.tzinfo,
                 follow_ups_on=settings.follow_up_mode == "on",
+                on_text=self._queue_free_text if self.agent_worker is not None else None,
             )
             if self.chat is not None
             else None
@@ -389,6 +396,52 @@ class ApplicationContext:
             self.store, self.chat, self.settings.unsubscribe_min_archived
         )
 
+    def _build_agent_worker(self) -> AgentWorker | None:
+        settings = self.settings
+        if settings.agent_mode == "off":
+            return None
+        model, mail = self.components.agent_model, self.components.agent_mail
+        if not self.inbound_enabled:
+            logger.warning("AGENT_MODE=on needs the chat with TELEGRAM_INBOUND_ENABLED: agent off")
+            return None
+        if model is None or not model.is_configured or mail is None or not mail.is_configured:
+            logger.warning("AGENT_MODE=on needs GEMINI_API_KEY and the mail provider: agent off")
+            return None
+        ports = AgentPorts(mail, self.store, self.components.question_judge)
+        limits = Limits(settings.agent_max_steps, settings.agent_max_tokens)
+        handlers = {
+            agent_chat.KIND: agent_chat.ChatRuns(
+                model, ports, self.chat, limits, settings.user_display_name
+            )
+        }
+        budget = AgentBudget(
+            self.store.agent_runs,
+            settings.agent_daily_budget_usd,
+            settings.agent_daily_max_runs,
+            settings.tzinfo,
+        )
+        return AgentWorker(self.store.agent_runs, handlers, budget)
+
+    def _queue_free_text(self, event) -> None:
+        # The queue's unique trigger is the claim: a redelivered message queues nothing.
+        if self.store.agent_runs.enqueue(
+            agent_chat.trigger_key(event.message_id),
+            agent_chat.KIND,
+            agent_chat.payload(event.message_id, event.text),
+        ):
+            self.agent_worker.notify()
+
+    def start_agent_worker(self) -> None:
+        if self.agent_worker is None:
+            return
+        self.agent_thread = threading.Thread(
+            target=self.agent_worker.run_forever,
+            args=(self.stopping,),
+            name="agent-worker",
+            daemon=True,
+        )
+        self.agent_thread.start()
+
     def start_telegram_listener(self) -> None:
         if not self.inbound_enabled:
             return
@@ -412,6 +465,11 @@ class ApplicationContext:
         # A long poll can keep the listener blocked for ~40s; it is a daemon, so wait only briefly.
         if self.listener is not None:
             self.listener.join(LISTENER_JOIN_TIMEOUT_SECONDS)
+        # Same for a run in the middle of a model call: it is failed as interrupted at the next
+        # start.
+        if self.agent_thread is not None:
+            self.agent_worker.notify()
+            self.agent_thread.join(LISTENER_JOIN_TIMEOUT_SECONDS)
         self.store.close()
 
     def _load_telegram_offset(self) -> int | None:
@@ -513,6 +571,7 @@ async def _start(app: FastAPI, ctx: ApplicationContext) -> None:
         logger.info("Syncing Gmail history...")
         await asyncio.to_thread(sync_history_once, ctx)
 
+    ctx.start_agent_worker()
     ctx.start_telegram_listener()
     ctx.health.beat()
     app.state.polling_task = asyncio.create_task(polling_loop(ctx))

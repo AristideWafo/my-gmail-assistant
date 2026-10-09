@@ -305,6 +305,19 @@ The schema is versioned (`PRAGMA user_version`) and upgraded at startup, one tra
 
 The store also persists alert dedup across restarts: an alerted mail is not alerted again for 24 hours, so a mail you mark unread again after that is processed anew. Retention is 90 days, pruned at startup and then daily: decisions without a verdict, alert markers and reply/send dedup state are deleted; verdicts and the Telegram offset are kept.
 
+## Asking the assistant in plain words (`AGENT_MODE=on`)
+
+Off by default. With `AGENT_MODE=on`, `TELEGRAM_INBOUND_ENABLED=true` and `GEMINI_API_KEY`, any message written to the bot that is neither a command nor a reply to one of its messages is a question: « combien demande le plombier pour le devis ? », « est-ce que Sophie a confirmé la réunion ? », « quels mails attendent encore une réponse ? ».
+
+- An agent answers it: the model (`AGENT_MODEL`, default `gemini-2.5-flash`) chooses what to look at, with tools to search the mailbox, read a mail or a thread, list the sent mails still waiting, recall how a sender's mails were triaged, and put a yes/no question to JEV. The answer comes back under your message. A question asked within 30 minutes of the previous ones is read with the last three exchanges, so « et il est valable jusqu'à quand ? » works.
+- **It reads and writes nothing**: no tool sends, drafts, archives or labels. Asked to do so, it says it cannot yet.
+- **Mail is data, not instructions.** A mail asking the assistant to do something is not obeyed and is reported. Whatever a mail says, the run has no tool to act on it. Links found in mails are removed from the answer (`[lien retiré]`), and link previews are off, so a link chosen by a sender is neither shown nor fetched.
+- Questions are queued and answered one at a time on their own thread: alerts and buttons do not wait. A question being answered when the app stops is not replayed; you are told to send it again.
+- Limits: `AGENT_MAX_STEPS` (6) model turns and `AGENT_MAX_TOKENS` (60 000) per question; per local day `AGENT_DAILY_MAX_RUNS` (100) questions and `AGENT_DAILY_BUDGET_USD` (0 = no cap) of estimated cost, apart from `LLM_DAILY_BUDGET_USD`. Past them, the assistant says so.
+- Followed in `agent_runs_total{kind,outcome}` and `agent_queued_runs`. Each question, its answer, its cost and a short trace of the tools used are kept 90 days in the database.
+
+Before turning it on, run the scenarios on the live model and read the report: `docker compose exec assistant python -m src.evaluation agent` (see Offline evaluation).
+
 ## Backup and restore
 
 With `BACKUP_DIR` set (`/backups` in `docker-compose.yml`, on the `assistant-backups` volume; empty disables it), the assistant copies the database at startup and then once a day to `assistant-YYYY-MM-DD.db`, keeping the `BACKUP_KEEP` most recent files (default `7`). Each copy is taken with SQLite's online backup, so it is consistent while the app runs, and is only kept if it passes `PRAGMA integrity_check`; a failed run leaves the previous copy untouched. Files are `0600`. Watch `backup_last_success_timestamp_seconds` and `backup_failures_total`.

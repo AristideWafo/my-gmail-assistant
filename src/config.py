@@ -122,6 +122,9 @@ class Settings(BaseSettings):
     unsubscribe_proposals_enabled: bool = False
     unsubscribe_min_archived: int = Field(default=5, ge=2)
 
+    # "on" answers free text written to the bot by reading the mailbox; it writes nothing.
+    # Needs TELEGRAM_INBOUND_ENABLED and GEMINI_API_KEY.
+    agent_mode: Literal["off", "on"] = "off"
     # The model that drives the agent's tool loop; shares GEMINI_API_KEY, its rate limit and
     # its timeout with the analyzer.
     agent_model: str = "gemini-2.5-flash"

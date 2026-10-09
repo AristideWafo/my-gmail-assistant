@@ -5,6 +5,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from src.domain import (
+    ANSWERED,
     RUN_DONE,
     RUN_FAILED,
     RUN_QUEUED,
@@ -56,6 +57,15 @@ class SqliteAgentRuns:
         with self._lock:
             row = self._conn.execute(f"{_SELECT} WHERE trigger_key = ?", (trigger_key,)).fetchone()
         return None if row is None else _to_run(row)
+
+    def answered_before(self, run: AgentRun, since: datetime, limit: int) -> list[AgentRun]:
+        with self._lock:
+            rows = self._conn.execute(
+                f"{_SELECT} WHERE kind = ? AND state = ? AND outcome = ? AND id < ? "
+                "AND created_at >= ? ORDER BY id DESC LIMIT ?",
+                (run.kind, RUN_DONE, ANSWERED, run.id, _iso(since), limit),
+            ).fetchall()
+        return [_to_run(row) for row in reversed(rows)]
 
     def take_next(self) -> AgentRun | None:
         with self._lock, self._conn:

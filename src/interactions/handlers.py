@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, tzinfo
 
@@ -10,6 +11,7 @@ from src.domain import (
     CommandEvent,
     DecisionRecord,
     ReplyEvent,
+    TextEvent,
 )
 from src.formatting import truncate
 from src.interactions.callbacks import (
@@ -77,8 +79,11 @@ class InteractionHandler:
         follow_up_threshold: float | None = None,
         timezone: tzinfo = UTC,
         follow_ups_on: bool = False,
+        on_text: Callable[[TextEvent], None] | None = None,
     ) -> None:
         self._store = store
+        # None: free text is not handled, as before the agent.
+        self._on_text = on_text
         self._chat = chat
         self._mail = mail
         self._unsubscriber = unsubscriber
@@ -118,6 +123,8 @@ class InteractionHandler:
             self._on_reply(event)
         elif isinstance(event, CommandEvent):
             self._on_command(event)
+        elif isinstance(event, TextEvent) and self._on_text is not None:
+            self._on_text(event)
 
     def _on_command(self, event: CommandEvent) -> None:
         # Claimed before running: a redelivered update must not replay a command that already
