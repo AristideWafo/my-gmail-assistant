@@ -1,0 +1,29 @@
+# Publishes Grafana through a Traefik that already runs on the host, outside this project:
+#   docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d
+# or, once and for all, COMPOSE_FILE=docker-compose.yml:docker-compose.traefik.yml in .env.
+# That Traefik must watch Docker, be attached to the TRAEFIK_NETWORK network and hold the
+# entry point and certificate resolver named below. Nothing else of this project is routed:
+# /metrics and Prometheus have no authentication.
+services:
+  grafana:
+    environment:
+      # Reachable from the internet here, so the default "admin" is refused.
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD before publishing Grafana}
+      - GF_SERVER_ROOT_URL=https://${GRAFANA_HOSTNAME:?set GRAFANA_HOSTNAME to the name Grafana is served under}
+    networks:
+      - default
+      - traefik
+    labels:
+      - traefik.enable=true
+      # Grafana sits on two networks; without this Traefik may pick the one it cannot reach.
+      - traefik.docker.network=${TRAEFIK_NETWORK:-proxy}
+      - traefik.http.routers.gmail-assistant-grafana.rule=Host(`${GRAFANA_HOSTNAME}`)
+      - traefik.http.routers.gmail-assistant-grafana.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.gmail-assistant-grafana.tls=true
+      - traefik.http.routers.gmail-assistant-grafana.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      - traefik.http.services.gmail-assistant-grafana.loadbalancer.server.port=3000
+
+networks:
+  traefik:
+    name: ${TRAEFIK_NETWORK:-proxy}
+    external: true
