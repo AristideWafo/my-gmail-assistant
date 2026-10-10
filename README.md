@@ -33,9 +33,12 @@ main.py
 ## Quick install
 
 ```bash
-./install.sh          # local venv setup
-./install.sh --docker # build + start via docker compose
+./install.sh           # local venv setup
+./install.sh --docker  # build from this checkout + start via docker compose
+./install.sh --release # pull the published image (VERSION in .env) + start
 ```
+
+The two Docker modes write `.env` from the example on the first run and stop there, so that nothing starts on placeholders. With `GRAFANA_HOSTNAME` set in `.env` they add `docker-compose.traefik.yml`, after checking that `GRAFANA_ADMIN_PASSWORD` is not a default and that Traefik's network exists.
 
 ## Local setup (manual)
 
@@ -396,7 +399,7 @@ docker compose up -d
 ```
 
 - **Version.** `VERSION` in `.env` chooses the image tag (default `latest`). Pin it to a release (`VERSION=0.12.0`) so that a restart never changes the code that runs, and upgrade by raising it, then `docker compose pull assistant && docker compose up -d assistant`.
-- **From a checkout** (development, or a change not released yet): `docker compose -f docker-compose.yml -f docker-compose.build.yml up --build -d`. `./install.sh --docker` does this.
+- **From a checkout** (development, or a change not released yet): `docker compose -f docker-compose.yml -f docker-compose.build.yml up --build -d`. `./install.sh --docker` does this, and `./install.sh --release` runs the published image.
 - **Network exposure.** The ports are published on `BIND_ADDRESS`, `127.0.0.1` by default: `/metrics` and Prometheus have no authentication. From another machine use an SSH tunnel, e.g. `ssh -L 3000:localhost:3000 user@host`. Set `BIND_ADDRESS=0.0.0.0` only behind a firewall, and with `GRAFANA_ADMIN_PASSWORD` set.
 - **Grafana behind Traefik.** `docker-compose.traefik.yml` serves Grafana at `https://GRAFANA_HOSTNAME` through a Traefik that already runs on the host; this project does not start one. Set `GRAFANA_HOSTNAME` and a real `GRAFANA_ADMIN_PASSWORD` (both are required by that file), and `COMPOSE_FILE=docker-compose.yml:docker-compose.traefik.yml` in `.env` so that every `docker compose` command includes it. Traefik must use the Docker provider and share the external network `TRAEFIK_NETWORK` (default `proxy`); `TRAEFIK_ENTRYPOINT` (default `websecure`) and `TRAEFIK_CERT_RESOLVER` (default `letsencrypt`) name its HTTPS entry point and certificate resolver. Only Grafana is routed: the assistant's port and Prometheus stay on `BIND_ADDRESS`.
 - **Upgrading Prometheus or Grafana** is a change of the pinned tag in `docker-compose.yml`, on purpose: `latest` moved them at any restart.
