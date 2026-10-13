@@ -8,5 +8,5 @@ prometheus-client==0.26.0
 pydantic==2.14.0
 pydantic-settings==2.5.2
 requests==2.32.3
-tzdata==2026.4
+tzdata==2026.5
 uvicorn==0.54.0
