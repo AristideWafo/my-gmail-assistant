@@ -32,7 +32,7 @@ services:
           cpus: "1.0"
 
   prometheus:
-    image: prom/prometheus:v3.15.0
+    image: prom/prometheus:v3.15.1
     container_name: gmail-assistant-prometheus
     restart: unless-stopped
     command:
